@@ -1,17 +1,35 @@
 # Wanke 运维与数据安全
 
-## 1. 凭证
+## 1. 凭证与地域
 
 只在 `.env.local`：
 
 ```bash
 ALIYUN_ACCESS_KEY_ID=...
 ALIYUN_ACCESS_KEY_SECRET=...
+ALIYUN_REGION_ID=ap-southeast-1
 ```
+
+Wanke 当前默认使用万镜一刻新加坡地域：
+
+```text
+RegionId: ap-southeast-1
+Endpoint: yike.ap-southeast-1.aliyuncs.com
+```
+
+官方 2026-07-07 Core 与 2026-03-19 Studio SDK 都原生包含该地域 Endpoint。切回上海时使用：
+
+```bash
+ALIYUN_REGION_ID=cn-shanghai
+```
+
+默认不要同时手工填写 `ALIYUN_YIKE_ENDPOINT`；只有需要显式覆盖官方区域 Endpoint 时再配置。Wanke 不做上海/新加坡自动回退，避免跨地域任务、媒资与账户状态被静默混用。
 
 不要使用 `NEXT_PUBLIC_` 前缀。浏览器永远不应得到长期 AK/SK。
 
 建议给自用 AK 最小权限，测试完临时 AK 后轮换或删除。
+
+> 已存在的 `.env.local` 不会被 Git 更新覆盖。如果之前写的是 `ALIYUN_REGION_ID=cn-shanghai`，拉取新版代码后仍需手工改为 `ap-southeast-1` 并重启 Wanke。
 
 ## 2. 数据目录
 
@@ -67,14 +85,24 @@ WANKE_MAX_ARCHIVE_MB=2048
 
 ## 6. 双版本健康检查
 
-侧边栏“测试连接”会分别探测：
+侧边栏“测试连接”会显示实际 RegionId 与 Endpoint，并分别探测：
 
-- Core 2026-07-07：核心视频 / media surface；
-- Studio 2026-03-19：营销 Agent / 故事板 surface。
+- Core 2026-07-07：核心视频 / media surface 是否可访问；
+- Studio 2026-03-19：营销 Agent / 故事板 surface 是否可访问。
 
-Core 失败会判定主连接失败；Studio 单独失败时仍会显示局部告警，方便区分“基础生成可用”和“营销/故事板不可用”。
+Core 探测只调用轻量媒资分类接口，**不会提交真实视频任务**。因此“Core API 可访问”只证明 AK、签名、地域 Endpoint 与基础 Core surface 正常，**不等于 AI Generation 会员资格已开通**。AI 视频生成的会员资格只在实际提交生成任务时由 Yike 校验。
+
+若 Studio 返回 `MainAccountUserNotFound`，Wanke 会解释为当前地域的 Studio 主账户未初始化或尚未开通，而不是把它误判成 AK 失效。
 
 ## 7. 故障处理
+
+### `Forbidden.MembershipRequired`
+
+说明请求已经到达 Yike，但当前账号/地域对应的会员资格不足以调用该能力。它不是普通的 Endpoint 或签名错误。
+
+### `MainAccountUserNotFound`
+
+说明 Studio surface 找不到当前账号在该地域对应的主账户实体。先确认万镜一刻产品已经开通/激活，再测试数字人口播、旁白、快速复刻和故事板。
 
 ### 任务提交失败
 
