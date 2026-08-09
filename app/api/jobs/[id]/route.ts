@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createJob, deleteJob, getJob, updateJobRemote } from "@/lib/repository";
 import { refreshJob, resumeStoryboard, submitJob } from "@/lib/yike/provider";
+import { prepareJobInput } from "@/lib/yike/prepare";
 import { archiveJobOutput, deleteArchivedOutputs } from "@/lib/archive";
 import { describeError } from "@/lib/errors";
 
@@ -32,7 +33,8 @@ export async function POST(request: Request, ctx: Ctx) {
     if (action === "retry") {
       const child = createJob({ kind: job.kind, title: `${job.title} · 重试`, request: job.request, parentJobId: job.id });
       try {
-        const submitted = await submitJob(job.kind, job.request);
+        const preparedInput = await prepareJobInput(job.kind, job.request);
+        const submitted = await submitJob(job.kind, preparedInput);
         const updated = updateJobRemote(child.id, { providerJobId: submitted.providerJobId, status: submitted.initialStatus, provider: submitted.provider, requestId: submitted.requestId, error: null, details: submitted.details });
         return NextResponse.json({ job: updated }, { status: 201 });
       } catch (error) {
