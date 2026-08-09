@@ -18,27 +18,39 @@ export async function createUploadCredential(fileExt: string, fileType?: string)
   };
 }
 
+function isYikeManagedUploadUrl(value: string) {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host.startsWith("ice-ai-saas") && host.endsWith(".aliyuncs.com");
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Register the same URL on both API surfaces when possible. Yike's own upload bucket
- * can be private, so the Core import may later become unusable even if it returns a MediaId.
- * Generation therefore resolves a fresh signed Studio FileUrl at submit time instead of
- * trusting a previously imported Core MediaId.
+ * Yike-managed upload URLs live in a private ICE/Yike bucket. Register those only on the
+ * Studio asset surface; trying to Core-Import the unsigned raw URL produces an unusable
+ * MediaId whose asynchronous state becomes UploadFail. Public external URLs can still be
+ * registered on both surfaces.
  */
 export async function registerAsset(input: { inputURL: string; mediaType: string; title?: string }) {
-  const [coreResult, studioResult] = await Promise.allSettled([
-    getCoreYikeClient().importMedia(new ImportMediaRequest({
-      importSource: "url",
-      inputURL: input.inputURL,
-      mediaType: input.mediaType,
-      title: input.title || undefined,
-      overwrite: false,
-    })),
-    getStudioYikeClient().registerYikeAssetMediaInfo(new RegisterYikeAssetMediaInfoRequest({
-      inputURL: input.inputURL,
-      mediaType: input.mediaType,
-    })),
-  ]);
-  const coreBody = coreResult.status === "fulfilled" ? bodyOf(coreResult.value) : null;
+  const managedUpload = isYikeManagedUploadUrl(input.inputURL);
+  const studioPromise = getStudioYikeClient().registerYikeAssetMediaInfo(new RegisterYikeAssetMediaInfoRequest({
+    inputURL: input.inputURL,
+    mediaType: input.mediaType,
+  }));
+  const corePromise = managedUpload
+    ? Promise.resolve(null)
+    : getCoreYikeClient().importMedia(new ImportMediaRequest({
+        importSource: "url",
+        inputURL: input.inputURL,
+        mediaType: input.mediaType,
+        title: input.title || undefined,
+        overwrite: false,
+      }));
+
+  const [coreResult, studioResult] = await Promise.allSettled([corePromise, studioPromise]);
+  const coreBody = coreResult.status === "fulfilled" && coreResult.value ? bodyOf(coreResult.value) : null;
   const studioBody = studioResult.status === "fulfilled" ? bodyOf(studioResult.value) : null;
   const coreMediaId = coreBody?.mediaId ?? coreBody?.MediaId ?? null;
   const studioMediaId = studioBody?.mediaId ?? studioBody?.MediaId ?? null;
@@ -47,9 +59,15 @@ export async function registerAsset(input: { inputURL: string; mediaType: string
     throw new Error(`素材注册失败：${errors.join("；")}`);
   }
   return {
-    mediaId: coreMediaId || studioMediaId,
-    requestId: coreBody?.requestId ?? coreBody?.RequestId ?? studioBody?.requestId ?? studioBody?.RequestId ?? null,
-    provider: { coreMediaId, studioMediaId, core: coreBody, studio: studioBody },
+    mediaId: studioMediaId || coreMediaId,
+    requestId: studioBody?.requestId ?? studioBody?.RequestId ?? coreBody?.requestId ?? coreBody?.RequestId ?? null,
+    provider: {
+      coreMediaId,
+      studioMediaId,
+      core: coreBody,
+      studio: studioBody,
+      storage: managedUpload ? "yike-managed-private" : "external-url",
+    },
   };
 }
 
