@@ -1,0 +1,32 @@
+{
+  "name": "wanke-video-studio",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Personal video production workstation powered by Alibaba Cloud Yike APIs",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "doctor": "node --env-file=.env.local scripts/doctor.mjs"
+  },
+  "dependencies": {
+    "@alicloud/yike20260319": "2.2.0",
+    "@alicloud/yike20260707": "2.1.0",
+    "ali-oss": "6.23.0",
+    "better-sqlite3": "13.0.1",
+    "lucide-react": "1.27.0",
+    "next": "16.2.12",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/ali-oss": "6.23.3",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.0"
+  }
+}
