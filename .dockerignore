@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+data
+npm-debug.log*
+.DS_Store
+tsconfig.test.json
+zzz-test-shims.d.ts
