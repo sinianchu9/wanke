@@ -50,7 +50,6 @@ function GenerateForm({ assets, onSubmit, submitting }: Props) {
   </FormFrame>;
 }
 
-
 function RemakePipelineForm({ assets, jobs, onSubmit, submitting }: Props) {
   const [a,setA]=useDraft("video_analysis",{title:"",sourceUrl:"",productName:"",brandName:"",sellingPointsText:"",expertText:""});
   const [r,setR]=useDraft("remake_script",{title:"",analysisJobId:"",comprehensionResult:"",remakeType:"faithful-remake",originalProductName:"",productName:"",productDescription:"",productImagesText:"",productKnowledge:"",originalAvatarName:"",newAvatarImagesText:"",voiceoverLanguage:"zh",expertText:""});
@@ -191,10 +190,23 @@ function mediaIdFor(a:StoredAsset, surface:"core"|"studio"="core"){const p:any=a
 function AssetSelect({assets,type,mode,value,onChange}:any){const surface=mode==="studioMediaId"?"studio":"core";const wantsId=mode==="studioMediaId"||mode==="coreMediaId";const filtered=assets.filter((a:StoredAsset)=>a.mediaType===type&&(!wantsId||mediaIdFor(a,surface)));return <select value={value} onChange={e=>onChange(e.target.value)}><option value="">— 从素材库选择 —</option>{filtered.map((a:StoredAsset)=><option key={a.id} value={wantsId?mediaIdFor(a,surface)!:a.sourceUrl}>{a.name}</option>)}</select>}
 function AssetMulti({assets,value,onChange}:any){const available=assets.map(a=>({a,id:mediaIdFor(a,"studio")})).filter(x=>x.id&&["image","video","audio"].includes(x.a.mediaType));return <div className="asset-chips">{available.length?available.map(({a,id})=><button type="button" key={a.id} className={value.includes(id!)?"selected":""} onClick={()=>onChange(value.includes(id!)?value.filter((x:string)=>x!==id):[...value,id!])}>{a.mediaType==='video'?'🎬':a.mediaType==='audio'?'🎵':'🖼️'} {a.name}</button>):<span className="empty-inline">素材库暂无可用于营销工作流的 MediaId</span>}</div>}
 
+function isIbbLandingPage(value:string){
+  if(!value)return false;
+  try{const url=new URL(value);return url.hostname==="ibb.co"||url.hostname==="www.ibb.co"}catch{return false}
+}
+
 function ReferenceEditor({value,onChange,assets,hint,imageOnly}:any){
-  const add=()=>onChange([...value,{type:"image",url:"",mediaId:""}]);
-  const addAsset=(id:string)=>{const a=assets.find((x:StoredAsset)=>x.id===id);if(!a)return;const type=imageOnly?"image":(["image","video","audio"].includes(a.mediaType)?a.mediaType:"image");onChange([...value,{type,url:a.sourceUrl,mediaId:mediaIdFor(a,"core")||""}]);};
-  return <Field label="参考素材" hint={hint}><div className="reference-list">{value.map((m:any,i:number)=><div className="reference-row" key={i}><select value={m.type} disabled={imageOnly} onChange={e=>{const n=[...value];n[i]={...n[i],type:e.target.value};onChange(n)}}><option value="image">图片</option><option value="video">视频</option><option value="audio">音频</option></select><input value={m.url} onChange={e=>{const n=[...value];n[i]={...n[i],url:e.target.value};onChange(n)}} placeholder="公网可访问 URL"/><button className="icon-button danger" type="button" onClick={()=>onChange(value.filter((_:any,x:number)=>x!==i))}><Trash2 size={15}/></button></div>)}</div><div className="inline-actions"><button type="button" className="secondary" onClick={add}><Plus size={15}/>添加 URL</button><select defaultValue="" onChange={e=>{if(e.target.value)addAsset(e.target.value);e.target.value=""}}><option value="">从素材库添加…</option>{assets.filter((a:StoredAsset)=>a.sourceUrl&&(imageOnly?a.mediaType==="image":["image","video","audio"].includes(a.mediaType))).map((a:StoredAsset)=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div></Field>;
+  const max=hint==="1 张图片"?1:hint.includes("2 张图片")?2:9;
+  const full=value.length>=max;
+  const hasIbbLanding=value.some((m:any)=>m.type==="image"&&isIbbLandingPage(m.url));
+  useEffect(()=>{
+    if(value.length>max)onChange(value.slice(0,max));
+    // onChange is intentionally omitted: callers pass an inline setter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[max,value.length]);
+  const add=()=>{if(!full)onChange([...value,{type:"image",url:"",mediaId:""}])};
+  const addAsset=(id:string)=>{if(full)return;const a=assets.find((x:StoredAsset)=>x.id===id);if(!a)return;const type=imageOnly?"image":(["image","video","audio"].includes(a.mediaType)?a.mediaType:"image");onChange([...value,{type,url:a.sourceUrl,mediaId:mediaIdFor(a,"core")||""}])};
+  return <Field label="参考素材" hint={`${hint} · ${Math.min(value.length,max)}/${max}`}><div className="reference-list">{value.map((m:any,i:number)=><div className="reference-row" key={i}><select value={m.type} disabled={imageOnly} onChange={e=>{const n=[...value];n[i]={...n[i],type:e.target.value};onChange(n)}}><option value="image">图片</option><option value="video">视频</option><option value="audio">音频</option></select><input value={m.url} onChange={e=>{const n=[...value];n[i]={...n[i],url:e.target.value};onChange(n)}} placeholder={m.type==="image"?"图片文件直链或素材库 MediaId":"公网可访问 URL"}/><button className="icon-button danger" type="button" onClick={()=>onChange(value.filter((_:any,x:number)=>x!==i))}><Trash2 size={15}/></button></div>)}</div>{hasIbbLanding&&<div className="mini error-text">检测到 ibb.co 图片分享页。Yike 需要图片文件直链，请改用 i.ibb.co/...jpg/png，或先上传到 Wanke 素材库。</div>}<div className="inline-actions"><button type="button" className="secondary" disabled={full} onClick={add}><Plus size={15}/>{full?"已达素材上限":"添加 URL"}</button><select disabled={full} defaultValue="" onChange={e=>{if(e.target.value)addAsset(e.target.value);e.target.value=""}}><option value="">{full?"当前模式已达上限":"从素材库添加…"}</option>{assets.filter((a:StoredAsset)=>a.sourceUrl&&(imageOnly?a.mediaType==="image":["image","video","audio"].includes(a.mediaType))).map((a:StoredAsset)=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div></Field>;
 }
 
 function Recipe({kind,value,setValue}:any){
