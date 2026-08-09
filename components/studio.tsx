@@ -105,10 +105,16 @@ export default function Studio() {
         </nav>
         <div className="side-status">
           <div className="status-row"><span className={`dot ${status?.configured ? "ok" : "bad"}`} /><span>{status?.configured ? "Yike 凭证已配置" : "等待配置 Yike 凭证"}</span></div>
-          <div className="muted mini">{status?.regionId || "cn-shanghai"}</div>
-          <button className="link-button" onClick={probe}>测试连接</button>
-          {status?.connected === true && <><div className="mini success-text">核心 API 2026-07-07 正常</div>{status?.studio?.ok===false&&<div className="mini error-text">营销/故事板接口异常：{status.studio.error}</div>}</>}
-          {status?.connected === false && <div className="mini error-text">{status.error}</div>}
+          <div className="muted mini">{status?.regionName || "新加坡"} · {status?.regionId || "ap-southeast-1"}</div>
+          {status?.endpoint && <div className="muted mini" title={status.endpoint}>{status.endpoint}</div>}
+          <button className="link-button" onClick={probe} disabled={status?.probing}>{status?.probing ? "测试中…" : "测试连接"}</button>
+          {status?.connected === true && <>
+            <div className="mini success-text">Core API 2026-07-07 可访问</div>
+            <div className="mini muted">AI 生成资格：实际提交时校验</div>
+            {status?.studio?.ok === true && <div className="mini success-text">Studio / 故事板 2026-03-19 可访问</div>}
+            {status?.studio?.ok === false && <div className="mini error-text">Studio：{status.studio.hint || status.studio.error}</div>}
+          </>}
+          {status?.connected === false && <div className="mini error-text">{status?.core?.hint || status.error}</div>}
         </div>
       </aside>
 
