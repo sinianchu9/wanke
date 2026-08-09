@@ -1,5 +1,5 @@
 import "server-only";
-import { CreateYikeAssetUploadRequest, DeleteYikeAssetMediaInfosRequest, ListYikeWorkspacesRequest, RegisterYikeAssetMediaInfoRequest } from "@alicloud/yike20260319";
+import { CreateYikeAssetUploadRequest, DeleteYikeAssetMediaInfosRequest, GetYikeAssetMediaInfoRequest, ListYikeWorkspacesRequest, RegisterYikeAssetMediaInfoRequest } from "@alicloud/yike20260319";
 import { DeleteMediasRequest, ImportMediaRequest, ListAssetCategoriesRequest } from "@alicloud/yike20260707";
 import { getCoreYikeClient, getStudioYikeClient, yikeConfigSummary } from "@/lib/yike/client";
 import { bodyOf, errorText } from "@/lib/yike/shared";
@@ -19,8 +19,10 @@ export async function createUploadCredential(fileExt: string, fileType?: string)
 }
 
 /**
- * Register the same URL on both API surfaces. The two Yike versions expose different
- * product areas, so keeping both IDs avoids assuming that MediaId namespaces are interchangeable.
+ * Register the same URL on both API surfaces when possible. Yike's own upload bucket
+ * can be private, so the Core import may later become unusable even if it returns a MediaId.
+ * Generation therefore resolves a fresh signed Studio FileUrl at submit time instead of
+ * trusting a previously imported Core MediaId.
  */
 export async function registerAsset(input: { inputURL: string; mediaType: string; title?: string }) {
   const [coreResult, studioResult] = await Promise.allSettled([
@@ -49,6 +51,47 @@ export async function registerAsset(input: { inputURL: string; mediaType: string
     requestId: coreBody?.requestId ?? coreBody?.RequestId ?? studioBody?.requestId ?? studioBody?.RequestId ?? null,
     provider: { coreMediaId, studioMediaId, core: coreBody, studio: studioBody },
   };
+}
+
+/**
+ * Resolve a Yike Studio MediaId to a currently signed, downloadable FileUrl.
+ * The raw FileURL returned by CreateYikeAssetUpload may point at a private bucket and is
+ * not suitable as a durable public URL. GetYikeAssetMediaInfo returns the current signed URL.
+ */
+export async function resolveStudioAssetUrl(mediaId: string, options?: { timeoutMs?: number; pollMs?: number }) {
+  const timeoutMs = Math.max(2_000, options?.timeoutMs ?? 20_000);
+  const pollMs = Math.max(300, options?.pollMs ?? 1_000);
+  const deadline = Date.now() + timeoutMs;
+  let lastStatus = "Unknown";
+
+  while (true) {
+    const response = await getStudioYikeClient().getYikeAssetMediaInfo(new GetYikeAssetMediaInfoRequest({ mediaId }));
+    const body = bodyOf(response);
+    const mediaInfo = body?.mediaInfo ?? body?.MediaInfo;
+    const files = mediaInfo?.fileInfoList ?? mediaInfo?.FileInfoList ?? [];
+    const basics = Array.isArray(files)
+      ? files.map((file: any) => file?.fileBasicInfo ?? file?.FileBasicInfo).filter(Boolean)
+      : [];
+    const preferred = basics.find((basic: any) => String(basic?.fileType ?? basic?.FileType ?? "").toLowerCase() === "source_file") || basics[0];
+    const status = String(preferred?.fileStatus ?? preferred?.FileStatus ?? "Unknown");
+    const fileUrl = preferred?.fileUrl ?? preferred?.FileUrl ?? "";
+    lastStatus = status;
+
+    if (/^normal$/i.test(status) && fileUrl) {
+      return {
+        url: String(fileUrl),
+        status,
+        requestId: body?.requestId ?? body?.RequestId ?? null,
+      };
+    }
+    if (/uploadfail|failed|error/i.test(status)) {
+      throw new Error(`Yike 素材状态异常：${status}。该素材没有完成上传，请从素材库重新上传后再生成。`);
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`Yike 素材尚未就绪：${lastStatus}。请稍后重试；如果持续不变，请重新上传素材。`);
+    }
+    await new Promise(resolve => setTimeout(resolve, pollMs));
+  }
 }
 
 export async function deleteAssetCloud(provider: Record<string, unknown> | null, fallbackMediaId?: string | null) {
