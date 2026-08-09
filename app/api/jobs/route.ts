@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createJob, listJobs, updateJobRemote } from "@/lib/repository";
 import { JOB_KINDS } from "@/lib/types";
 import { submitJob } from "@/lib/yike/provider";
+import { prepareJobInput } from "@/lib/yike/prepare";
 import { describeError } from "@/lib/errors";
 
 export const runtime = "nodejs";
@@ -24,7 +25,8 @@ export async function POST(request: Request) {
   try {
     const payload = createSchema.parse(await request.json());
     job = createJob({ kind: payload.kind, title: payload.title, request: payload.input, parentJobId: payload.parentJobId });
-    const submitted = await submitJob(payload.kind, payload.input);
+    const preparedInput = await prepareJobInput(payload.kind, payload.input);
+    const submitted = await submitJob(payload.kind, preparedInput);
     job = updateJobRemote(job.id, {
       providerJobId: submitted.providerJobId,
       status: submitted.initialStatus,
