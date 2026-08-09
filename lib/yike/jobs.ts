@@ -15,6 +15,15 @@ import { validateJobInput } from "@/lib/yike/schemas";
 import { bodyOf, compact, fetchRemoteScript, omit, safeMerge, type AnyObject } from "@/lib/yike/shared";
 import { normalizeAgentLike, normalizeCoreFileJob, normalizeGeneration, normalizeRender, normalizeStoryboard } from "@/lib/yike/normalizers";
 
+function generationMediaRef(media: any) {
+  const base = { Type: media.type };
+  // URL and MediaId identify the same source. Do not send both: a stale/import-failed
+  // MediaId can make Yike reject an otherwise valid direct URL with MediaStatus=UploadFail.
+  if (media.url) return { ...base, Url: media.url };
+  if (media.mediaId) return { ...base, MediaId: media.mediaId };
+  return base;
+}
+
 export async function submitJob(kind: JobKind, rawInput: unknown) {
   const input = validateJobInput(kind, rawInput);
   const core = getCoreYikeClient();
@@ -33,7 +42,7 @@ export async function submitJob(kind: JobKind, rawInput: unknown) {
       clientToken: crypto.randomUUID().replaceAll("-", ""),
       input: JSON.stringify({
         Prompt: input.prompt,
-        Medias: input.medias.map((m: any) => ({ Type: m.type, ...(m.mediaId ? { MediaId: m.mediaId } : {}), ...(m.url ? { Url: m.url } : {}) })),
+        Medias: input.medias.map(generationMediaRef),
       }),
       jobParameters: "{}",
     }, input.expert);
