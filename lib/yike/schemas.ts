@@ -4,12 +4,33 @@ import type { JobKind } from "@/lib/types";
 const ratio = z.enum(["16:9", "9:16", "4:3", "3:4", "1:1"]);
 const standardRatio = z.enum(["16:9", "9:16", "4:3", "3:4"]);
 const resolution = z.enum(["720P", "1080P"]);
+
+function isKnownLandingPageUrl(value: string) {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.hostname === "ibb.co" || url.hostname === "www.ibb.co";
+  } catch {
+    return false;
+  }
+}
+
 const mediaRef = z.object({
   type: z.enum(["image", "video", "audio"]),
   url: z.string().url().optional().or(z.literal("")),
   mediaId: z.string().optional().default(""),
 }).superRefine((value, ctx) => {
-  if (!value.url && !value.mediaId) ctx.addIssue({ code: "custom", message: "参考素材至少需要 URL 或 MediaId" });
+  if (!value.url && !value.mediaId) {
+    ctx.addIssue({ code: "custom", message: "参考素材至少需要 URL 或 MediaId" });
+    return;
+  }
+  if (value.type === "image" && value.url && isKnownLandingPageUrl(value.url)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["url"],
+      message: "ibb.co 是图片分享页面，不是图片文件直链。请使用 i.ibb.co/...jpg/png 直链，或把图片上传到 Wanke 素材库后再选择。",
+    });
+  }
 });
 const idList = z.array(z.string().min(1)).max(20).default([]);
 const expert = z.record(z.string(), z.unknown()).optional();
@@ -27,9 +48,35 @@ const schemas = {
     title: z.string().optional(),
     expert,
   }).superRefine((v, ctx) => {
-    const expected = v.jobType === "image_to_video" ? 1 : v.jobType === "first_last_frame" ? 2 : v.jobType === "reference_to_video" ? [1, 9] : 0;
-    if (typeof expected === "number" && v.medias.length !== expected) ctx.addIssue({ code: "custom", path: ["medias"], message: `该模式需要 ${expected} 个参考素材` });
-    if (Array.isArray(expected) && (v.medias.length < expected[0] || v.medias.length > expected[1])) ctx.addIssue({ code: "custom", path: ["medias"], message: `该模式需要 ${expected[0]}-${expected[1]} 个参考素材` });
+    const count = v.medias.length;
+    if (v.jobType === "image_to_video" && count !== 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["medias"],
+        message: `图生视频只允许 1 个参考素材，当前收到 ${count} 个。需要首帧+尾帧请选择“首尾帧”；需要多个参考请选择“多参考”。`,
+      });
+    }
+    if (v.jobType === "first_last_frame" && count !== 2) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["medias"],
+        message: `首尾帧模式必须恰好 2 张图片（首帧 + 尾帧），当前收到 ${count} 个。`,
+      });
+    }
+    if (v.jobType === "reference_to_video" && (count < 1 || count > 9)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["medias"],
+        message: `多参考模式需要 1-9 个参考素材，当前收到 ${count} 个。`,
+      });
+    }
+    if (v.jobType === "text_to_video" && count !== 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["medias"],
+        message: `文生视频不使用参考素材，当前仍有 ${count} 个。请删除参考素材或切换生成模式。`,
+      });
+    }
   }),
 
   video_analysis: z.object({
