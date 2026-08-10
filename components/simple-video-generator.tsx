@@ -67,6 +67,9 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting }: P
   }
 
   const medias = buildMedias();
+  const hasVideoReference = mode === "reference_to_video" && medias.some((media: any) => media?.type === "video");
+  const durationOptions = hasVideoReference ? ["5", "10"] : ["5", "10", "15"];
+  const effectiveDuration = hasVideoReference && duration > 10 ? 10 : duration;
   const ready = Boolean(prompt.trim()) && (
     mode === "text_to_video" ||
     (mode === "image_to_video" && medias.length === 1) ||
@@ -94,7 +97,7 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting }: P
       jobType: mode,
       medias,
       aspectRatio,
-      duration,
+      duration: effectiveDuration,
       resolution,
       model: "happyhorse-1.1",
       n: 1,
@@ -106,27 +109,27 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting }: P
       <div>
         <div className="eyebrow">AUTO VIDEO GENERATION</div>
         <h2>告诉我你要什么视频</h2>
-        <p>不用选模型，也不用理解技术参数。Wanke 会根据素材和任务自动选择 HappyHorse 1.1 或 Wan 2.7。</p>
+        <p>不用选模型，也不用理解技术参数。Wanke 会根据素材和任务自动选择最合适的生成能力。</p>
       </div>
     </div>
 
     <section className="panel">
       <div className="form-stack">
-        <div>
-          <div className="field-head"><label>你准备怎么生成？</label><small>选最接近你手头素材的一项</small></div>
+        <div className="field">
+          <span className="field-label">你准备怎么生成？<small>选最接近你手头素材的一项</small></span>
           <div className="asset-chips">
             {modeOptions.map(item => {
               const Icon = item.icon;
-              return <button type="button" key={item.id} className={mode === item.id ? "active" : ""} onClick={() => changeMode(item.id)} title={item.desc}>
+              return <button type="button" key={item.id} className={mode === item.id ? "selected" : ""} onClick={() => changeMode(item.id)} title={item.desc}>
                 <Icon size={15} /> {item.label}
               </button>;
             })}
           </div>
-          <div className="muted mini" style={{ marginTop: 8 }}>{modeOptions.find(item => item.id === mode)?.desc}</div>
+          <div className="muted mini">{modeOptions.find(item => item.id === mode)?.desc}</div>
         </div>
 
         <div className="field">
-          <div className="field-head"><label>你想看到什么？</label><small>主体 + 动作 + 环境 + 镜头，大白话就可以</small></div>
+          <span className="field-label">你想看到什么？<small>主体 + 动作 + 环境 + 镜头，大白话就可以</small></span>
           <textarea className="big-text" value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="例如：一个穿黑色风衣的男人在东京雨夜街头向镜头走来，路面有霓虹倒影，镜头缓慢后退，电影感，人物动作自然。" />
         </div>
 
@@ -138,13 +141,14 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting }: P
         </div>}
 
         {mode === "reference_to_video" && <div className="field">
-          <div className="field-head"><label>选择参考素材</label><small>人物、产品、场景都可以；最多 5 个，系统自动判断图片或视频参考</small></div>
+          <span className="field-label">选择参考素材<small>人物、产品、场景都可以；最多 5 个，系统自动判断图片或视频参考</small></span>
           {referenceAssets.length > 0 && <div className="asset-chips">
-            {referenceAssets.map(asset => <button type="button" key={asset.id} className={referenceIds.includes(asset.id) ? "active" : ""} onClick={() => toggleReference(asset.id)}>
+            {referenceAssets.map(asset => <button type="button" key={asset.id} className={referenceIds.includes(asset.id) ? "selected" : ""} onClick={() => toggleReference(asset.id)}>
               {asset.mediaType === "video" ? "🎬" : "🖼️"} {asset.name}
             </button>)}
           </div>}
           <textarea value={referenceUrls} onChange={event => setReferenceUrls(event.target.value)} placeholder="也可以粘贴公网图片 URL，每行一个" />
+          {hasVideoReference && <div className="muted mini">检测到视频参考：系统已自动使用支持视频参考的生成路线，并把最长时长限制为 10 秒。</div>}
         </div>}
 
         <details className="advanced">
@@ -152,9 +156,9 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting }: P
           <div className="advanced-body">
             <div className="form-grid four">
               {(mode === "text_to_video" || mode === "reference_to_video") && <SimpleSelect label="画幅" value={aspectRatio} onChange={setAspectRatio} options={["16:9", "9:16", "1:1", "4:3", "3:4"]} />}
-              <SimpleSelect label="时长" value={String(duration)} onChange={value => setDuration(Number(value))} options={["5", "10", "15"]} suffix="秒" />
+              <SimpleSelect label="时长" value={String(effectiveDuration)} onChange={value => setDuration(Number(value))} options={durationOptions} suffix="秒" />
               <SimpleSelect label="清晰度" value={resolution} onChange={value => setResolution(value as "720P" | "1080P")} options={["1080P", "720P"]} />
-              <div className="field"><div className="field-head"><label>任务名称</label><small>可不填</small></div><input value={title} onChange={event => setTitle(event.target.value)} placeholder="例如：新品广告主镜头" /></div>
+              <div className="field"><span className="field-label">任务名称<small>可不填</small></span><input value={title} onChange={event => setTitle(event.target.value)} placeholder="例如：新品广告主镜头" /></div>
             </div>
           </div>
         </details>
@@ -181,7 +185,7 @@ function ImagePicker({ label, assets, assetId, setAssetId, url, setUrl, compact 
   compact?: boolean;
 }) {
   return <div className="field">
-    <div className="field-head"><label>{label}</label><small>{compact ? "素材库或公网 URL" : "优先从素材库选，也可以粘贴公网图片 URL"}</small></div>
+    <span className="field-label">{label}<small>{compact ? "素材库或公网 URL" : "优先从素材库选，也可以粘贴公网图片 URL"}</small></span>
     <select value={assetId} onChange={event => setAssetId(event.target.value)}>
       <option value="">— 从素材库选择 —</option>
       {assets.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
@@ -192,7 +196,7 @@ function ImagePicker({ label, assets, assetId, setAssetId, url, setUrl, compact 
 
 function SimpleSelect({ label, value, onChange, options, suffix = "" }: { label: string; value: string; onChange: (value: string) => void; options: string[]; suffix?: string }) {
   return <div className="field">
-    <div className="field-head"><label>{label}</label></div>
+    <span className="field-label">{label}</span>
     <select value={value} onChange={event => onChange(event.target.value)}>
       {options.map(option => <option key={option} value={option}>{option}{suffix}</option>)}
     </select>
