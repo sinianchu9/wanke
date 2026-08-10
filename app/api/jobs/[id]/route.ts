@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createJob, deleteJob, getJob, updateJobRemote } from "@/lib/repository";
-import { refreshJob, resumeStoryboard, submitJob } from "@/lib/yike/provider";
+import { refreshJob, resumeStoryboard, submitJob } from "@/lib/video/provider";
 import { prepareJobInput } from "@/lib/yike/prepare";
 import { archiveJobOutput, deleteArchivedOutputs } from "@/lib/archive";
 import { describeError } from "@/lib/errors";
