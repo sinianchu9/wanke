@@ -74,22 +74,45 @@ function requireUrl(media: VideoInput["medias"][number], index: number) {
   return url;
 }
 
+function effectiveDuration(input: VideoInput, decision: RouteDecision) {
+  const hasVideoReference = input.medias.some(media => media.type === "video");
+  if (decision.route === "wan-r2v" && hasVideoReference) return Math.min(input.duration, 10);
+  return input.duration;
+}
+
+function routedPrompt(input: VideoInput, decision: RouteDecision) {
+  const prompt = input.prompt.trim();
+  if (decision.route === "happyhorse-r2v") {
+    const refs = input.medias.map((_, index) => `[Image ${index + 1}]`).join("、");
+    return `${refs} 是参考素材。保持参考素材中的人物、产品、服装、外观特征和场景视觉身份一致，不要无故改变主体。${prompt}`;
+  }
+  if (decision.route === "wan-r2v") {
+    let imageIndex = 0;
+    let videoIndex = 0;
+    const refs = input.medias.map(media => media.type === "video" ? `Video ${++videoIndex}` : `Image ${++imageIndex}`).join("、");
+    return `请将 ${refs} 作为主体与场景参考，保持人物、产品和关键视觉特征一致。${prompt}`;
+  }
+  return prompt;
+}
+
 function buildPayload(input: VideoInput, decision: RouteDecision) {
+  const duration = effectiveDuration(input, decision);
+  const prompt = routedPrompt(input, decision);
   const parameters: Record<string, unknown> = {
     resolution: input.resolution,
-    duration: input.duration,
+    duration,
     watermark: false,
   };
 
   if (decision.route === "happyhorse-t2v") {
     parameters.ratio = input.aspectRatio;
-    return { model: decision.model, input: { prompt: input.prompt }, parameters };
+    return { model: decision.model, input: { prompt }, parameters };
   }
 
   if (decision.route === "happyhorse-i2v") {
     return {
       model: decision.model,
-      input: { prompt: input.prompt, media: [{ type: "first_frame", url: requireUrl(input.medias[0], 0) }] },
+      input: { prompt, media: [{ type: "first_frame", url: requireUrl(input.medias[0], 0) }] },
       parameters,
     };
   }
@@ -98,7 +121,7 @@ function buildPayload(input: VideoInput, decision: RouteDecision) {
     return {
       model: decision.model,
       input: {
-        prompt: input.prompt,
+        prompt,
         media: [
           { type: "first_frame", url: requireUrl(input.medias[0], 0) },
           { type: "last_frame", url: requireUrl(input.medias[1], 1) },
@@ -113,7 +136,7 @@ function buildPayload(input: VideoInput, decision: RouteDecision) {
     return {
       model: decision.model,
       input: {
-        prompt: input.prompt,
+        prompt,
         media: input.medias.map((media, index) => ({ type: "reference_image", url: requireUrl(media, index) })),
       },
       parameters,
@@ -124,7 +147,7 @@ function buildPayload(input: VideoInput, decision: RouteDecision) {
   return {
     model: decision.model,
     input: {
-      prompt: input.prompt,
+      prompt,
       media: input.medias.map((media, index) => ({
         type: media.type === "video" ? "reference_video" : "reference_image",
         url: requireUrl(media, index),
@@ -156,6 +179,7 @@ async function requestJson(url: string, init: RequestInit) {
 
 export async function submitModelStudioVideo(input: VideoInput) {
   const decision = chooseRoute(input);
+  const duration = effectiveDuration(input, decision);
   const payload = buildPayload(input, decision);
   const body = await requestJson(`${apiBase()}/services/aigc/video-generation/video-synthesis`, {
     method: "POST",
@@ -174,6 +198,8 @@ export async function submitModelStudioVideo(input: VideoInput) {
       model: decision.model,
       route: decision.route,
       routeReason: decision.reason,
+      requestedDuration: input.duration,
+      effectiveDuration: duration,
       endpoint: rootUrl(),
     },
   };
