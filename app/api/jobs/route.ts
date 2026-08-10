@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createJob, listJobs, updateJobRemote } from "@/lib/repository";
 import { JOB_KINDS } from "@/lib/types";
-import { submitJob } from "@/lib/yike/provider";
+import { submitJob } from "@/lib/video/provider";
 import { prepareJobInput } from "@/lib/yike/prepare";
 import { describeError } from "@/lib/errors";
 
