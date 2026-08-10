@@ -45,20 +45,28 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting }: P
     };
   }
 
-  function manualMedia(url: string) {
+  function manualMedia(url: string, forceImage = false) {
     const clean = url.trim();
-    return clean ? { type: "image", url: clean, mediaId: "" } : null;
+    if (!clean) return null;
+    let type: "image" | "video" = "image";
+    if (!forceImage) {
+      try {
+        const pathname = new URL(clean).pathname.toLowerCase();
+        if (pathname.endsWith(".mp4") || pathname.endsWith(".mov")) type = "video";
+      } catch { /* schema will return a friendly URL error */ }
+    }
+    return { type, url: clean, mediaId: "" };
   }
 
   function buildMedias() {
     if (mode === "text_to_video") return [];
     if (mode === "image_to_video") {
-      const media = storedMedia(firstAssetId) || manualMedia(firstUrl);
+      const media = storedMedia(firstAssetId) || manualMedia(firstUrl, true);
       return media ? [media] : [];
     }
     if (mode === "first_last_frame") {
-      const first = storedMedia(firstAssetId) || manualMedia(firstUrl);
-      const last = storedMedia(lastAssetId) || manualMedia(lastUrl);
+      const first = storedMedia(firstAssetId) || manualMedia(firstUrl, true);
+      const last = storedMedia(lastAssetId) || manualMedia(lastUrl, true);
       return [first, last].filter(Boolean);
     }
     const picked = referenceIds.map(storedMedia).filter(Boolean);
@@ -147,7 +155,7 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting }: P
               {asset.mediaType === "video" ? "🎬" : "🖼️"} {asset.name}
             </button>)}
           </div>}
-          <textarea value={referenceUrls} onChange={event => setReferenceUrls(event.target.value)} placeholder="也可以粘贴公网图片 URL，每行一个" />
+          <textarea value={referenceUrls} onChange={event => setReferenceUrls(event.target.value)} placeholder="也可以粘贴公网图片或 MP4/MOV 视频 URL，每行一个" />
           {hasVideoReference && <div className="muted mini">检测到视频参考：系统已自动使用支持视频参考的生成路线，并把最长时长限制为 10 秒。</div>}
         </div>}
 
