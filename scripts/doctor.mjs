@@ -2,10 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 
 const checks = [];
-const need = ["ALIYUN_ACCESS_KEY_ID", "ALIYUN_ACCESS_KEY_SECRET"];
-for (const key of need) checks.push([key, Boolean(process.env[key]), process.env[key] ? "已设置" : "缺失"]);
-const region = process.env.ALIYUN_REGION_ID || "cn-shanghai";
+const modelStudioReady = Boolean(process.env.DASHSCOPE_API_KEY || process.env.ALIYUN_MODELSTUDIO_API_KEY);
+const yikeReady = Boolean(process.env.ALIYUN_ACCESS_KEY_ID && process.env.ALIYUN_ACCESS_KEY_SECRET);
+checks.push(["视频生成凭证", modelStudioReady || yikeReady, modelStudioReady ? "百炼 Model Studio 直连" : yikeReady ? "Yike 兼容模式" : "缺失 DASHSCOPE_API_KEY / Yike 凭证"]);
+checks.push(["DASHSCOPE_API_KEY", true, modelStudioReady ? "已设置，HappyHorse / Wan 直连可用" : "未设置，将使用 Yike 兼容模式"]);
+checks.push(["Yike 扩展工作流", true, yikeReady ? "已配置，复刻 / 数字人 / 故事板可用" : "未配置，不影响百炼直连基础视频生成"]);
+
+const region = process.env.ALIYUN_REGION_ID || "ap-southeast-1";
 checks.push(["ALIYUN_REGION_ID", ["cn-shanghai", "ap-southeast-1"].includes(region), region]);
+const workspaceId = process.env.ALIYUN_MODELSTUDIO_WORKSPACE_ID || "";
+checks.push(["Model Studio Endpoint", true, workspaceId ? `${workspaceId}.ap-southeast-1.maas.aliyuncs.com` : "dashscope-intl.aliyuncs.com（可用；建议配置 Workspace ID）"]);
+
 const db = path.resolve(process.env.WANKE_DB_PATH || "./data/wanke.db");
 const out = path.resolve(process.env.WANKE_OUTPUT_DIR || "./data/outputs");
 for (const [name, target] of [["数据库目录", path.dirname(db)], ["归档目录", out]]) {
