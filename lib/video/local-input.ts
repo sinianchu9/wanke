@@ -2,9 +2,11 @@ import "server-only";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { requestReferenceExists } from "@/lib/repository";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const INPUT_SCHEME = "wanke-input:";
+const STALE_INPUT_MS = 24 * 60 * 60 * 1000;
 const MIME_TO_EXT: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
@@ -30,6 +32,7 @@ export async function saveLocalImage(file: File): Promise<LocalImageInput> {
   if (file.size <= 0) throw new Error("图片文件为空");
   if (file.size > MAX_IMAGE_BYTES) throw new Error("图片过大，请使用 10MB 以内的 JPG、PNG 或 WEBP");
 
+  await cleanupStaleLocalInputs().catch(() => undefined);
   const id = `${randomUUID()}.${ext}`;
   const dir = inputDir();
   await fs.mkdir(dir, { recursive: true });
@@ -46,6 +49,10 @@ function safeFileName(ref: string) {
   const name = ref.slice(`${INPUT_SCHEME}//`.length);
   if (!/^[0-9a-f-]+\.(jpg|jpeg|png|webp)$/i.test(name)) throw new Error("本地输入引用无效");
   return name;
+}
+
+function refForFileName(name: string) {
+  return `${INPUT_SCHEME}//${name}`;
 }
 
 export async function localInputToDataUrl(ref: string) {
@@ -72,6 +79,12 @@ export async function deleteLocalInput(ref: string) {
   }
 }
 
+export async function deleteLocalInputIfUnused(ref: string) {
+  if (requestReferenceExists(ref)) return false;
+  await deleteLocalInput(ref);
+  return true;
+}
+
 export function collectLocalInputRefs(value: unknown, out = new Set<string>()) {
   if (typeof value === "string") {
     if (isLocalInputRef(value)) out.add(value);
@@ -85,4 +98,19 @@ export function collectLocalInputRefs(value: unknown, out = new Set<string>()) {
     for (const item of Object.values(value as Record<string, unknown>)) collectLocalInputRefs(item, out);
   }
   return out;
+}
+
+async function cleanupStaleLocalInputs() {
+  const dir = inputDir();
+  await fs.mkdir(dir, { recursive: true });
+  const names = await fs.readdir(dir);
+  const cutoff = Date.now() - STALE_INPUT_MS;
+  await Promise.allSettled(names.map(async name => {
+    if (!/^[0-9a-f-]+\.(jpg|jpeg|png|webp)$/i.test(name)) return;
+    const filePath = path.join(dir, name);
+    const stat = await fs.stat(filePath);
+    if (stat.mtimeMs >= cutoff) return;
+    const ref = refForFileName(name);
+    if (!requestReferenceExists(ref)) await fs.unlink(filePath);
+  }));
 }
