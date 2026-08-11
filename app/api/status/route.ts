@@ -43,12 +43,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ ...summary, connected: null });
   }
 
-  if (providerMode === "modelstudio" || !yike.configured) {
+  // Extension workflows use Yike regardless of which provider is selected for basic generation.
+  // Probe Yike whenever it is configured so the sidebar/settings check remains meaningful.
+  if (!yike.configured) {
     return NextResponse.json({
       ...summary,
       connected: null,
       modelStudioVerified: false,
-      note: "百炼配置已保存；API Key、Workspace 与模型权限会在首次真实生成时校验。",
+      note: modelStudio.configured
+        ? "百炼配置已保存；API Key、Workspace 与模型权限会在首次真实生成时校验。"
+        : "万镜一刻尚未配置。",
     });
   }
 
