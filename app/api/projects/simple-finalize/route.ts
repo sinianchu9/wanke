@@ -34,9 +34,20 @@ export async function POST(request: Request) {
       const index = firstVideoOutputIndex(job.outputs);
       if (index < 0) throw new Error(`“${shot.name}”没有可用视频结果`);
       if (!job.outputs[index].archivedFile) {
-        const archived = await archiveJobOutput(job, index);
-        const outputs = job.outputs.map((item, outputIndex) => outputIndex === index ? archived : item);
-        updateJobRemote(job.id, { outputs });
+        try {
+          const archived = await archiveJobOutput(job, index);
+          const outputs = job.outputs.map((item, outputIndex) => outputIndex === index ? archived : item);
+          updateJobRemote(job.id, {
+            outputs,
+            details: { ...(job.details || {}), quickArchive: "saved", quickArchiveError: null },
+          });
+        } catch (error) {
+          const reason = describeError(error);
+          updateJobRemote(job.id, {
+            details: { ...(job.details || {}), quickArchive: "pending", quickArchiveError: reason },
+          });
+          throw new Error(`“${shot.name}”已经生成成功，但暂时无法把结果安全保存到本机。可以稍后再次点击“生成最终视频”；如果持续失败，可能是云端结果链接已经过期，请在这个镜头下“再生成一个版本”。`);
+        }
       }
     }
 
@@ -46,7 +57,7 @@ export async function POST(request: Request) {
     } catch (error) {
       const message = describeError(error);
       if (/ffmpeg|ffprobe/i.test(message)) {
-        throw new Error("镜头都已经准备好了，但服务器还没有准备好最终成片能力。请在高级设置中完成成片环境配置；已经生成的镜头不会丢失。");
+        throw new Error("镜头都已经准备好了，但服务器还没有准备好最终成片能力。请在高级设置中完成成片环境配置；已经生成和保存的镜头不会丢失。");
       }
       throw error;
     }
