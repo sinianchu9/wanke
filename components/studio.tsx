@@ -111,7 +111,7 @@ export default function Studio() {
           <div className="status-row"><span className={`dot ${directVideo || yikeReady ? "ok" : "bad"}`} /><span>{directVideo ? "视频生成：百炼直连已配置" : yikeReady ? "视频生成：兼容模式" : "等待配置视频凭证"}</span></div>
           <div className="muted mini">{status?.regionName || "新加坡"} · 自动模型路由</div>
           {status?.endpoint && <div className="muted mini" title={status.endpoint}>{status.endpoint}</div>}
-          {directVideo && <div className="mini muted">首次生成时自动校验 Key、Workspace 和模型权限</div>}
+          {directVideo && <div className="mini muted">可直接选择本地图片；首次生成时自动校验 Key、Workspace 和模型权限</div>}
           {!directVideo && yikeReady && <div className="mini muted">未配置百炼 Key，基础生成自动回退兼容链路</div>}
           {yikeReady && <button className="link-button" onClick={probe} disabled={status?.probing}>{status?.probing ? "检查中…" : "检查扩展工作流"}</button>}
           {yikeReady && status?.connected === true && <div className="mini success-text">复刻 / 故事板等扩展工作流可用</div>}
@@ -136,7 +136,7 @@ export default function Studio() {
         {notice && <div className="notice"><WandSparkles size={16} />{notice}</div>}
 
         <section className="workspace">
-          {tab === "generate" && <SimpleVideoGenerator assets={assets} onSubmit={submit} submitting={loading} />}
+          {tab === "generate" && <SimpleVideoGenerator assets={assets} onSubmit={submit} submitting={loading} directAvailable={directVideo} />}
           {(["remake", "clone", "avatar", "voice", "storyboard", "translation"] as Tab[]).includes(tab) && (
             <CreatorForms mode={tab as any} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />
           )}
