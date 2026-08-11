@@ -108,6 +108,23 @@ export function deleteShot(id: string) {
   return changed;
 }
 
+export function reorderShots(projectId: string, shotIds: string[]) {
+  const rows = db.prepare("SELECT id FROM shots WHERE project_id=? ORDER BY position ASC, created_at ASC").all(projectId) as any[];
+  const existingIds = rows.map(row => String(row.id));
+  const unique = [...new Set(shotIds)];
+  if (unique.length !== shotIds.length || existingIds.length !== shotIds.length) throw new Error("镜头顺序数据不完整，请刷新项目后再试");
+  const existingSet = new Set(existingIds);
+  if (shotIds.some(id => !existingSet.has(id))) throw new Error("镜头顺序包含不属于当前项目的镜头");
+
+  const now = new Date().toISOString();
+  const transaction = db.transaction(() => {
+    const update = db.prepare("UPDATE shots SET position=?, updated_at=? WHERE id=? AND project_id=?");
+    shotIds.forEach((id, index) => update.run(index + 1, now, id, projectId));
+    touchProject(projectId, now);
+  });
+  transaction();
+}
+
 export function assignJobToShot(shotId: string, jobId: string) {
   const target = getShot(shotId);
   if (!target) throw new Error("镜头不存在");
