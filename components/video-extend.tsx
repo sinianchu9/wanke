@@ -26,7 +26,7 @@ export default function VideoExtend({ job, modelStudioAvailable, onCreated }: {
     setError("");
   }, [job.id, sourceDuration]);
 
-  if (!["video_generation", "video_extension"].includes(job.kind) || job.status !== "succeeded" || !usableOutputs.length) return null;
+  if (!["video_generation", "video_extension", "video_editing"].includes(job.kind) || job.status !== "succeeded" || !usableOutputs.length) return null;
 
   const sourceSupported = Number.isInteger(sourceDuration) && sourceDuration >= 2 && sourceDuration <= 10;
   const canSubmit = modelStudioAvailable && sourceSupported && targetDuration > sourceDuration && targetDuration <= 15 && Boolean(prompt.trim()) && !busy;
@@ -107,7 +107,7 @@ export default function VideoExtend({ job, modelStudioAvailable, onCreated }: {
       <details className="advanced">
         <summary>视频延长怎么用？</summary>
         <div className="advanced-body">
-          <div className="muted mini"><strong>适合：</strong>已有 5 秒或 10 秒视频，想让动作和场景沿时间轴继续发展。</div>
+          <div className="muted mini"><strong>适合：</strong>已有 5 秒或 10 秒视频，想让动作和场景沿时间轴继续发展；编辑后的 2–10 秒结果也可以继续延长。</div>
           <div className="muted mini"><strong>不适合：</strong>只想换背景、换人物或改变原视频内容；这些属于视频编辑，不是延长。</div>
           <div className="muted mini"><strong>演示：</strong>原视频 5 秒“女孩走进咖啡店” → 最终总时长 10 秒 → 新要求“她走到柜台并回头看镜头” → 输出是包含原片连续内容的 10 秒完整视频。</div>
           <div className="muted mini"><strong>与继续创作的区别：</strong>继续创作把旧视频当参考，生成另一条新视频；视频延长把旧视频当 first clip，明确要求时间轴接着往后延续。</div>
@@ -131,6 +131,7 @@ function resolveSourceDuration(job: StoredJob) {
     job.details?.effectiveDuration,
     job.request.targetDuration,
     job.request.duration,
+    job.request.sourceDuration,
   ];
   for (const value of candidates) {
     const number = Number(value);

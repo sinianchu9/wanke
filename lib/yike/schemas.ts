@@ -41,7 +41,7 @@ const schemas = {
   video_generation: z.object({
     prompt: z.string().min(1, "请输入提示词"),
     jobType: z.enum(["text_to_video", "image_to_video", "first_last_frame", "reference_to_video"]),
-    medias: z.array(mediaRef).max(9).default([]),
+    medias: z.array(mediaRef).max(5, "多参考模式最多接受 5 个参考素材").default([]),
     aspectRatio: ratio.default("16:9"),
     duration: z.coerce.number().int().min(4).max(15).default(5),
     resolution: resolution.default("720P"),
@@ -63,8 +63,8 @@ const schemas = {
     if (v.jobType === "first_last_frame" && count === 2 && v.medias.some(media => media.type !== "image")) {
       ctx.addIssue({ code: "custom", path: ["medias"], message: "首尾画面必须都是图片，不能混入视频或音频。" });
     }
-    if (v.jobType === "reference_to_video" && (count < 1 || count > 9)) {
-      ctx.addIssue({ code: "custom", path: ["medias"], message: `多参考模式需要 1-9 个参考素材，当前收到 ${count} 个。` });
+    if (v.jobType === "reference_to_video" && (count < 1 || count > 5)) {
+      ctx.addIssue({ code: "custom", path: ["medias"], message: `多参考模式需要 1-5 个参考素材，当前收到 ${count} 个。` });
     }
     if (v.jobType === "text_to_video" && count !== 0) {
       ctx.addIssue({ code: "custom", path: ["medias"], message: `文生视频不使用参考素材，当前仍有 ${count} 个。请删除参考素材或切换生成模式。` });
