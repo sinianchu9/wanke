@@ -32,9 +32,12 @@ export async function POST(request: Request, ctx: Ctx) {
     }
 
     if (action === "retry") {
-      const child = createJob({ kind: job.kind, title: `${job.title} · 重试`, request: job.request, parentJobId: job.id });
+      // A retry is a child of one concrete version, not a new peer in the original batch.
+      // Keep all generation inputs but remove batch membership metadata.
+      const retryRequest = withoutBatchMembership(job.request);
+      const child = createJob({ kind: job.kind, title: `${job.title} · 重试`, request: retryRequest, parentJobId: job.id });
       try {
-        const preparedInput = await prepareJobInput(job.kind, job.request);
+        const preparedInput = await prepareJobInput(job.kind, retryRequest);
         const submitted = await submitJob(job.kind, preparedInput);
         const updated = updateJobRemote(child.id, { providerJobId: submitted.providerJobId, status: submitted.initialStatus, provider: submitted.provider, requestId: submitted.requestId, error: null, details: submitted.details });
         return NextResponse.json({ job: updated }, { status: 201 });
@@ -75,9 +78,12 @@ export async function DELETE(_: Request, ctx: Ctx) {
   deleteArchivedOutputs(job.outputs);
   if (!deleteJob(id)) return NextResponse.json({ error: "任务删除失败" }, { status: 500 });
 
-  // Retry/child jobs can intentionally share the same local images. Remove a file only when
-  // no remaining task request references it.
   const orphaned = localRefs.filter(ref => !requestReferenceExists(ref));
   await Promise.allSettled(orphaned.map(deleteLocalInput));
   return NextResponse.json({ ok: true });
+}
+
+function withoutBatchMembership(request: Record<string, unknown>) {
+  const { _batch: _ignored, ...rest } = request as Record<string, unknown> & { _batch?: unknown };
+  return rest;
 }
