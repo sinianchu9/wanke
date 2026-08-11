@@ -69,8 +69,8 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
 
   async function regenerateShot(shot: ProjectShot) {
     const state = shotState(shot, jobMap);
-    const source = state.chosen || state.successful[0];
-    if (!source) return;
+    const source = state.chosen;
+    if (!source || source.kind !== "video_generation") return;
     await runJobAction(source.id, "similar", `similar:${shot.id}`);
   }
 
@@ -118,7 +118,7 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
             <span className="status-icon queued"><Film size={14}/></span>
             <div className="job-row-main">
               <strong>{project.name}</strong>
-              <span>{state.done}/{state.total} 个镜头完成{state.waiting ? ` · ${state.waiting} 个生成中` : state.failed ? ` · ${state.failed} 个需处理` : state.choices ? ` · ${state.choices} 个待选版本` : ""}</span>
+              <span>{state.done}/{state.total} 个镜头完成{state.waiting ? ` · ${state.waiting} 个生成中` : state.failed ? ` · ${state.failed} 个需处理` : state.choices ? ` · ${state.choices} 个待选版本` : state.empty ? ` · ${state.empty} 个未开始` : ""}</span>
             </div>
           </button>;
         })}
@@ -135,12 +135,13 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
             {progress!.waiting > 0 && <span>{progress!.waiting} 个生成中</span>}
             {progress!.failed > 0 && <span>{progress!.failed} 个需要重试</span>}
             {progress!.choices > 0 && <span>{progress!.choices} 个需要选版本</span>}
+            {progress!.empty > 0 && <span>{progress!.empty} 个还未开始</span>}
           </div>
         </div>
         <button className="secondary" onClick={onAdvanced}><Settings2 size={15}/>高级编辑</button>
       </div>
 
-      <div className="notice"><Sparkles size={16}/><span>简单页已经可以完成日常闭环：看结果、重试失败镜头、再生成一个版本、选择喜欢的版本和生成最终视频。只有要改专业参数时才需要高级编辑。</span></div>
+      <div className="notice"><Sparkles size={16}/><span>简单页已经可以完成日常闭环：看结果、重试失败镜头、再生成一个版本、选择或更换喜欢的版本、生成最终视频。只有要改专业参数时才需要高级编辑。</span></div>
 
       <div className="content-stack" style={{marginTop:16}}>
         {current.shots.map((shot, index) => {
@@ -152,10 +153,10 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
               <span className={`kind-pill ${state.status}`}>{state.label}</span>
             </div>
 
-            {state.chosenOutput && <div className="result-grid single" style={{marginTop:12}}><article className="result-card"><video src={mediaUrl(state.chosenOutput)} controls preload="metadata"/><div className="result-info"><div><strong>{state.needsChoice ? "待确认版本" : "当前版本"}</strong><span>{state.detail}</span></div>{state.status === "done" && !state.needsChoice && <Check size={16}/>}</div></article></div>}
+            {state.chosenOutput && <div className="result-grid single" style={{marginTop:12}}><article className="result-card"><video src={mediaUrl(state.chosenOutput)} controls preload="metadata"/><div className="result-info"><div><strong>当前版本</strong><span>{state.detail}</span></div>{state.status === "done" && !state.needsChoice && <Check size={16}/>}</div></article></div>}
 
-            {state.needsChoice && <div style={{marginTop:12}}>
-              <div className="subhead"><h3>选择你喜欢的版本</h3><span>{state.successful.length} 个可用候选</span></div>
+            {state.successful.length > 1 && state.status !== "waiting" && <div style={{marginTop:12}}>
+              <div className="subhead"><h3>{state.needsChoice ? "选择你喜欢的版本" : "可随时更换版本"}</h3><span>{state.successful.length} 个可用候选</span></div>
               <div className="result-grid">
                 {state.successful.map((job, candidateIndex) => {
                   const output = firstVideoOutput(job.outputs)!;
@@ -163,7 +164,7 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
                   return <article className="result-card" key={job.id}>
                     <video src={mediaUrl(output)} controls preload="metadata"/>
                     <div className="result-info">
-                      <div><strong>版本 {candidateIndex + 1}</strong><span>{selected ? "当前已采用" : "预览后选择"}</span></div>
+                      <div><strong>版本 {candidateIndex + 1}</strong><span>{selected ? "当前已采用" : "预览后可以切换"}</span></div>
                       <button className={selected ? "secondary" : "primary"} disabled={actionLocked || selected} onClick={() => chooseCandidate(shot.id, job.id)}>{selected ? <><Check size={14}/>已选择</> : "选这个"}</button>
                     </div>
                   </article>;
@@ -177,8 +178,10 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
 
             <div className="inline-actions" style={{marginTop:12}}>
               {state.status === "failed" && <button className="secondary" disabled={actionLocked} onClick={() => retryShot(shot)}><RefreshCw size={14}/>{busy === `retry:${shot.id}` ? "正在重试…" : "重试这个镜头"}</button>}
-              {state.status === "done" && !state.needsChoice && <button className="secondary" disabled={actionLocked} onClick={() => regenerateShot(shot)}><Repeat2 size={14}/>{busy === `similar:${shot.id}` ? "正在提交…" : "再生成一个版本"}</button>}
-              {state.status === "waiting" && state.successful.length > 0 && <span className="muted mini">已有可用版本，但你刚请求的新版本仍在生成；完成后会在这里一起比较。</span>}
+              {state.status === "done" && !state.needsChoice && state.chosen?.kind === "video_generation" && <button className="secondary" disabled={actionLocked} onClick={() => regenerateShot(shot)}><Repeat2 size={14}/>{busy === `similar:${shot.id}` ? "正在提交…" : "再生成一个版本"}</button>}
+              {state.status === "done" && !state.needsChoice && state.chosen && state.chosen.kind !== "video_generation" && <span className="muted mini">这个版本来自延长/编辑等后续处理；需要继续加工时进入高级编辑。</span>}
+              {state.status === "waiting" && state.successful.length > 0 && <span className="muted mini">已有可用版本，但新的候选仍在生成；完成后会在这里一起比较。</span>}
+              {state.status === "empty" && <button className="secondary" onClick={onAdvanced}><Settings2 size={14}/>去高级编辑补充这个镜头</button>}
             </div>
           </section>;
         })}
@@ -211,7 +214,8 @@ function projectProgress(project: ProductionProject, jobMap: Map<string, StoredJ
     total: states.length,
     done: states.filter(state => state.status === "done").length,
     waiting: states.filter(state => state.status === "waiting").length,
-    failed: states.filter(state => state.status === "failed" || state.status === "empty").length,
+    failed: states.filter(state => state.status === "failed").length,
+    empty: states.filter(state => state.status === "empty").length,
     choices: states.filter(state => state.needsChoice).length,
     canFinalize: states.length > 0 && states.every(state => state.status === "done" && !state.needsChoice),
   };
@@ -241,13 +245,14 @@ function shotState(shot: ProjectShot, jobMap: Map<string, StoredJob>) {
   if (needsChoice) return { status: "done" as const, label: "请选择版本", detail: "有多个可用版本，预览后选一个即可", successful, chosen: null, chosenOutput: null, needsChoice: true };
   if (chosen && chosenOutput) return { status: "done" as const, label: "已完成", detail: selectedValid ? "已经确定采用版本" : "只有一个成功版本，成片时会自动采用", successful, chosen, chosenOutput, needsChoice: false };
   if (shotJobs.some(job => job.status === "failed")) return { status: "failed" as const, label: "需要重试", detail: "这个镜头没有可用结果，直接点击重试即可", successful, chosen: null, chosenOutput: null, needsChoice: false };
-  return { status: "empty" as const, label: "未开始", detail: "这个镜头还没有生成任务，需要进入高级编辑补充", successful, chosen: null, chosenOutput: null, needsChoice: false };
+  return { status: "empty" as const, label: "未开始", detail: "这个镜头还没有生成任务", successful, chosen: null, chosenOutput: null, needsChoice: false };
 }
 
 function finalizeHint(progress: ReturnType<typeof projectProgress>) {
   if (progress.waiting) return `还有 ${progress.waiting} 个镜头正在生成，完成后即可继续。`;
   if (progress.failed) return `还有 ${progress.failed} 个镜头没有可用结果，请先在上方重试。`;
   if (progress.choices) return `还有 ${progress.choices} 个镜头有多个版本，请先在上方选一个喜欢的。`;
+  if (progress.empty) return `还有 ${progress.empty} 个镜头尚未开始，需要先补充生成任务。`;
   return "镜头尚未全部准备好。";
 }
 
