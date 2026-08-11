@@ -15,7 +15,7 @@ type Props = {
   onCreated: (projectId: string) => Promise<void> | void;
   onAdvanced: () => void;
   onSettings: () => void;
-  generationReady: boolean;
+  generationReady: boolean | null;
   directAvailable: boolean;
 };
 
@@ -45,7 +45,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   const selectedTemplate = templates.find(item => item.id === type)!;
   const directReferenceReady = Boolean(localInput || imageAssetId || referenceUrl.trim());
   const referenceReady = type === "image_video" ? directReferenceReady : Boolean(subjectId) || directReferenceReady;
-  const ready = generationReady && Boolean(goal.trim()) && referenceReady && !busy && !localUploading;
+  const ready = generationReady === true && Boolean(goal.trim()) && referenceReady && !busy && !localUploading;
 
   function clearLocal() {
     if (localInput) discardLocalImage(localInput.ref);
@@ -107,8 +107,8 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   }
 
   async function create() {
-    if (!generationReady) {
-      setError("视频服务还没有配置好。完成一次设置后，就可以从这里直接开始做视频。");
+    if (generationReady !== true) {
+      setError(generationReady === null ? "正在检查视频服务状态，请稍后再点击开始创作。" : "视频服务还没有配置好。完成一次设置后，就可以从这里直接开始做视频。");
       return;
     }
     if (!ready) return;
@@ -150,7 +150,8 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
       <button className="secondary" onClick={onAdvanced}><WandSparkles size={15}/>高级创作</button>
     </div>
 
-    {!generationReady && <div className="error-banner warning">
+    {generationReady === null && <div className="notice"><span>正在检查视频服务状态…</span></div>}
+    {generationReady === false && <div className="error-banner warning">
       <span>第一次使用只差一步：先配置一个视频生成服务。配置完成后，这个页面就是日常创作入口。</span>
       <button className="secondary" onClick={onSettings}>去配置</button>
     </div>}
@@ -237,7 +238,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
       <div className="notice" style={{marginTop:16}}><Sparkles size={16}/><span>系统会自动创建 {duration <= 5 ? 1 : duration <= 10 ? 2 : duration <= 15 ? 3 : 4} 个镜头并提交生成。每个镜头独立执行，一个失败不会拖垮其他镜头。</span></div>
 
       <div className="inline-actions" style={{marginTop:16}}>
-        <button className="primary" disabled={!ready} onClick={create}><Play size={15}/>{busy ? "正在建立作品并提交…" : localUploading ? "正在准备图片…" : "开始创作"}</button>
+        <button className="primary" disabled={!ready} onClick={create}><Play size={15}/>{busy ? "正在建立作品并提交…" : localUploading ? "正在准备图片…" : generationReady === null ? "正在检查服务…" : "开始创作"}</button>
         <span className="muted mini">常用设置已经自动处理，需要更细控制时再进入高级创作。</span>
       </div>
       {!referenceReady && <div className="muted mini" style={{marginTop:8}}>先选择一个主体，或直接提供一张图片。</div>}
