@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Image as ImageIcon, Images, Send, Sparkles, Waypoints } from "lucide-react";
+import { HelpCircle, Image as ImageIcon, Images, Send, Sparkles, WandSparkles, Waypoints } from "lucide-react";
 import type { StoredAsset } from "@/lib/types";
+import { VIDEO_RECIPES, getVideoRecipe, recipeSupportsMode, type VideoRecipeId } from "@/lib/video/recipes";
 
 type Mode = "text_to_video" | "image_to_video" | "first_last_frame" | "reference_to_video";
 type LocalInput = { ref: string; name: string; size: number };
@@ -22,6 +23,7 @@ const modeOptions: { id: Mode; label: string; desc: string; icon: any }[] = [
 
 export default function SimpleVideoGenerator({ assets, onSubmit, submitting, directAvailable }: Props) {
   const [mode, setMode] = useState<Mode>("text_to_video");
+  const [recipeId, setRecipeId] = useState<VideoRecipeId>("general");
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [resolution, setResolution] = useState<"720P" | "1080P">("1080P");
@@ -38,7 +40,11 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
   const [referenceLocal, setReferenceLocal] = useState<LocalInput[]>([]);
   const [localUploading, setLocalUploading] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [enhancing, setEnhancing] = useState(false);
+  const [enhanceNote, setEnhanceNote] = useState("");
+  const [enhanceError, setEnhanceError] = useState("");
 
+  const recipe = useMemo(() => getVideoRecipe(recipeId), [recipeId]);
   const imageAssets = useMemo(() => assets.filter(asset => asset.mediaType === "image"), [assets]);
   const referenceAssets = useMemo(() => assets.filter(asset => asset.mediaType === "image" || asset.mediaType === "video"), [assets]);
   const manualReferenceCount = referenceUrls.split(/\n/).map(value => value.trim()).filter(Boolean).length;
@@ -107,6 +113,19 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
     setReferenceUrls("");
     setReferenceLocal([]);
     setLocalError("");
+    setEnhanceNote("");
+    setEnhanceError("");
+    if (!recipeSupportsMode(recipeId, next)) setRecipeId("general");
+  }
+
+  function chooseRecipe(next: VideoRecipeId) {
+    if (!recipeSupportsMode(next, mode)) return;
+    const selected = getVideoRecipe(next);
+    setRecipeId(next);
+    setAspectRatio(selected.defaultAspectRatio);
+    setDuration(selected.defaultDuration);
+    setEnhanceNote("");
+    setEnhanceError("");
   }
 
   function toggleReference(id: string) {
@@ -135,11 +154,40 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
     discardLocalImage(item.ref);
   }
 
+  async function enhancePrompt() {
+    if (!prompt.trim() || enhancing) return;
+    setEnhancing(true); setEnhanceError(""); setEnhanceNote("");
+    try {
+      const response = await fetch("/api/video/prompt-enhance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          recipeId,
+          jobType: mode,
+          aspectRatio,
+          duration: effectiveDuration,
+          referenceCount: medias.length,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "提示词增强失败");
+      setPrompt(body.prompt || prompt);
+      setEnhanceNote(body.engine === "qwen-plus"
+        ? "已使用百炼 Qwen 整理提示词。只修改文字表达，没有改素材、生成方式或视频引擎。"
+        : body.note || "已按生成预设整理提示词。只修改文字表达。"
+      );
+    } catch (error) {
+      setEnhanceError(error instanceof Error ? error.message : String(error));
+    } finally { setEnhancing(false); }
+  }
+
   async function run() {
     if (!ready) return;
     await onSubmit("video_generation", {
       title,
       prompt: prompt.trim(),
+      recipeId,
       jobType: mode,
       medias,
       aspectRatio,
@@ -155,14 +203,14 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
       <div>
         <div className="eyebrow">AUTO VIDEO GENERATION</div>
         <h2>告诉我你要什么视频</h2>
-        <p>不用选模型，也不用理解技术参数。Wanke 会根据素材和任务自动选择最合适的生成能力。</p>
+        <p>先选生成方式，再选创作预设。预设负责“怎么拍”，系统路由负责“用哪个 Provider / 模型执行”，两者互不混淆。</p>
       </div>
     </div>
 
     <section className="panel">
       <div className="form-stack">
         <div className="field">
-          <span className="field-label">你准备怎么生成？<small>选最接近你手头素材的一项</small></span>
+          <span className="field-label">1. 你准备怎么生成？<small>这是素材边界：决定需要几张图、能不能用视频参考</small></span>
           <div className="asset-chips">
             {modeOptions.map(item => {
               const Icon = item.icon;
@@ -175,9 +223,39 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
         </div>
 
         <div className="field">
-          <span className="field-label">你想看到什么？<small>主体 + 动作 + 环境 + 镜头，大白话就可以</small></span>
-          <textarea className="big-text" value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="例如：一个穿黑色风衣的男人在东京雨夜街头向镜头走来，路面有霓虹倒影，镜头缓慢后退，电影感，人物动作自然。" />
+          <span className="field-label">2. 你更接近哪类视频？<small>生成预设只决定创作策略与默认参数，不负责切换百炼 / 万镜一刻</small></span>
+          <div className="asset-chips">
+            {VIDEO_RECIPES.map(item => {
+              const supported = recipeSupportsMode(item.id, mode);
+              return <button type="button" key={item.id} disabled={!supported} className={recipeId === item.id ? "selected" : ""} onClick={() => chooseRecipe(item.id)} title={supported ? item.summary : `当前“${modeOptions.find(option => option.id === mode)?.label}”不适用此预设`}>
+                {item.label}
+              </button>;
+            })}
+          </div>
+          <div className="muted mini"><strong>{recipe.label}</strong>：{recipe.summary}</div>
+          <div className="muted mini">适合：{recipe.useWhen}</div>
+          <div className="muted mini">不适合：{recipe.notFor}</div>
         </div>
+
+        <div className="field">
+          <span className="field-label">3. 你想看到什么？<small>先用大白话写；智能增强只整理提示词，不会改变素材和任务类型</small></span>
+          <textarea className="big-text" value={prompt} onChange={event => {setPrompt(event.target.value);setEnhanceNote("");setEnhanceError("")}} placeholder="例如：一个穿黑色风衣的男人在东京雨夜街头向镜头走来，路面有霓虹倒影，镜头缓慢后退，电影感，人物动作自然。" />
+          <div className="inline-actions">
+            <button type="button" className="secondary" disabled={enhancing || !prompt.trim()} onClick={enhancePrompt}><WandSparkles size={15}/>{enhancing ? "正在整理…" : "智能增强提示词"}</button>
+            <span className="muted mini">有百炼 API Key + Workspace 时使用 Qwen；不可用时明确回退为本地预设整理。</span>
+          </div>
+          {enhanceNote && <div className="mini success-text">{enhanceNote}</div>}
+          {enhanceError && <div className="mini error-text">{enhanceError}</div>}
+        </div>
+
+        <details className="advanced">
+          <summary><HelpCircle size={15}/> 生成预设与智能增强怎么用？</summary>
+          <div className="advanced-body">
+            <div className="muted mini">① <strong>生成方式</strong>决定素材规则；② <strong>生成预设</strong>决定稳定的创作策略和默认画幅/时长；③ <strong>智能增强</strong>只是把你的文字整理得更适合视频模型；④ 最后由设置中的 <strong>自动 / 百炼 / 万镜一刻</strong>决定实际执行 Provider。</div>
+            <div className="field"><span className="field-label">当前预设演示</span><div className="muted mini">原始输入：{recipe.demoInput}</div><div className="muted mini">整理后的表达示例：{recipe.demoOutput}</div></div>
+            <div className="muted mini">边界规则：智能增强不会替你增加未提供的品牌、人物身份、型号或剧情；生成预设也不会绕过当前生成方式的素材限制。</div>
+          </div>
+        </details>
 
         {mode === "image_to_video" && <ImagePicker label="选择要动起来的图片" assets={imageAssets} assetId={firstAssetId} setAssetId={setFirstAssetId} url={firstUrl} setUrl={setFirstUrl} local={firstLocal} setLocal={setFirstLocal} directAvailable={directAvailable} />}
 
@@ -220,7 +298,7 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
             <Send size={16} />{submitting ? "正在提交…" : localUploading ? "正在准备图片…" : "开始生成"}
           </button>
           {!ready && <span className="muted mini">填写描述并补齐当前模式需要的素材后即可生成</span>}
-          {ready && <span className="muted mini">模型、路由和兼容处理由系统自动完成</span>}
+          {ready && <span className="muted mini">当前：{recipe.label} · 模型和 Provider 路由由系统设置决定</span>}
         </div>
       </div>
     </section>
