@@ -1,6 +1,7 @@
 import "server-only";
 import { getAsset } from "@/lib/repository";
 import { getSubjectCard } from "@/lib/subjects";
+import { isLocalInputRef } from "@/lib/video/local-input";
 
 export type QuickCreationType = "product_ad" | "person_short" | "image_video";
 export type QuickPlatform = "douyin" | "xiaohongshu" | "youtube" | "landscape";
@@ -13,6 +14,8 @@ export type QuickCreationInput = {
   totalDuration: 5 | 10 | 15 | 30;
   subjectId?: string | null;
   imageAssetId?: string | null;
+  referenceUrl?: string | null;
+  localInputRef?: string | null;
 };
 
 export type QuickShotPlan = {
@@ -25,6 +28,12 @@ export type QuickShotPlan = {
   aspectRatio: "9:16" | "16:9";
   medias: Array<{ type: "image"; url: string; mediaId: string }>;
   subjectCardIds: string[];
+};
+
+type ResolvedReference = {
+  medias: Array<{ type: "image"; url: string; mediaId: string }>;
+  subjectCardIds: string[];
+  source: "subject" | "asset" | "url" | "local";
 };
 
 export function buildQuickCreationPlan(input: QuickCreationInput) {
@@ -56,29 +65,63 @@ export function buildQuickCreationPlan(input: QuickCreationInput) {
     projectName: cleanName,
     projectDescription: `${quickTypeLabel(input.type)} · ${platformLabel(input.platform)} · 目标 ${input.totalDuration} 秒\n${cleanGoal}`,
     shots,
+    referenceSource: reference.source,
     summary: `${quickTypeLabel(input.type)} · ${shots.length} 个镜头 · 目标 ${input.totalDuration} 秒 · ${aspectRatio} · ${platformLabel(input.platform)}`,
   };
 }
 
-function resolveReference(input: QuickCreationInput) {
-  if (input.type === "image_video") {
-    const asset = input.imageAssetId ? getAsset(input.imageAssetId) : null;
-    if (!asset) throw new Error("图片变视频需要先选择一张图片素材");
-    if (asset.mediaType !== "image") throw new Error("图片变视频只能选择图片素材");
-    return { medias: [mediaFromAsset(asset)], subjectCardIds: [] as string[] };
+function resolveReference(input: QuickCreationInput): ResolvedReference {
+  if (input.subjectId) {
+    if (input.type === "image_video") throw new Error("图片变视频不使用人物或产品主体，请直接选择一张图片");
+    const card = getSubjectCard(input.subjectId);
+    if (!card) throw new Error("所选主体已经不存在，请重新选择");
+    if (input.type === "product_ad" && card.subjectType !== "product") throw new Error("产品广告只能选择产品主体");
+    if (input.type === "person_short" && card.subjectType !== "person") throw new Error("人物短视频只能选择人物主体");
+    const assets = card.assetIds.map(id => getAsset(id)).filter(Boolean).slice(0, 5);
+    if (!assets.length) throw new Error("所选主体没有可用参考图片，请换一个主体或本次直接使用一张图片");
+    if (assets.some(asset => asset!.mediaType !== "image")) throw new Error("所选主体包含无效参考素材，请换一个主体或本次直接使用一张图片");
+    return {
+      medias: assets.map(asset => mediaFromAsset(asset!)),
+      subjectCardIds: [card.id],
+      source: "subject",
+    };
   }
 
-  const card = input.subjectId ? getSubjectCard(input.subjectId) : null;
-  if (!card) throw new Error(input.type === "product_ad" ? "产品广告需要先选择一个产品主体" : "人物短视频需要先选择一个人物主体");
-  if (input.type === "product_ad" && card.subjectType !== "product") throw new Error("产品广告只能选择产品主体卡");
-  if (input.type === "person_short" && card.subjectType !== "person") throw new Error("人物短视频只能选择人物主体卡");
-  const assets = card.assetIds.map(id => getAsset(id)).filter(Boolean).slice(0, 5);
-  if (!assets.length) throw new Error("所选主体卡没有可用参考图片");
-  if (assets.some(asset => asset!.mediaType !== "image")) throw new Error("主体卡包含非图片素材，请先修复主体卡");
-  return {
-    medias: assets.map(asset => mediaFromAsset(asset!)),
-    subjectCardIds: [card.id],
-  };
+  return resolveSingleImage(input);
+}
+
+function resolveSingleImage(input: QuickCreationInput): ResolvedReference {
+  if (input.localInputRef) {
+    if (!isLocalInputRef(input.localInputRef)) throw new Error("本次上传的图片引用无效，请重新选择图片");
+    return {
+      medias: [{ type: "image", url: input.localInputRef, mediaId: "" }],
+      subjectCardIds: [],
+      source: "local",
+    };
+  }
+
+  if (input.imageAssetId) {
+    const asset = getAsset(input.imageAssetId);
+    if (!asset) throw new Error("所选图片素材已经不存在，请重新选择");
+    if (asset.mediaType !== "image") throw new Error("快速创作这里只接受图片素材");
+    return { medias: [mediaFromAsset(asset)], subjectCardIds: [], source: "asset" };
+  }
+
+  const url = String(input.referenceUrl || "").trim();
+  if (url) {
+    let parsed: URL;
+    try { parsed = new URL(url); } catch { throw new Error("图片链接无效，请使用可公开访问的 HTTP/HTTPS 图片直链"); }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("图片链接必须是 HTTP/HTTPS 公网地址");
+    return {
+      medias: [{ type: "image", url, mediaId: "" }],
+      subjectCardIds: [],
+      source: "url",
+    };
+  }
+
+  if (input.type === "product_ad") throw new Error("请选择一个产品，或本次直接提供一张产品图片");
+  if (input.type === "person_short") throw new Error("请选择一个人物，或本次直接提供一张人物图片");
+  throw new Error("请选择、上传或粘贴一张要动起来的图片");
 }
 
 function mediaFromAsset(asset: NonNullable<ReturnType<typeof getAsset>>) {
