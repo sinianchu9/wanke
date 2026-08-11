@@ -71,7 +71,12 @@ export function listActiveJobs(limit = 20): StoredJob[] {
   return candidates.filter(job => {
     const ageMs = Math.max(0, now - new Date(job.createdAt).getTime());
     const sinceUpdateMs = Math.max(0, now - new Date(job.updatedAt).getTime());
-    const minInterval = ageMs < 60_000 ? 6_000 : ageMs < 5 * 60_000 ? 15_000 : 30_000;
+    const isModelStudio = job.details?.engine === "modelstudio";
+    // Alibaba recommends roughly 15s polling for async video jobs. Keep the faster 6s cadence
+    // only for legacy Yike jobs, which already used that behavior before the provider split.
+    const minInterval = isModelStudio
+      ? (ageMs < 5 * 60_000 ? 15_000 : 30_000)
+      : (ageMs < 60_000 ? 6_000 : ageMs < 5 * 60_000 ? 15_000 : 30_000);
     return sinceUpdateMs >= minInterval;
   }).slice(0, limit);
 }
