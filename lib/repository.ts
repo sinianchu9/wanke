@@ -77,16 +77,20 @@ export function listJobs(limit = 100): StoredJob[] {
 
 export function listActiveJobs(limit = 20): StoredJob[] {
   const now = Date.now();
-  const candidates = (db.prepare("SELECT * FROM jobs WHERE status IN ('queued','running') AND provider_job_id IS NOT NULL ORDER BY updated_at ASC LIMIT 100").all() as any[]).map(rowToJob);
+  // A provider can temporarily introduce/return a status Wanke does not recognize yet.
+  // Keep pollable `unknown` jobs in the recovery loop instead of silently dropping them.
+  const candidates = (db.prepare("SELECT * FROM jobs WHERE status IN ('queued','running','unknown') AND provider_job_id IS NOT NULL ORDER BY updated_at ASC LIMIT 100").all() as any[]).map(rowToJob);
   return candidates.filter(job => {
+    if (job.details?.pollable === false) return false;
     const ageMs = Math.max(0, now - new Date(job.createdAt).getTime());
     const sinceUpdateMs = Math.max(0, now - new Date(job.updatedAt).getTime());
     const isModelStudio = job.details?.engine === "modelstudio";
     // Alibaba recommends roughly 15s polling for async video jobs. Keep the faster 6s cadence
     // only for legacy Yike jobs, which already used that behavior before the provider split.
-    const minInterval = isModelStudio
+    let minInterval = isModelStudio
       ? (ageMs < 5 * 60_000 ? 15_000 : 30_000)
       : (ageMs < 60_000 ? 6_000 : ageMs < 5 * 60_000 ? 15_000 : 30_000);
+    if (job.status === "unknown") minInterval = Math.max(minInterval, 30_000);
     return sinceUpdateMs >= minInterval;
   }).slice(0, limit);
 }
@@ -135,7 +139,19 @@ function mergeOutputMetadata(previous: ResultMedia[], next: ResultMedia[]) {
 }
 
 export function deleteJob(id: string) {
-  return db.prepare("DELETE FROM jobs WHERE id=?").run(id).changes > 0;
+  const membership = db.prepare("SELECT shot_id FROM shot_jobs WHERE job_id=?").get(id) as { shot_id?: string } | undefined;
+  const now = new Date().toISOString();
+  const transaction = db.transaction(() => {
+    const changed = db.prepare("DELETE FROM jobs WHERE id=?").run(id).changes > 0;
+    if (changed && membership?.shot_id) {
+      // FK cascades remove shot_jobs and clear selected_job_id. Touch the owning Shot/Project
+      // as well so stale-final detection and Project ordering reflect the real relationship change.
+      db.prepare("UPDATE shots SET updated_at=? WHERE id=?").run(now, membership.shot_id);
+      db.prepare("UPDATE projects SET updated_at=? WHERE id=(SELECT project_id FROM shots WHERE id=?)").run(now, membership.shot_id);
+    }
+    return changed;
+  });
+  return transaction();
 }
 
 export function requestReferenceExists(value: string) {

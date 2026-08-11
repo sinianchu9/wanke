@@ -66,7 +66,7 @@ export default function Studio() {
   }, [projects, activeShotId]);
 
   useEffect(() => {
-    const hasActive = jobs.some(j => ["queued", "running"].includes(j.status) && j.providerJobId);
+    const hasActive = jobs.some(j => ["queued", "running", "unknown"].includes(j.status) && j.providerJobId && j.details?.pollable !== false);
     if (!hasActive) return;
     let inFlight = false;
     const tick = async () => {
@@ -88,7 +88,7 @@ export default function Studio() {
   }, [jobs]);
 
   const stats = useMemo(() => ({
-    active: jobs.filter(j => ["queued", "running"].includes(j.status)).length,
+    active: jobs.filter(j => ["queued", "running", "unknown"].includes(j.status) && j.details?.pollable !== false).length,
     success: jobs.filter(j => j.status === "succeeded").length,
     failed: jobs.filter(j => j.status === "failed").length,
     assets: assets.length,

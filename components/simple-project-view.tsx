@@ -232,7 +232,7 @@ function projectProgress(project: ProductionProject, jobMap: Map<string, StoredJ
 function shotState(shot: ProjectShot, jobMap: Map<string, StoredJob>) {
   const shotJobs = shot.jobIds.map(id => jobMap.get(id)).filter(Boolean) as StoredJob[];
   const successful = shotJobs.filter(job => job.status === "succeeded" && firstVideoOutput(job.outputs)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const active = shotJobs.filter(job => job.status === "running" || job.status === "queued");
+  const active = shotJobs.filter(job => ["running", "queued", "unknown"].includes(job.status) && job.details?.pollable !== false);
   const failed = shotJobs.filter(job => job.status === "failed").sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const selected = shot.selectedJobId ? jobMap.get(shot.selectedJobId) : null;
   const selectedValid = selected && selected.status === "succeeded" && firstVideoOutput(selected.outputs) ? selected : null;
@@ -241,10 +241,13 @@ function shotState(shot: ProjectShot, jobMap: Map<string, StoredJob>) {
   const chosenOutput = chosen ? firstVideoOutput(chosen.outputs) : null;
 
   if (active.length > 0) {
+    const confirming = active.some(job => job.status === "unknown");
     return {
       status: "waiting" as const,
-      label: successful.length ? "新版本生成中" : "生成中",
-      detail: successful.length ? "已有可用版本，新的候选完成后再一起比较" : "系统正在生成这个镜头",
+      label: successful.length ? (confirming ? "新版本状态确认中" : "新版本生成中") : (confirming ? "状态确认中" : "生成中"),
+      detail: successful.length
+        ? "已有可用版本，新的候选状态确认完成后再一起比较"
+        : confirming ? "远端返回了暂未识别的状态，系统会继续查询，不会丢失任务" : "系统正在生成这个镜头",
       successful,
       chosen,
       chosenOutput,
@@ -258,7 +261,7 @@ function shotState(shot: ProjectShot, jobMap: Map<string, StoredJob>) {
 }
 
 function finalizeHint(progress: ReturnType<typeof projectProgress>) {
-  if (progress.waiting) return `还有 ${progress.waiting} 个镜头正在生成，完成后即可继续。`;
+  if (progress.waiting) return `还有 ${progress.waiting} 个镜头正在生成或确认状态，完成后即可继续。`;
   if (progress.failed) return `还有 ${progress.failed} 个镜头没有可用结果，请先在上方重试。`;
   if (progress.choices) return `还有 ${progress.choices} 个镜头有多个版本，请先在上方选一个喜欢的。`;
   if (progress.empty) return `还有 ${progress.empty} 个镜头尚未开始，需要先补充生成任务。`;

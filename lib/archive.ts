@@ -1,6 +1,7 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { pipeline } from "node:stream/promises";
 import { Readable, Transform } from "node:stream";
 import type { ResultMedia, StoredJob } from "@/lib/types";
@@ -20,19 +21,26 @@ export async function archiveJobOutput(job: StoredJob, index: number) {
   if (!output?.outputUrl) throw new Error("该结果没有远端 URL");
   if (output.archivedFile) return output;
 
-  const response = await fetch(output.outputUrl, { cache: "no-store", redirect: "follow", signal: AbortSignal.timeout(Math.max(60_000, Number(process.env.WANKE_ARCHIVE_TIMEOUT_MS || 1_800_000))) });
+  const response = await fetch(output.outputUrl, {
+    cache: "no-store",
+    redirect: "follow",
+    signal: AbortSignal.timeout(archiveTimeoutMs()),
+  });
   if (!response.ok || !response.body) throw new Error(`下载结果失败：HTTP ${response.status}`);
 
-  const maxBytes = Math.max(10, Number(process.env.WANKE_MAX_ARCHIVE_MB || 2048)) * 1024 * 1024;
+  const maxBytes = archiveMaxBytes();
   const declared = Number(response.headers.get("content-length") || 0);
-  if (declared > maxBytes) throw new Error(`文件超过归档上限 ${Math.round(maxBytes / 1024 / 1024)} MB`);
+  if (Number.isFinite(declared) && declared > maxBytes) throw new Error(`文件超过归档上限 ${Math.round(maxBytes / 1024 / 1024)} MB`);
 
   const ext = extensionFor(output, response.headers.get("content-type"));
   const fileName = `${job.id}-${index + 1}${ext}`;
   const dir = outputDirectory();
   fs.mkdirSync(dir, { recursive: true });
   const dest = archivedFilePath(fileName);
-  const temp = `${dest}.part-${process.pid}`;
+  // Auto-archive and an explicit “generate final video” request can legitimately download
+  // the same provider result at the same time. Use a unique temp file so one request does
+  // not fail merely because another request in the same Node process is still writing.
+  const temp = `${dest}.part-${process.pid}-${randomUUID()}`;
   let received = 0;
   const limit = new Transform({
     transform(chunk, _encoding, callback) {
@@ -44,7 +52,16 @@ export async function archiveJobOutput(job: StoredJob, index: number) {
 
   try {
     await pipeline(Readable.fromWeb(response.body as any), limit, fs.createWriteStream(temp, { flags: "wx" }));
-    fs.renameSync(temp, dest);
+    try {
+      fs.renameSync(temp, dest);
+    } catch (error) {
+      // On platforms where rename does not replace an existing destination, another
+      // concurrent archive may already have completed successfully. A non-empty final
+      // file is sufficient; otherwise keep the original error.
+      const existing = safeStat(dest);
+      if (!existing?.isFile() || existing.size <= 0) throw error;
+      try { fs.unlinkSync(temp); } catch {}
+    }
   } catch (error) {
     try { fs.unlinkSync(temp); } catch {}
     throw error;
@@ -67,6 +84,22 @@ export function contentTypeFor(name: string) {
     ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",
     ".srt": "application/x-subrip", ".vtt": "text/vtt", ".json": "application/json; charset=utf-8",
   } as Record<string, string>)[ext] || "application/octet-stream";
+}
+
+function archiveTimeoutMs() {
+  const configured = Number(process.env.WANKE_ARCHIVE_TIMEOUT_MS || 1_800_000);
+  if (!Number.isFinite(configured)) return 1_800_000;
+  return Math.min(24 * 60 * 60 * 1000, Math.max(60_000, Math.round(configured)));
+}
+
+function archiveMaxBytes() {
+  const configuredMb = Number(process.env.WANKE_MAX_ARCHIVE_MB || 2048);
+  const mb = Number.isFinite(configuredMb) ? Math.min(20_480, Math.max(10, configuredMb)) : 2048;
+  return Math.round(mb * 1024 * 1024);
+}
+
+function safeStat(filePath: string) {
+  try { return fs.statSync(filePath); } catch { return null; }
 }
 
 function extensionFor(output: ResultMedia, contentType: string | null) {
