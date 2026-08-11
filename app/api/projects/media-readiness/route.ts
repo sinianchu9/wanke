@@ -26,29 +26,26 @@ export async function POST(request: Request) {
       });
     }
 
-    const shots = [] as any[];
-    for (const [index, shot] of project.shots.entries()) {
+    const shots = await mapLimit(project.shots, 3, async (shot, index) => {
       if (!shot.selectedJobId) {
-        shots.push({ shotId: shot.id, shotName: shot.name, index: index + 1, ready: false, reason: "这个镜头还没有采用版本" });
-        continue;
+        return { shotId: shot.id, shotName: shot.name, index: index + 1, ready: false, reason: "这个镜头还没有采用版本" };
       }
       const job = getJob(shot.selectedJobId);
       const output = job ? firstVideoOutput(job.outputs) : null;
       if (!job || !output) {
-        shots.push({ shotId: shot.id, shotName: shot.name, index: index + 1, jobId: shot.selectedJobId, ready: false, reason: "采用任务不存在或没有视频输出" });
-        continue;
+        return { shotId: shot.id, shotName: shot.name, index: index + 1, jobId: shot.selectedJobId, ready: false, reason: "采用任务不存在或没有视频输出" };
       }
       try {
         const probe = await probeResultMedia(output);
-        shots.push({ shotId: shot.id, shotName: shot.name, index: index + 1, jobId: job.id, jobTitle: job.title, ready: true, probe, profileKey: mediaProfileKey(probe) });
+        return { shotId: shot.id, shotName: shot.name, index: index + 1, jobId: job.id, jobTitle: job.title, ready: true, probe, profileKey: mediaProfileKey(probe) };
       } catch (error) {
-        shots.push({ shotId: shot.id, shotName: shot.name, index: index + 1, jobId: job.id, jobTitle: job.title, ready: false, reason: describeError(error) });
+        return { shotId: shot.id, shotName: shot.name, index: index + 1, jobId: job.id, jobTitle: job.title, ready: false, reason: describeError(error) };
       }
-    }
+    });
 
-    const readyShots = shots.filter(item => item.ready && item.profileKey);
-    const profiles = new Set(readyShots.map(item => item.profileKey));
-    const complete = project.shots.length > 0 && shots.length === project.shots.length && shots.every(item => item.ready);
+    const readyShots = shots.filter((item: any) => item.ready && item.profileKey);
+    const profiles = new Set(readyShots.map((item: any) => item.profileKey));
+    const complete = project.shots.length > 0 && shots.length === project.shots.length && shots.every((item: any) => item.ready);
     const profilesAligned = complete && profiles.size === 1;
 
     return NextResponse.json({
@@ -75,4 +72,18 @@ export async function POST(request: Request) {
 
 function firstVideoOutput(outputs: ResultMedia[]) {
   return outputs.find(output => output.kind === "video") || outputs.find(output => /\.(mp4|mov|webm)(\?|$)/i.test(String(output.outputUrl || ""))) || null;
+}
+
+async function mapLimit<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  async function run() {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => run()));
+  return results;
 }
