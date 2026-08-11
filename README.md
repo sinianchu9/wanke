@@ -183,6 +183,21 @@ docker compose up -d --build
 
 SQLite、本地输入和结果归档都位于 `./data`，Docker Compose 已挂载为持久卷。
 
+## 验证状态
+
+当前 Phase 1 已完成代码级 Bug 审查和官方 API 参数核对。由于仓库当前没有 PR GitHub Actions workflow，且本执行环境无法从 `github.com` 拉取分支，本轮不能把 `typecheck/build` 标记成已通过。
+
+合并前应在实际运行环境执行：
+
+```bash
+npm install
+npm run typecheck
+npm run build
+npm run doctor
+```
+
+然后使用实际新加坡百炼 Key 对四种生成入口完成最小 smoke test。真实 Key 只放 `.env.local`，不要提交或分享。
+
 ## 安全
 
 真实 API Key / AccessKey **只能放服务端 `.env.local`**。不要写入：
