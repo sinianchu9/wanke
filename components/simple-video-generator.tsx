@@ -41,6 +41,8 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
 
   const imageAssets = useMemo(() => assets.filter(asset => asset.mediaType === "image"), [assets]);
   const referenceAssets = useMemo(() => assets.filter(asset => asset.mediaType === "image" || asset.mediaType === "video"), [assets]);
+  const manualReferenceCount = referenceUrls.split(/\n/).map(value => value.trim()).filter(Boolean).length;
+  const referenceCount = referenceLocal.length + referenceIds.length + manualReferenceCount;
 
   function storedMedia(assetId: string) {
     const asset = assets.find(item => item.id === assetId);
@@ -83,21 +85,23 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
     const local = referenceLocal.map(localMedia).filter(Boolean);
     const picked = referenceIds.map(storedMedia).filter(Boolean);
     const manual = referenceUrls.split(/\n/).map(value => manualMedia(value)).filter(Boolean);
-    return [...local, ...picked, ...manual].slice(0, 5);
+    return [...local, ...picked, ...manual];
   }
 
   const medias = buildMedias();
   const hasVideoReference = mode === "reference_to_video" && medias.some((media: any) => media?.type === "video");
+  const tooManyReferences = mode === "reference_to_video" && medias.length > 5;
   const durationOptions = hasVideoReference ? ["5", "10"] : ["5", "10", "15"];
   const effectiveDuration = hasVideoReference && duration > 10 ? 10 : duration;
-  const ready = Boolean(prompt.trim()) && !localUploading && (
+  const ready = Boolean(prompt.trim()) && !localUploading && !tooManyReferences && (
     mode === "text_to_video" ||
     (mode === "image_to_video" && medias.length === 1) ||
     (mode === "first_last_frame" && medias.length === 2) ||
-    (mode === "reference_to_video" && medias.length >= 1)
+    (mode === "reference_to_video" && medias.length >= 1 && medias.length <= 5)
   );
 
   function changeMode(next: Mode) {
+    if (referenceLocal.length) referenceLocal.forEach(item => discardLocalImage(item.ref));
     setMode(next);
     setReferenceIds([]);
     setReferenceUrls("");
@@ -108,22 +112,27 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
   function toggleReference(id: string) {
     setReferenceIds(current => current.includes(id)
       ? current.filter(item => item !== id)
-      : referenceLocal.length + current.length >= 5 ? current : [...current, id]);
+      : referenceCount >= 5 ? current : [...current, id]);
   }
 
   async function addReferenceFiles(files: FileList | null) {
     if (!files?.length || !directAvailable) return;
-    const remaining = Math.max(0, 5 - referenceIds.length - referenceLocal.length);
+    const remaining = Math.max(0, 5 - referenceCount);
     if (!remaining) return;
     setLocalUploading(true); setLocalError("");
     try {
       const selected = Array.from(files).slice(0, remaining);
       const uploaded = [] as LocalInput[];
       for (const file of selected) uploaded.push(await uploadLocalImage(file));
-      setReferenceLocal(current => [...current, ...uploaded].slice(0, 5));
+      setReferenceLocal(current => [...current, ...uploaded]);
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : String(error));
     } finally { setLocalUploading(false); }
+  }
+
+  function removeReferenceLocal(item: LocalInput) {
+    setReferenceLocal(current => current.filter(x => x.ref !== item.ref));
+    discardLocalImage(item.ref);
   }
 
   async function run() {
@@ -179,14 +188,16 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
 
         {mode === "reference_to_video" && <div className="field">
           <span className="field-label">选择参考素材<small>人物、产品、场景都可以；最多 5 个，系统自动判断图片或视频参考</small></span>
-          {directAvailable && <div><input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={localUploading || referenceLocal.length + referenceIds.length >= 5} onChange={event => { addReferenceFiles(event.target.files); event.currentTarget.value=""; }} /><div className="muted mini">{localUploading?"正在准备本地图片…":"可直接选择本地 JPG / PNG / WEBP，不需要先上传素材库"}</div></div>}
-          {referenceLocal.length > 0 && <div className="asset-chips">{referenceLocal.map(item=><button type="button" className="selected" key={item.ref} onClick={()=>setReferenceLocal(current=>current.filter(x=>x.ref!==item.ref))}>🖼️ {item.name} ×</button>)}</div>}
+          {directAvailable && <div><input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={localUploading || referenceCount >= 5} onChange={event => { addReferenceFiles(event.target.files); event.currentTarget.value=""; }} /><div className="muted mini">{localUploading?"正在准备本地图片…":"可直接选择本地 JPG / PNG / WEBP，不需要先上传素材库"}</div></div>}
+          {referenceLocal.length > 0 && <div className="asset-chips">{referenceLocal.map(item=><button type="button" className="selected" key={item.ref} onClick={()=>removeReferenceLocal(item)}>🖼️ {item.name} ×</button>)}</div>}
           {referenceAssets.length > 0 && <div className="asset-chips">
             {referenceAssets.map(asset => <button type="button" key={asset.id} className={referenceIds.includes(asset.id) ? "selected" : ""} onClick={() => toggleReference(asset.id)}>
               {asset.mediaType === "video" ? "🎬" : "🖼️"} {asset.name}
             </button>)}
           </div>}
           <textarea value={referenceUrls} onChange={event => setReferenceUrls(event.target.value)} placeholder="也可以粘贴公网图片或 MP4/MOV 视频 URL，每行一个" />
+          <div className="muted mini">已选择 {Math.min(referenceCount, 99)} / 5 个参考素材</div>
+          {tooManyReferences && <div className="mini error-text">参考素材最多 5 个，请删除多余的素材或 URL 后再生成。</div>}
           {hasVideoReference && <div className="muted mini">检测到视频参考：系统已自动使用支持视频参考的生成路线，并把最长时长限制为 10 秒。</div>}
         </div>}
 
@@ -233,18 +244,29 @@ function ImagePicker({ label, assets, assetId, setAssetId, url, setUrl, local, s
 
   async function chooseLocal(file: File | undefined) {
     if (!file) return;
-    setUploading(true); setError("");
+    const previous = local;
+    setUploading(true); setError(""); setAssetId(""); setUrl(""); setLocal(null);
     try {
       const input = await uploadLocalImage(file);
-      setLocal(input); setAssetId(""); setUrl("");
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setUploading(false); }
+      if (previous) discardLocalImage(previous.ref);
+      setLocal(input);
+    } catch (e) {
+      setLocal(previous);
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setUploading(false); }
+  }
+
+  function removeLocal() {
+    if (!local) return;
+    const ref = local.ref;
+    setLocal(null);
+    discardLocalImage(ref);
   }
 
   return <div className="field">
     <span className="field-label">{label}<small>{directAvailable ? "直接选本地图片，或使用素材库 / 公网 URL" : compact ? "素材库或公网 URL" : "优先从素材库选，也可以粘贴公网图片 URL"}</small></span>
     {directAvailable && <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={event=>{chooseLocal(event.target.files?.[0]);event.currentTarget.value=""}} />}
-    {local && <div className="asset-chips"><button type="button" className="selected" onClick={()=>setLocal(null)}>🖼️ {local.name} ×</button></div>}
+    {local && <div className="asset-chips"><button type="button" className="selected" onClick={removeLocal}>🖼️ {local.name} ×</button></div>}
     {!local && <select value={assetId} onChange={event => {setAssetId(event.target.value); if(event.target.value)setLocal(null)}}>
       <option value="">— 从素材库选择 —</option>
       {assets.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
@@ -262,6 +284,10 @@ async function uploadLocalImage(file: File): Promise<LocalInput> {
   const body = await response.json();
   if (!response.ok) throw new Error(body.error || "本地图片准备失败");
   return body.input as LocalInput;
+}
+
+function discardLocalImage(ref: string) {
+  fetch(`/api/video-inputs?ref=${encodeURIComponent(ref)}`, { method: "DELETE" }).catch(() => undefined);
 }
 
 function SimpleSelect({ label, value, onChange, options, suffix = "" }: { label: string; value: string; onChange: (value: string) => void; options: string[]; suffix?: string }) {
