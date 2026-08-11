@@ -75,8 +75,15 @@ export async function prepareJobInput(kind: JobKind, input: Record<string, any>)
 
       const ids = providerIds(stored);
       if (ids.studioMediaId) {
-        const resolved = await resolveStudioAssetUrl(ids.studioMediaId);
-        return { ...media, url: resolved.url, mediaId: "" };
+        try {
+          const resolved = await resolveStudioAssetUrl(ids.studioMediaId);
+          return { ...media, url: resolved.url, mediaId: "" };
+        } catch (error) {
+          if (isYikeManagedPrivateUrl(stored.sourceUrl)) {
+            throw new Error(`素材“${stored.name}”来自旧版私有素材空间，当前无法直接读取。请重新提供公网素材 URL，或恢复兼容工作流凭证后再试。`);
+          }
+          throw error;
+        }
       }
 
       // Legacy records that cannot be resolved to a URL are left as MediaId so the Yike
