@@ -116,6 +116,17 @@ function openDb() {
       FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_project_assemblies_project_created ON project_assemblies(project_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS project_audio_settings (
+      project_id TEXT PRIMARY KEY,
+      bgm_asset_id TEXT,
+      target_lufs REAL NOT NULL DEFAULT -16,
+      original_gain_db REAL NOT NULL DEFAULT 0,
+      bgm_gain_db REAL NOT NULL DEFAULT -12,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY(bgm_asset_id) REFERENCES assets(id) ON DELETE SET NULL
+    );
   `);
   return db;
 }
