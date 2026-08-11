@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { db } from "@/lib/db";
 
 const execFileAsync = promisify(execFile);
+const MAX_FADE_SHOTS = 30;
 
 export type ProjectTransitionSettings = {
   projectId: string;
@@ -56,6 +57,7 @@ export async function renderProjectTimeline(input: {
   tempRoot: string;
 }) {
   if (!input.files.length || input.files.length !== input.durations.length) throw new Error("项目镜头时间线数据不完整");
+  if (input.durations.some(value => !Number.isFinite(value) || value <= 0)) throw new Error("项目镜头包含无效时长，无法生成时间线");
   const settings = getProjectTransitionSettings(input.projectId);
   const boundaryCount = Math.max(0, input.files.length - 1);
   const sourceDuration = input.durations.reduce((sum, value) => sum + value, 0);
@@ -68,12 +70,16 @@ export async function renderProjectTimeline(input: {
       "-c", "copy", "-movflags", "+faststart", input.outputPath,
     ]);
     return {
-      transitionType: "cut",
+      transitionType: settings.transitionType,
       duration: settings.duration,
       boundaryCount,
       rendered: false,
       timelineDuration: sourceDuration,
     } satisfies ProjectTransitionSnapshot;
+  }
+
+  if (input.files.length > MAX_FADE_SHOTS) {
+    throw new Error(`淡化转场首版最多支持 ${MAX_FADE_SHOTS} 个镜头；长项目请改用直接切换或拆分章节`);
   }
 
   const transitionDuration = settings.duration;
@@ -87,8 +93,8 @@ export async function renderProjectTimeline(input: {
   for (const file of input.files) args.push("-i", file);
   const filters: string[] = [];
   input.files.forEach((_file, index) => {
-    filters.push(`[${index}:v]settb=AVTB[v${index}]`);
-    filters.push(`[${index}:a]aresample=async=1:first_pts=0[a${index}]`);
+    filters.push(`[${index}:v]settb=AVTB,setpts=PTS-STARTPTS[v${index}]`);
+    filters.push(`[${index}:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a${index}]`);
   });
 
   let videoLabel = "v0";
@@ -96,6 +102,7 @@ export async function renderProjectTimeline(input: {
   let outputDuration = input.durations[0];
   for (let index = 1; index < input.files.length; index += 1) {
     const offset = outputDuration - transitionDuration;
+    if (offset < 0) throw new Error("转场偏移无效，请缩短淡化时长");
     const nextVideo = `vx${index}`;
     const nextAudio = `ax${index}`;
     filters.push(`[${videoLabel}][v${index}]xfade=transition=fade:duration=${format(transitionDuration)}:offset=${format(offset)}[${nextVideo}]`);
@@ -104,6 +111,7 @@ export async function renderProjectTimeline(input: {
     audioLabel = nextAudio;
     outputDuration += input.durations[index] - transitionDuration;
   }
+  if (!Number.isFinite(outputDuration) || outputDuration <= 0) throw new Error("转场后的项目时长无效");
 
   args.push(
     "-filter_complex", filters.join(";"),
