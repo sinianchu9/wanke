@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createAsset, deleteAsset, getAsset, listAssets } from "@/lib/repository";
 import { detachAssetFromSubjectCards } from "@/lib/subjects";
 import { deleteAssetCloud, registerAsset } from "@/lib/yike/provider";
+import { getYikeRuntimeConfig } from "@/lib/settings";
 import { describeError } from "@/lib/errors";
 
 export const runtime = "nodejs";
@@ -19,7 +20,8 @@ const schema = z.object({
 });
 
 function yikeConfigured() {
-  return Boolean(process.env.ALIYUN_ACCESS_KEY_ID && process.env.ALIYUN_ACCESS_KEY_SECRET);
+  const config = getYikeRuntimeConfig();
+  return Boolean(config.accessKeyId && config.accessKeySecret);
 }
 
 function createUrlOnlyAsset(input: z.infer<typeof schema>, registration: string, extensionRegistrationError?: string) {
