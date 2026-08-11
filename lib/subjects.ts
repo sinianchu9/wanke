@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
-import { getAsset, listAssets } from "@/lib/repository";
+import { getAsset } from "@/lib/repository";
 
 export type SubjectType = "person" | "product";
 
@@ -100,10 +100,9 @@ export function deleteSubjectCard(id: string) {
 }
 
 export function publicSubjectCards() {
-  const assetMap = new Map(listAssets().map(asset => [asset.id, asset]));
   return listSubjectCards().map(card => {
-    const assets = card.assetIds.map(id => assetMap.get(id)).filter(Boolean);
-    const primaryAsset = assetMap.get(card.primaryAssetId) || assets[0] || null;
+    const assets = card.assetIds.map(id => getAsset(id)).filter(Boolean);
+    const primaryAsset = getAsset(card.primaryAssetId) || assets[0] || null;
     return {
       ...card,
       primaryAssetId: primaryAsset?.id || card.primaryAssetId,
@@ -121,7 +120,6 @@ export function detachAssetFromSubjectCards(assetId: string) {
       if (!card.assetIds.includes(assetId)) continue;
       const nextIds = card.assetIds.filter(id => id !== assetId);
       if (!nextIds.length) {
-        // An empty identity has no useful meaning. Remove the card rather than keeping a broken shell.
         deleteSubjectCard(card.id);
         continue;
       }
