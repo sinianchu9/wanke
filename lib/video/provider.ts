@@ -14,7 +14,7 @@ export async function submitJob(kind: JobKind, rawInput: unknown) {
 
   const hasInlineLocalImage = Array.isArray(input.medias) && input.medias.some((media: any) => typeof media?.url === "string" && media.url.startsWith("data:image/"));
   if (hasInlineLocalImage) {
-    throw new Error("这条任务使用了本地图片直传，需要配置百炼 Model Studio API Key 后才能生成。请检查 DASHSCOPE_API_KEY。 ");
+    throw new Error("这条任务使用了本地图片直传，需要配置百炼 Model Studio API Key 后才能生成。请检查 DASHSCOPE_API_KEY。");
   }
 
   const submitted = await submitYikeJob(kind, input);
