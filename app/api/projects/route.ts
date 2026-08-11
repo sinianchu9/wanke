@@ -64,15 +64,16 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const input = actionSchema.parse(await request.json());
-    if (input.action === "create_project") createProject(input);
-    else if (input.action === "update_project") updateProject(input.projectId, input);
-    else if (input.action === "create_shot") createShot(input);
-    else if (input.action === "update_shot") updateShot(input.shotId, input);
+    let result: unknown = null;
+    if (input.action === "create_project") result = createProject(input);
+    else if (input.action === "update_project") result = updateProject(input.projectId, input);
+    else if (input.action === "create_shot") result = createShot(input);
+    else if (input.action === "update_shot") result = updateShot(input.shotId, input);
     else if (input.action === "assign_job") assignJobToShot(input.shotId, input.jobId);
     else if (input.action === "unassign_job") unassignJobFromShot(input.shotId, input.jobId);
     else if (input.action === "select_job") selectShotJob(input.shotId, input.jobId);
     else if (input.action === "set_subjects") setProjectSubjects(input.projectId, input.subjectIds);
-    return NextResponse.json({ projects: listProjects() }, { status: input.action.startsWith("create_") ? 201 : 200 });
+    return NextResponse.json({ result, projects: listProjects() }, { status: input.action.startsWith("create_") ? 201 : 200 });
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues.map(issue => issue.message).join("；") }, { status: 400 });
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
