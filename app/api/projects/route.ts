@@ -16,8 +16,8 @@ import {
   updateShot,
 } from "@/lib/projects";
 import { archivedFilePath } from "@/lib/archive";
+import { db } from "@/lib/db";
 import { getJob } from "@/lib/repository";
-import { listProjectAssemblies } from "@/lib/video/project-assembly";
 import { describeError } from "@/lib/errors";
 
 export const runtime = "nodejs";
@@ -96,7 +96,7 @@ export async function DELETE(request: Request) {
     const id = url.searchParams.get("id") || "";
     if (!id || !["project", "shot"].includes(type || "")) return NextResponse.json({ error: "删除参数无效" }, { status: 400 });
 
-    const assemblyFiles = type === "project" ? listProjectAssemblies(id).map(item => item.fileName) : [];
+    const assemblyFiles = type === "project" ? allAssemblyFiles(id) : [];
     const ok = type === "project" ? deleteProject(id) : deleteShot(id);
     if (!ok) return NextResponse.json({ error: type === "project" ? "项目不存在" : "镜头不存在" }, { status: 404 });
 
@@ -109,6 +109,10 @@ export async function DELETE(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
+}
+
+function allAssemblyFiles(projectId: string) {
+  return (db.prepare("SELECT file_name FROM project_assemblies WHERE project_id=?").all(projectId) as any[]).map(row => String(row.file_name));
 }
 
 function projectJobs(projects: ReturnType<typeof listProjects>) {
