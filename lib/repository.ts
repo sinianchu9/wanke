@@ -128,6 +128,10 @@ export function deleteJob(id: string) {
   return db.prepare("DELETE FROM jobs WHERE id=?").run(id).changes > 0;
 }
 
+export function requestReferenceExists(value: string) {
+  return Boolean(db.prepare("SELECT 1 FROM jobs WHERE request_json LIKE ? LIMIT 1").get(`%${value}%`));
+}
+
 export function createAsset(input: {
   providerMediaId?: string | null;
   name: string;
