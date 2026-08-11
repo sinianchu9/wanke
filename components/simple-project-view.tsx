@@ -142,6 +142,7 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
       </div>
 
       <div className="notice"><Sparkles size={16}/><span>简单页已经可以完成日常闭环：看结果、重试失败镜头、再生成一个版本、选择或更换喜欢的版本、生成最终视频。只有要改专业参数时才需要高级编辑。</span></div>
+      {error && <div className="error-banner" style={{marginTop:12}}>{error}</div>}
 
       <div className="content-stack" style={{marginTop:16}}>
         {current.shots.map((shot, index) => {
@@ -198,7 +199,6 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
           <button className="primary" disabled={busy !== "" || !progress!.canFinalize} onClick={finalize}><Film size={15}/>{busy === "finalize" ? "正在准备并生成…" : "生成最终视频"}</button>
           {!progress!.canFinalize && <span className="muted mini">{finalizeHint(progress!)}</span>}
         </div>
-        {error && <div className="error-banner" style={{marginTop:12}}>{error}</div>}
         {finalUrl && <div style={{marginTop:12}}>
           <div className="notice"><Check size={16}/><span>这个作品已有可播放的最终视频。</span><a className="secondary" href={finalUrl} target="_blank" rel="noreferrer"><Download size={14}/>打开视频</a></div>
           <video src={finalUrl} controls preload="metadata" style={{width:"100%",marginTop:10,borderRadius:12}}/>
