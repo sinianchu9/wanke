@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { archiveJobOutput } from "@/lib/archive";
-import { listActiveJobs, updateJobRemote } from "@/lib/repository";
+import { getJob, listActiveJobs, updateJobRemote } from "@/lib/repository";
 import { refreshJob } from "@/lib/video/provider";
 import type { ResultMedia, StoredJob } from "@/lib/types";
 
@@ -41,28 +41,60 @@ async function autoArchiveQuickResult(job: StoredJob) {
   const index = firstVideoOutputIndex(job.outputs);
   if (index < 0) return { ok: false };
   try {
-    const archived = await archiveJobOutput(job, index);
-    const outputs = job.outputs.map((item, outputIndex) => outputIndex === index ? archived : item);
-    updateJobRemote(job.id, {
+    const latestBefore = getJob(job.id);
+    if (!latestBefore) return { ok: false };
+    const latestIndex = firstVideoOutputIndex(latestBefore.outputs);
+    if (latestIndex >= 0 && latestBefore.outputs[latestIndex]?.archivedFile) {
+      markArchiveSaved(latestBefore);
+      return { ok: true };
+    }
+
+    const archived = await archiveJobOutput(latestBefore, latestIndex >= 0 ? latestIndex : index);
+    const outputIndex = latestIndex >= 0 ? latestIndex : index;
+    const outputs = latestBefore.outputs.map((item, currentIndex) => currentIndex === outputIndex ? archived : item);
+    updateJobRemote(latestBefore.id, {
       outputs,
       details: {
-        ...(job.details || {}),
+        ...(latestBefore.details || {}),
         quickArchive: "saved",
         quickArchiveError: null,
       },
     });
     return { ok: true };
   } catch (error) {
+    // Another browser/tab can legitimately reach the same succeeded Job while the first
+    // archive is still finishing. Re-read the DB before marking the Job as pending so a
+    // stale concurrent request cannot overwrite a successful archive state.
+    const latest = getJob(job.id);
+    if (latest) {
+      const latestIndex = firstVideoOutputIndex(latest.outputs);
+      if (latestIndex >= 0 && latest.outputs[latestIndex]?.archivedFile) {
+        markArchiveSaved(latest);
+        return { ok: true };
+      }
+    }
     const message = error instanceof Error ? error.message : String(error);
-    updateJobRemote(job.id, {
-      details: {
-        ...(job.details || {}),
-        quickArchive: "pending",
-        quickArchiveError: message,
-      },
-    });
+    if (latest) {
+      updateJobRemote(latest.id, {
+        details: {
+          ...(latest.details || {}),
+          quickArchive: "pending",
+          quickArchiveError: message,
+        },
+      });
+    }
     return { ok: false };
   }
+}
+
+function markArchiveSaved(job: StoredJob) {
+  updateJobRemote(job.id, {
+    details: {
+      ...(job.details || {}),
+      quickArchive: "saved",
+      quickArchiveError: null,
+    },
+  });
 }
 
 function firstVideoOutputIndex(outputs: ResultMedia[]) {
