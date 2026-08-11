@@ -1,19 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Braces, Clapperboard, CopyCheck, Film, Languages, Library, ListVideo, Mic2, RefreshCw, ScanFace, Settings as SettingsIcon, Sparkles, UserRound, WandSparkles } from "lucide-react";
+import { Braces, Clapperboard, CopyCheck, Film, FolderKanban, Languages, Library, ListVideo, Mic2, RefreshCw, ScanFace, Settings as SettingsIcon, Sparkles, UserRound, WandSparkles } from "lucide-react";
 import CreatorForms from "@/components/forms";
 import SimpleVideoGenerator from "@/components/simple-video-generator";
 import AssetLibrary from "@/components/asset-library";
 import JobCenter from "@/components/job-center";
+import ProjectWorkspace from "@/components/project-workspace";
 import SettingsPanel from "@/components/settings-panel";
 import SubjectLibrary, { type PublicSubjectCard } from "@/components/subject-library";
+import type { ProductionProject } from "@/lib/project-types";
 import type { StoredAsset, StoredJob } from "@/lib/types";
 
-type Tab = "generate" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "subjects" | "jobs" | "settings";
+type Tab = "generate" | "projects" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "subjects" | "jobs" | "settings";
 
 const tabs: { id: Tab; label: string; icon: any; desc: string }[] = [
   { id: "generate", label: "AI 视频", icon: Sparkles, desc: "说需求，系统自动选模型" },
+  { id: "projects", label: "作品项目", icon: FolderKanban, desc: "项目 / Shot / 候选 / 定稿" },
   { id: "remake", label: "高级复刻", icon: Braces, desc: "拆解 → 脚本 → 独立渲染" },
   { id: "clone", label: "快速复刻", icon: CopyCheck, desc: "一键变体，替换人物/商品" },
   { id: "avatar", label: "数字人口播", icon: ScanFace, desc: "讲解 / 固定机位数字人" },
@@ -31,24 +34,34 @@ export default function Studio() {
   const [jobs, setJobs] = useState<StoredJob[]>([]);
   const [assets, setAssets] = useState<StoredAsset[]>([]);
   const [subjects, setSubjects] = useState<PublicSubjectCard[]>([]);
+  const [projects, setProjects] = useState<ProductionProject[]>([]);
+  const [activeShotId, setActiveShotId] = useState("");
   const [notice, setNotice] = useState<string>("");
   const [status, setStatus] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
   const loadAll = useCallback(async () => {
-    const [j, a, subjectData, s] = await Promise.all([
+    const [j, a, subjectData, projectData, s] = await Promise.all([
       fetch("/api/jobs", { cache: "no-store" }).then(r => r.json()),
       fetch("/api/assets", { cache: "no-store" }).then(r => r.json()),
       fetch("/api/subjects", { cache: "no-store" }).then(r => r.json()),
+      fetch("/api/projects", { cache: "no-store" }).then(r => r.json()),
       fetch("/api/status", { cache: "no-store" }).then(r => r.json()),
     ]);
     setJobs(j.jobs || []);
     setAssets(a.assets || []);
     setSubjects(subjectData.subjects || []);
+    setProjects(projectData.projects || []);
     setStatus(s);
   }, []);
 
   useEffect(() => { loadAll().catch(e => setNotice(e.message)); }, [loadAll]);
+
+  useEffect(() => {
+    if (!activeShotId) return;
+    const exists = projects.some(project => project.shots.some(shot => shot.id === activeShotId));
+    if (!exists) setActiveShotId("");
+  }, [projects, activeShotId]);
 
   useEffect(() => {
     const hasActive = jobs.some(j => ["queued", "running"].includes(j.status) && j.providerJobId);
@@ -70,14 +83,26 @@ export default function Studio() {
     assets: assets.length,
   }), [jobs, assets]);
 
+  const activeShot = useMemo(() => {
+    for (const project of projects) {
+      const shot = project.shots.find(item => item.id === activeShotId);
+      if (shot) return { project, shot };
+    }
+    return null;
+  }, [projects, activeShotId]);
+
   async function submit(kind: string, input: Record<string, unknown>, title?: string, parentJobId?: string) {
     setLoading(true);
     setNotice("");
     try {
-      const res = await fetch("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, input, title, parentJobId }) });
+      const res = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, input, title, parentJobId, shotId: activeShotId || undefined }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "任务提交失败");
-      setNotice(`已提交：${data.job.title}`);
+      setNotice(activeShot ? `已提交到「${activeShot.project.name} / ${activeShot.shot.name}」：${data.job.title}` : `已提交：${data.job.title}`);
       await loadAll();
       setTab("jobs");
       return data.job;
@@ -95,14 +120,15 @@ export default function Studio() {
       const res = await fetch("/api/jobs/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: "video_generation", input, count, title }),
+        body: JSON.stringify({ kind: "video_generation", input, count, title, shotId: activeShotId || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "批量任务提交失败");
       const summary = data.summary || {};
+      const location = activeShot ? `，已归入「${activeShot.project.name} / ${activeShot.shot.name}」` : "";
       setNotice(summary.failed
-        ? `已创建 ${summary.total} 个版本：${summary.submitted} 个已提交，${summary.failed} 个失败，可在任务中心分别处理。`
-        : `已创建并提交 ${summary.total} 个独立版本。`
+        ? `已创建 ${summary.total} 个版本：${summary.submitted} 个已提交，${summary.failed} 个失败${location}。`
+        : `已创建并提交 ${summary.total} 个独立版本${location}。`
       );
       await loadAll();
       setTab("jobs");
@@ -118,6 +144,12 @@ export default function Studio() {
     setStatus((s: any) => ({ ...(s || {}), probing: true }));
     const s = await fetch("/api/status?probe=1", { cache: "no-store" }).then(r => r.json());
     setStatus(s);
+  }
+
+  function createInShot(shotId: string) {
+    setActiveShotId(shotId);
+    setNotice("");
+    setTab("generate");
   }
 
   const modelStudioConfigured = status?.modelStudio?.configured === true;
@@ -147,6 +179,7 @@ export default function Studio() {
           <div className="status-row"><span className={`dot ${status?.generationReady ? "ok" : "bad"}`} /><span>{status?.generationReady ? `视频生成：${providerLabel}模式` : "等待配置视频凭证"}</span></div>
           <div className="muted mini">{status?.regionName || "新加坡"} · {providerMode === "auto" ? "自动模型路由" : "固定 provider"}</div>
           {status?.endpoint && <div className="muted mini" title={status.endpoint}>{status.endpoint}</div>}
+          {activeShot && <div className="mini success-text">当前镜头：{activeShot.project.name} / {activeShot.shot.name}</div>}
           {directVideo && <div className="mini muted">百炼直连可直接选择本地图片；首次生成时校验 Key、Workspace 和模型权限</div>}
           {providerMode === "yike" && <div className="mini muted">基础视频已固定使用万镜一刻；本地图片请先进入素材库或使用公网 URL</div>}
           {providerMode === "auto" && !modelStudioConfigured && yikeReady && <div className="mini muted">百炼未配置，基础生成自动使用万镜一刻兼容链路</div>}
@@ -172,9 +205,11 @@ export default function Studio() {
         </header>
 
         {notice && <div className="notice"><WandSparkles size={16} />{notice}</div>}
+        {tab === "generate" && activeShot && <div className="notice"><Clapperboard size={16}/><span>当前生成目标：<strong>{activeShot.project.name} / {activeShot.shot.name}</strong>{activeShot.shot.brief ? ` · ${activeShot.shot.brief}` : ""}。新任务和批量版本会自动进入这个 Shot。</span><button className="link-button" onClick={() => setActiveShotId("")}>退出镜头上下文</button></div>}
 
         <section className="workspace">
           {tab === "generate" && <SimpleVideoGenerator assets={assets} subjects={subjects} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />}
+          {tab === "projects" && <ProjectWorkspace projects={projects} jobs={jobs} subjects={subjects} onChanged={loadAll} onCreateInShot={createInShot} />}
           {(["remake", "clone", "avatar", "voice", "storyboard", "translation"] as Tab[]).includes(tab) && (
             <CreatorForms mode={tab as any} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />
           )}
