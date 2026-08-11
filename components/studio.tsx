@@ -66,29 +66,46 @@ export default function Studio() {
   }), [jobs, assets]);
 
   async function submit(kind: string, input: Record<string, unknown>, title?: string, parentJobId?: string) {
-    setLoading(true); setNotice("");
+    setLoading(true);
+    setNotice("");
     try {
       const res = await fetch("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, input, title, parentJobId }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "任务提交失败");
       setNotice(`已提交：${data.job.title}`);
-      await loadAll(); setTab("jobs"); return data.job;
+      await loadAll();
+      setTab("jobs");
+      return data.job;
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e); setNotice(message); throw e;
+      const message = e instanceof Error ? e.message : String(e);
+      setNotice(message);
+      throw e;
     } finally { setLoading(false); }
   }
 
   async function submitBatch(input: Record<string, unknown>, count: number, title?: string) {
-    setLoading(true); setNotice("");
+    setLoading(true);
+    setNotice("");
     try {
-      const res = await fetch("/api/jobs/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "video_generation", input, count, title }) });
+      const res = await fetch("/api/jobs/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "video_generation", input, count, title }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "批量任务提交失败");
       const summary = data.summary || {};
-      setNotice(summary.failed ? `已创建 ${summary.total} 个版本：${summary.submitted} 个已提交，${summary.failed} 个失败，可在任务中心分别处理。` : `已创建并提交 ${summary.total} 个独立版本。`);
-      await loadAll(); setTab("jobs"); return data.jobs;
+      setNotice(summary.failed
+        ? `已创建 ${summary.total} 个版本：${summary.submitted} 个已提交，${summary.failed} 个失败，可在任务中心分别处理。`
+        : `已创建并提交 ${summary.total} 个独立版本。`
+      );
+      await loadAll();
+      setTab("jobs");
+      return data.jobs;
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e); setNotice(message); throw e;
+      const message = e instanceof Error ? e.message : String(e);
+      setNotice(message);
+      throw e;
     } finally { setLoading(false); }
   }
 
@@ -104,10 +121,67 @@ export default function Studio() {
   const directVideo = modelStudioConfigured && providerMode !== "yike";
   const providerLabel = providerMode === "modelstudio" ? "百炼" : providerMode === "yike" ? "万镜一刻" : "自动";
 
-  return <div className="app-shell">
-    <aside className="sidebar"><div className="brand"><div className="brand-mark"><Film size={22}/></div><div><strong>Wanke</strong><span>Video Studio</span></div></div><div className="nav-section-label">视频工作台</div><nav className="nav-list">{tabs.map(item=>{const Icon=item.icon;return <button key={item.id} className={`nav-item ${tab===item.id?"active":""}`} onClick={()=>setTab(item.id)}><Icon size={18}/><span><b>{item.label}</b><small>{item.desc}</small></span>{item.id==="jobs"&&stats.active>0&&<em>{stats.active}</em>}</button>})}</nav><div className="side-status"><div className="status-row"><span className={`dot ${status?.generationReady?"ok":"bad"}`}/><span>{status?.generationReady?`视频生成：${providerLabel}模式`:"等待配置视频凭证"}</span></div><div className="muted mini">{status?.regionName||"新加坡"} · {providerMode==="auto"?"自动模型路由":"固定 provider"}</div>{status?.endpoint&&<div className="muted mini" title={status.endpoint}>{status.endpoint}</div>}{directVideo&&<div className="mini muted">百炼直连可直接选择本地图片；首次生成时校验 Key、Workspace 和模型权限</div>}{providerMode==="yike"&&<div className="mini muted">基础视频已固定使用万镜一刻；本地图片请先进入素材库或使用公网 URL</div>}{providerMode==="auto"&&!modelStudioConfigured&&yikeReady&&<div className="mini muted">百炼未配置，基础生成自动使用万镜一刻兼容链路</div>}{yikeReady&&<button className="link-button" onClick={probe} disabled={status?.probing}>{status?.probing?"检查中…":"检查扩展工作流"}</button>}{yikeReady&&status?.connected===true&&<div className="mini success-text">复刻 / 故事板等扩展工作流可用</div>}{yikeReady&&status?.connected===false&&<div className="mini error-text">{status.yikeError||status.error||"扩展工作流连接未就绪"}</div>}<button className="link-button" onClick={()=>setTab("settings")}>配置 API 与引擎</button></div></aside>
-    <main className="main"><header className="topbar"><div><div className="eyebrow">PERSONAL AI VIDEO WORKSTATION</div><h1>{tabs.find(t=>t.id===tab)?.label}</h1></div><div className="top-stats"><Stat value={stats.active} label="处理中"/><Stat value={stats.success} label="已完成"/><Stat value={stats.assets} label="素材"/><button className="icon-button" title="刷新" onClick={()=>loadAll()}><RefreshCw size={17}/></button></div></header>{notice&&<div className="notice"><WandSparkles size={16}/>{notice}</div>}<section className="workspace">{tab==="generate"&&<SimpleVideoGenerator assets={assets} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo}/>} {(["remake","clone","avatar","voice","storyboard","translation"] as Tab[]).includes(tab)&&<CreatorForms mode={tab as any} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading}/>} {tab==="assets"&&<AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={yikeReady}/>} {tab==="jobs"&&<JobCenter jobs={jobs} onChanged={loadAll} onGoAssets={()=>setTab("assets")}/>} {tab==="settings"&&<SettingsPanel onChanged={loadAll}/>}</section></main>
-  </div>;
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark"><Film size={22} /></div>
+          <div><strong>Wanke</strong><span>Video Studio</span></div>
+        </div>
+        <div className="nav-section-label">视频工作台</div>
+        <nav className="nav-list">
+          {tabs.map(item => {
+            const Icon = item.icon;
+            return <button key={item.id} className={`nav-item ${tab === item.id ? "active" : ""}`} onClick={() => setTab(item.id)}>
+              <Icon size={18} /><span><b>{item.label}</b><small>{item.desc}</small></span>
+              {item.id === "jobs" && stats.active > 0 && <em>{stats.active}</em>}
+            </button>;
+          })}
+        </nav>
+        <div className="side-status">
+          <div className="status-row"><span className={`dot ${status?.generationReady ? "ok" : "bad"}`} /><span>{status?.generationReady ? `视频生成：${providerLabel}模式` : "等待配置视频凭证"}</span></div>
+          <div className="muted mini">{status?.regionName || "新加坡"} · {providerMode === "auto" ? "自动模型路由" : "固定 provider"}</div>
+          {status?.endpoint && <div className="muted mini" title={status.endpoint}>{status.endpoint}</div>}
+          {directVideo && <div className="mini muted">百炼直连可直接选择本地图片；首次生成时校验 Key、Workspace 和模型权限</div>}
+          {providerMode === "yike" && <div className="mini muted">基础视频已固定使用万镜一刻；本地图片请先进入素材库或使用公网 URL</div>}
+          {providerMode === "auto" && !modelStudioConfigured && yikeReady && <div className="mini muted">百炼未配置，基础生成自动使用万镜一刻兼容链路</div>}
+          {yikeReady && <button className="link-button" onClick={probe} disabled={status?.probing}>{status?.probing ? "检查中…" : "检查扩展工作流"}</button>}
+          {yikeReady && status?.connected === true && <div className="mini success-text">复刻 / 故事板等扩展工作流可用</div>}
+          {yikeReady && status?.connected === false && <div className="mini error-text">{status.yikeError || status.error || "扩展工作流连接未就绪"}</div>}
+          <button className="link-button" onClick={()=>setTab("settings")}>配置 API 与引擎</button>
+        </div>
+      </aside>
+
+      <main className="main">
+        <header className="topbar">
+          <div>
+            <div className="eyebrow">PERSONAL AI VIDEO WORKSTATION</div>
+            <h1>{tabs.find(t => t.id === tab)?.label}</h1>
+          </div>
+          <div className="top-stats">
+            <Stat value={stats.active} label="处理中" />
+            <Stat value={stats.success} label="已完成" />
+            <Stat value={stats.assets} label="素材" />
+            <button className="icon-button" title="刷新" onClick={() => loadAll()}><RefreshCw size={17} /></button>
+          </div>
+        </header>
+
+        {notice && <div className="notice"><WandSparkles size={16} />{notice}</div>}
+
+        <section className="workspace">
+          {tab === "generate" && <SimpleVideoGenerator assets={assets} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />}
+          {(["remake", "clone", "avatar", "voice", "storyboard", "translation"] as Tab[]).includes(tab) && (
+            <CreatorForms mode={tab as any} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />
+          )}
+          {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={yikeReady} />}
+          {tab === "jobs" && <JobCenter jobs={jobs} onChanged={loadAll} onGoAssets={() => setTab("assets")} />}
+          {tab === "settings" && <SettingsPanel onChanged={loadAll} />}
+        </section>
+      </main>
+    </div>
+  );
 }
 
-function Stat({value,label}:{value:number;label:string}){return <div className="stat"><strong>{value}</strong><span>{label}</span></div>}
+function Stat({ value, label }: { value: number; label: string }) {
+  return <div className="stat"><strong>{value}</strong><span>{label}</span></div>;
+}
