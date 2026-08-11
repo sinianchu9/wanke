@@ -139,13 +139,18 @@ function mergeOutputMetadata(previous: ResultMedia[], next: ResultMedia[]) {
 }
 
 export function deleteJob(id: string) {
-  const membership = db.prepare("SELECT shot_id FROM shot_jobs WHERE job_id=?").get(id) as { shot_id?: string } | undefined;
+  const membership = db.prepare(`SELECT sj.shot_id, s.selected_job_id
+    FROM shot_jobs sj
+    JOIN shots s ON s.id = sj.shot_id
+    WHERE sj.job_id=?`).get(id) as { shot_id?: string; selected_job_id?: string | null } | undefined;
+  const invalidatesFinal = membership?.selected_job_id === id;
   const now = new Date().toISOString();
   const transaction = db.transaction(() => {
     const changed = db.prepare("DELETE FROM jobs WHERE id=?").run(id).changes > 0;
-    if (changed && membership?.shot_id) {
-      // FK cascades remove shot_jobs and clear selected_job_id. Touch the owning Shot/Project
-      // as well so stale-final detection and Project ordering reflect the real relationship change.
+    if (changed && invalidatesFinal && membership?.shot_id) {
+      // FK cleanup already removes the selected relation. Only changing the adopted source
+      // invalidates an existing final video; deleting an unused candidate must not create a
+      // false “old final” warning.
       db.prepare("UPDATE shots SET updated_at=? WHERE id=?").run(now, membership.shot_id);
       db.prepare("UPDATE projects SET updated_at=? WHERE id=(SELECT project_id FROM shots WHERE id=?)").run(now, membership.shot_id);
     }
