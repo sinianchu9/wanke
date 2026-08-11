@@ -48,7 +48,7 @@ export default function Studio() {
       fetch("/api/projects", { cache: "no-store" }).then(r => r.json()),
       fetch("/api/status", { cache: "no-store" }).then(r => r.json()),
     ]);
-    setJobs(j.jobs || []);
+    setJobs(mergeJobs(j.jobs || [], projectData.jobs || []));
     setAssets(a.assets || []);
     setSubjects(subjectData.subjects || []);
     setProjects(projectData.projects || []);
@@ -69,8 +69,12 @@ export default function Studio() {
     const timer = window.setInterval(async () => {
       try {
         await fetch("/api/jobs/refresh", { method: "POST" });
-        const data = await fetch("/api/jobs", { cache: "no-store" }).then(r => r.json());
-        setJobs(data.jobs || []);
+        const [jobData, projectData] = await Promise.all([
+          fetch("/api/jobs", { cache: "no-store" }).then(r => r.json()),
+          fetch("/api/projects", { cache: "no-store" }).then(r => r.json()),
+        ]);
+        setJobs(mergeJobs(jobData.jobs || [], projectData.jobs || []));
+        setProjects(projectData.projects || []);
       } catch { /* keep UI usable while network recovers */ }
     }, 6000);
     return () => window.clearInterval(timer);
@@ -222,6 +226,12 @@ export default function Studio() {
       </main>
     </div>
   );
+}
+
+function mergeJobs(...groups: StoredJob[][]) {
+  const map = new Map<string, StoredJob>();
+  for (const job of groups.flat()) map.set(job.id, job);
+  return [...map.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 function Stat({ value, label }: { value: number; label: string }) {

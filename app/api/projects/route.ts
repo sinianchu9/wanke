@@ -7,12 +7,14 @@ import {
   deleteProject,
   deleteShot,
   listProjects,
+  reorderShots,
   selectShotJob,
   setProjectSubjects,
   unassignJobFromShot,
   updateProject,
   updateShot,
 } from "@/lib/projects";
+import { getJob } from "@/lib/repository";
 import { describeError } from "@/lib/errors";
 
 export const runtime = "nodejs";
@@ -41,6 +43,7 @@ const updateShotSchema = z.object({
   name: z.string().trim().min(1).max(120),
   brief: z.string().max(1500).optional().default(""),
 });
+const reorderSchema = z.object({ action: z.literal("reorder_shots"), projectId: z.string().min(1), shotIds: z.array(z.string().min(1)).max(200) });
 const assignSchema = z.object({ action: z.literal("assign_job"), shotId: z.string().min(1), jobId: z.string().min(1) });
 const unassignSchema = z.object({ action: z.literal("unassign_job"), shotId: z.string().min(1), jobId: z.string().min(1) });
 const selectSchema = z.object({ action: z.literal("select_job"), shotId: z.string().min(1), jobId: z.string().min(1).nullable() });
@@ -51,6 +54,7 @@ const actionSchema = z.discriminatedUnion("action", [
   updateProjectSchema,
   createShotSchema,
   updateShotSchema,
+  reorderSchema,
   assignSchema,
   unassignSchema,
   selectSchema,
@@ -58,7 +62,8 @@ const actionSchema = z.discriminatedUnion("action", [
 ]);
 
 export async function GET() {
-  return NextResponse.json({ projects: listProjects() });
+  const projects = listProjects();
+  return NextResponse.json({ projects, jobs: projectJobs(projects) });
 }
 
 export async function POST(request: Request) {
@@ -69,6 +74,7 @@ export async function POST(request: Request) {
     else if (input.action === "update_project") result = updateProject(input.projectId, input);
     else if (input.action === "create_shot") result = createShot(input);
     else if (input.action === "update_shot") result = updateShot(input.shotId, input);
+    else if (input.action === "reorder_shots") reorderShots(input.projectId, input.shotIds);
     else if (input.action === "assign_job") assignJobToShot(input.shotId, input.jobId);
     else if (input.action === "unassign_job") unassignJobFromShot(input.shotId, input.jobId);
     else if (input.action === "select_job") selectShotJob(input.shotId, input.jobId);
@@ -91,4 +97,9 @@ export async function DELETE(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
+}
+
+function projectJobs(projects: ReturnType<typeof listProjects>) {
+  const ids = [...new Set(projects.flatMap(project => project.shots.flatMap(shot => shot.jobIds)))];
+  return ids.map(id => getJob(id)).filter(Boolean);
 }
