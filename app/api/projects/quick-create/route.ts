@@ -4,8 +4,10 @@ import { createProject, createShot, assignJobToShot, setProjectSubjects } from "
 import { createJob, updateJobRemote } from "@/lib/repository";
 import { submitJob } from "@/lib/video/provider";
 import { prepareJobInput } from "@/lib/video/prepare";
+import { canUseModelStudio } from "@/lib/video/modelstudio";
 import { buildQuickCreationPlan } from "@/lib/video/quick-create";
 import { setProjectTransitionSettings } from "@/lib/video/project-transitions";
+import { validateJobInput } from "@/lib/yike/schemas";
 import { getModelStudioRuntimeConfig, getVideoProviderMode, getYikeRuntimeConfig } from "@/lib/settings";
 import { describeError } from "@/lib/errors";
 
@@ -46,6 +48,8 @@ export async function POST(request: Request) {
     const input = schema.parse(await request.json());
     assertQuickGenerationReady(Boolean(input.localInputRef));
     const plan = buildQuickCreationPlan(input);
+    await preflightQuickPlan(plan);
+
     const project = createProject({ name: plan.projectName, description: plan.projectDescription });
     if (input.subjectId) setProjectSubjects(project.id, [input.subjectId]);
     if (plan.shots.length > 1) setProjectTransitionSettings({ projectId: project.id, transitionType: "fade", duration: 0.5 });
@@ -53,24 +57,12 @@ export async function POST(request: Request) {
     const results: Array<{ shotId: string; shotName: string; jobId: string; status: string; error?: string | null }> = [];
     for (const shotPlan of plan.shots) {
       const shot = createShot({ projectId: project.id, name: shotPlan.name, brief: shotPlan.brief });
-      const jobInput = {
-        prompt: shotPlan.prompt,
-        recipeId: shotPlan.recipeId,
-        jobType: shotPlan.jobType,
-        medias: shotPlan.medias,
-        aspectRatio: shotPlan.aspectRatio,
-        duration: shotPlan.duration,
-        resolution: "1080P",
-        model: "happyhorse-1.1",
-        n: 1,
-        _subjectCardIds: shotPlan.subjectCardIds,
-        _quickCreation: {
-          type: input.type,
-          projectId: project.id,
-          shotId: shot.id,
-          referenceSource: plan.referenceSource,
-        },
-      };
+      const jobInput = buildJobInput(shotPlan, {
+        type: input.type,
+        projectId: project.id,
+        shotId: shot.id,
+        referenceSource: plan.referenceSource,
+      });
       let job = createJob({ kind: "video_generation", title: `${project.name} · ${shot.name}`, request: jobInput });
       assignJobToShot(shot.id, job.id);
       try {
@@ -106,6 +98,46 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues.map(issue => issue.message).join("；") }, { status: 400 });
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
+  }
+}
+
+function buildJobInput(shotPlan: ReturnType<typeof buildQuickCreationPlan>["shots"][number], quickCreation?: {
+  type: string;
+  projectId: string;
+  shotId: string;
+  referenceSource: string;
+}) {
+  return {
+    prompt: shotPlan.prompt,
+    recipeId: shotPlan.recipeId,
+    jobType: shotPlan.jobType,
+    medias: shotPlan.medias,
+    aspectRatio: shotPlan.aspectRatio,
+    duration: shotPlan.duration,
+    resolution: "1080P",
+    model: "happyhorse-1.1",
+    n: 1,
+    _subjectCardIds: shotPlan.subjectCardIds,
+    ...(quickCreation ? { _quickCreation: quickCreation } : {}),
+  };
+}
+
+async function preflightQuickPlan(plan: ReturnType<typeof buildQuickCreationPlan>) {
+  const first = plan.shots[0];
+  if (!first) throw new Error("没有生成出可执行的镜头计划");
+  const prepared = await prepareJobInput("video_generation", buildJobInput(first));
+  validateJobInput("video_generation", prepared);
+
+  const mode = getVideoProviderMode();
+  const yike = getYikeRuntimeConfig();
+  const yikeReady = Boolean(yike.accessKeyId && yike.accessKeySecret);
+  const modelStudioCompatible = canUseModelStudio(prepared as any);
+
+  if (mode === "modelstudio" && !modelStudioCompatible) {
+    throw new Error("当前图片无法通过已选择的视频服务读取。请换一张公网图片、重新选择素材，或把视频引擎切回自动模式后再试。作品还没有创建，不会留下失败任务。");
+  }
+  if (mode === "auto" && !modelStudioCompatible && !yikeReady) {
+    throw new Error("当前图片与已配置的视频服务不兼容。请换一张公网图片，或在设置中补充兼容的视频服务后再试。作品还没有创建，不会留下失败任务。");
   }
 }
 
