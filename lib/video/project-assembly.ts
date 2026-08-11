@@ -1,5 +1,4 @@
 import "server-only";
-import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -9,7 +8,7 @@ import { archivedFilePath, outputDirectory } from "@/lib/archive";
 import { db } from "@/lib/db";
 import { listProjects } from "@/lib/projects";
 import { getJob } from "@/lib/repository";
-import { probeResultMedia, type MediaProbe } from "@/lib/video/media-probe";
+import { ffprobeAvailable, probeResultMedia, type MediaProbe } from "@/lib/video/media-probe";
 import type { ResultMedia } from "@/lib/types";
 
 const execFileAsync = promisify(execFile);
@@ -41,6 +40,11 @@ export async function ffmpegAvailable() {
   }
 }
 
+export async function projectAssemblyAvailable() {
+  const [ffmpeg, ffprobe] = await Promise.all([ffmpegAvailable(), ffprobeAvailable()]);
+  return { available: ffmpeg && ffprobe, ffmpeg, ffprobe };
+}
+
 export function listProjectAssemblies(projectId: string): ProjectAssemblyRecord[] {
   const rows = db.prepare("SELECT * FROM project_assemblies WHERE project_id=? ORDER BY created_at DESC LIMIT 20").all(projectId) as any[];
   return rows.map(row => ({
@@ -58,7 +62,9 @@ export async function assembleProject(projectId: string) {
   if (!project) throw new Error("项目不存在");
   if (!project.shots.length) throw new Error("项目还没有镜头");
   if (project.shots.length > 60) throw new Error("单次成片最多支持 60 个镜头，请拆分项目后再装配");
-  if (!(await ffmpegAvailable())) throw new Error("服务器未检测到 ffmpeg。请安装 FFmpeg 或通过 FFMPEG_PATH 指定可执行文件后再生成成片。");
+  const tools = await projectAssemblyAvailable();
+  if (!tools.ffmpeg) throw new Error("服务器未检测到 ffmpeg。请安装 FFmpeg 或通过 FFMPEG_PATH 指定可执行文件后再生成成片。");
+  if (!tools.ffprobe) throw new Error("服务器未检测到 ffprobe。请安装 FFmpeg/ffprobe 或通过 FFPROBE_PATH 指定可执行文件后再生成成片。");
 
   const sources = [] as Array<{
     shotId: string;
@@ -158,16 +164,13 @@ export async function assembleProject(projectId: string) {
 export async function deleteProjectAssembly(projectId: string, assemblyId: string) {
   const row = db.prepare("SELECT file_name FROM project_assemblies WHERE id=? AND project_id=?").get(assemblyId, projectId) as any;
   if (!row) return false;
-  const transaction = db.transaction(() => db.prepare("DELETE FROM project_assemblies WHERE id=? AND project_id=?").run(assemblyId, projectId).changes > 0);
-  const deleted = transaction();
-  if (deleted) {
-    try { await fsp.unlink(archivedFilePath(String(row.file_name))); } catch (error: any) { if (error?.code !== "ENOENT") throw error; }
-  }
-  return deleted;
+  try { await fsp.unlink(archivedFilePath(String(row.file_name))); } catch (error: any) { if (error?.code !== "ENOENT") throw error; }
+  return db.prepare("DELETE FROM project_assemblies WHERE id=? AND project_id=?").run(assemblyId, projectId).changes > 0;
 }
 
 async function normalizeClip(source: { filePath: string; probe: MediaProbe }, outputPath: string, target: { width: number; height: number; fps: number }) {
   const videoFilter = `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=${formatFps(target.fps)},format=yuv420p`;
+  const duration = Math.max(0.1, Number(source.probe.duration || 0));
   const common = [
     "-map", "0:v:0",
     "-vf", videoFilter,
@@ -186,8 +189,8 @@ async function normalizeClip(source: { filePath: string; probe: MediaProbe }, ou
       "-b:a", "192k",
       "-ar", "48000",
       "-ac", "2",
-      "-af", "aresample=async=1:first_pts=0",
-      "-shortest",
+      "-af", "aresample=async=1:first_pts=0,apad",
+      "-t", formatDuration(duration),
       "-avoid_negative_ts", "make_zero",
       "-movflags", "+faststart",
       outputPath,
@@ -204,7 +207,7 @@ async function normalizeClip(source: { filePath: string; probe: MediaProbe }, ou
     "-b:a", "192k",
     "-ar", "48000",
     "-ac", "2",
-    "-shortest",
+    "-t", formatDuration(duration),
     "-avoid_negative_ts", "make_zero",
     "-movflags", "+faststart",
     outputPath,
@@ -242,6 +245,10 @@ function normalizedCrf() {
 
 function formatFps(value: number) {
   return Number(value.toFixed(3)).toString();
+}
+
+function formatDuration(value: number) {
+  return Math.max(0.1, value).toFixed(3);
 }
 
 function escapeConcatPath(value: string) {
