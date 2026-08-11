@@ -34,9 +34,11 @@ export function buildQuickCreationPlan(input: QuickCreationInput) {
   const aspectRatio = input.platform === "youtube" || input.platform === "landscape" ? "16:9" as const : "9:16" as const;
 
   const reference = resolveReference(input);
-  const shotCount = input.totalDuration <= 5 ? 1 : input.totalDuration <= 10 ? 2 : input.totalDuration <= 15 ? 3 : 4;
-  const shotDuration = input.totalDuration <= 5 ? 5 : input.totalDuration <= 15 ? 5 : 10;
-  const blueprints = blueprintsFor(input.type, shotCount);
+  const shotDurations: Array<5 | 10> = input.totalDuration === 5 ? [5]
+    : input.totalDuration === 10 ? [5, 5]
+      : input.totalDuration === 15 ? [5, 5, 5]
+        : [10, 10, 5, 5];
+  const blueprints = blueprintsFor(input.type, shotDurations.length);
 
   const shots: QuickShotPlan[] = blueprints.map((blueprint, index) => ({
     name: `Shot ${String(index + 1).padStart(2, "0")} · ${blueprint.name}`,
@@ -44,7 +46,7 @@ export function buildQuickCreationPlan(input: QuickCreationInput) {
     prompt: buildPrompt(input.type, cleanGoal, blueprint.prompt),
     jobType: input.type === "image_video" ? "image_to_video" : "reference_to_video",
     recipeId: input.type === "product_ad" ? "product_ad" : input.type === "person_short" ? "character_consistency" : "social_short",
-    duration: shotDuration,
+    duration: shotDurations[index],
     aspectRatio,
     medias: reference.medias,
     subjectCardIds: reference.subjectCardIds,
@@ -54,7 +56,7 @@ export function buildQuickCreationPlan(input: QuickCreationInput) {
     projectName: cleanName,
     projectDescription: `${quickTypeLabel(input.type)} · ${platformLabel(input.platform)} · 目标 ${input.totalDuration} 秒\n${cleanGoal}`,
     shots,
-    summary: `${quickTypeLabel(input.type)} · ${shots.length} 个镜头 · ${aspectRatio} · ${platformLabel(input.platform)}`,
+    summary: `${quickTypeLabel(input.type)} · ${shots.length} 个镜头 · 目标 ${input.totalDuration} 秒 · ${aspectRatio} · ${platformLabel(input.platform)}`,
   };
 }
 
