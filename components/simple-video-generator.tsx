@@ -10,6 +10,7 @@ type LocalInput = { ref: string; name: string; size: number };
 type Props = {
   assets: StoredAsset[];
   onSubmit: (kind: string, input: Record<string, unknown>, title?: string, parentJobId?: string) => Promise<any>;
+  onSubmitBatch: (input: Record<string, unknown>, count: number, title?: string) => Promise<any>;
   submitting: boolean;
   directAvailable: boolean;
 };
@@ -21,7 +22,7 @@ const modeOptions: { id: Mode; label: string; desc: string; icon: any }[] = [
   { id: "reference_to_video", label: "保持人物 / 产品一致", desc: "给人物、产品或场景参考，自动保持一致性", icon: Images },
 ];
 
-export default function SimpleVideoGenerator({ assets, onSubmit, submitting, directAvailable }: Props) {
+export default function SimpleVideoGenerator({ assets, onSubmit, onSubmitBatch, submitting, directAvailable }: Props) {
   const [mode, setMode] = useState<Mode>("text_to_video");
   const [recipeId, setRecipeId] = useState<VideoRecipeId>("general");
   const [title, setTitle] = useState("");
@@ -29,6 +30,7 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
   const [resolution, setResolution] = useState<"720P" | "1080P">("1080P");
   const [duration, setDuration] = useState(5);
   const [aspectRatio, setAspectRatio] = useState("16:9");
+  const [versionCount, setVersionCount] = useState(1);
   const [firstAssetId, setFirstAssetId] = useState("");
   const [lastAssetId, setLastAssetId] = useState("");
   const [firstUrl, setFirstUrl] = useState("");
@@ -182,9 +184,8 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
     } finally { setEnhancing(false); }
   }
 
-  async function run() {
-    if (!ready) return;
-    await onSubmit("video_generation", {
+  function buildRequestInput() {
+    return {
       title,
       prompt: prompt.trim(),
       recipeId,
@@ -195,7 +196,17 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
       resolution,
       model: "happyhorse-1.1",
       n: 1,
-    }, title || undefined);
+    };
+  }
+
+  async function run() {
+    if (!ready) return;
+    const input = buildRequestInput();
+    if (versionCount === 1) {
+      await onSubmit("video_generation", input, title || undefined);
+      return;
+    }
+    await onSubmitBatch(input, versionCount, title || undefined);
   }
 
   return <div className="content-stack">
@@ -293,12 +304,32 @@ export default function SimpleVideoGenerator({ assets, onSubmit, submitting, dir
           </div>
         </details>
 
+        <div className="field">
+          <span className="field-label">4. 生成几个版本？<small>1 个是普通任务；2–4 个会创建同一批次的独立任务</small></span>
+          <div className="asset-chips">
+            {[1, 2, 3, 4].map(count => <button type="button" key={count} className={versionCount === count ? "selected" : ""} onClick={() => setVersionCount(count)}>{count} 个版本</button>)}
+          </div>
+          <div className="muted mini">{versionCount === 1
+            ? "只创建 1 个任务。"
+            : "Wanke 会按版本 1→N 顺序提交；每个版本都有独立任务编号、状态、失败原因、重试和删除。某一个失败不会取消其他版本。"
+          }</div>
+          <details className="advanced" style={{marginTop:8}}>
+            <summary><HelpCircle size={15}/> 批量版本怎么用？</summary>
+            <div className="advanced-body">
+              <div className="muted mini"><strong>适合：</strong>同一个创作意图想一次获得多个候选，例如产品广告同时出 3 个版本后挑最好的一条。</div>
+              <div className="muted mini"><strong>不适合：</strong>三个版本需要不同人物、不同产品或完全不同 Prompt；这种情况应分别创建任务。</div>
+              <div className="muted mini"><strong>演示：</strong>产品广告 Recipe + 同一张手环产品图 + “镜头缓慢环绕” + 3 个版本 → 任务中心出现“版本 1/3、2/3、3/3”，可以分别完成、失败或重试。</div>
+              <div className="muted mini"><strong>和 Recipe 的关系：</strong>同批次共享同一 Recipe 和输入条件；批量版本只负责产生独立候选，不改变 Recipe、Prompt、素材或 Provider 规则。</div>
+            </div>
+          </details>
+        </div>
+
         <div className="stage-run">
           <button className="primary" disabled={submitting || !ready} onClick={run}>
-            <Send size={16} />{submitting ? "正在提交…" : localUploading ? "正在准备图片…" : "开始生成"}
+            <Send size={16} />{submitting ? "正在提交…" : localUploading ? "正在准备图片…" : versionCount > 1 ? `生成 ${versionCount} 个版本` : "开始生成"}
           </button>
           {!ready && <span className="muted mini">填写描述并补齐当前模式需要的素材后即可生成</span>}
-          {ready && <span className="muted mini">当前：{recipe.label} · 模型和 Provider 路由由系统设置决定</span>}
+          {ready && <span className="muted mini">当前：{recipe.label} · {versionCount > 1 ? `${versionCount} 个独立版本 · ` : ""}模型和 Provider 路由由系统设置决定</span>}
         </div>
       </div>
     </section>

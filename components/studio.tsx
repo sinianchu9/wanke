@@ -83,6 +83,32 @@ export default function Studio() {
     } finally { setLoading(false); }
   }
 
+  async function submitBatch(input: Record<string, unknown>, count: number, title?: string) {
+    setLoading(true);
+    setNotice("");
+    try {
+      const res = await fetch("/api/jobs/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "video_generation", input, count, title }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "批量任务提交失败");
+      const summary = data.summary || {};
+      setNotice(summary.failed
+        ? `已创建 ${summary.total} 个版本：${summary.submitted} 个已提交，${summary.failed} 个失败，可在任务中心分别处理。`
+        : `已创建并提交 ${summary.total} 个独立版本。`
+      );
+      await loadAll();
+      setTab("jobs");
+      return data.jobs;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setNotice(message);
+      throw e;
+    } finally { setLoading(false); }
+  }
+
   async function probe() {
     setStatus((s: any) => ({ ...(s || {}), probing: true }));
     const s = await fetch("/api/status?probe=1", { cache: "no-store" }).then(r => r.json());
@@ -143,7 +169,7 @@ export default function Studio() {
         {notice && <div className="notice"><WandSparkles size={16} />{notice}</div>}
 
         <section className="workspace">
-          {tab === "generate" && <SimpleVideoGenerator assets={assets} onSubmit={submit} submitting={loading} directAvailable={directVideo} />}
+          {tab === "generate" && <SimpleVideoGenerator assets={assets} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />}
           {(["remake", "clone", "avatar", "voice", "storyboard", "translation"] as Tab[]).includes(tab) && (
             <CreatorForms mode={tab as any} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />
           )}
