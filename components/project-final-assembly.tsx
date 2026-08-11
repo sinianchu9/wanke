@@ -74,7 +74,7 @@ export default function ProjectFinalAssembly({ projectId }: { projectId: string 
     <div className="muted mini" style={{marginTop:10}}><strong>提交前要求：</strong>所有 Shot 都已选择采用版本，并且每条采用视频都已经在任务中心“保存到本机”。系统不会在成片时依赖可能过期的云端 URL。</div>
 
     {assemblies.length > 0 && <div style={{marginTop:14}}>
-      <div className="subhead"><h3>已生成成片</h3><span>保留最近 {assemblies.length} 条记录</span></div>
+      <div className="subhead"><h3>已生成成片</h3><span>显示最近 {assemblies.length} 条记录</span></div>
       <div className="result-grid">
         {assemblies.map(assembly => {
           const url = `/api/archive/${encodeURIComponent(assembly.fileName)}`;
@@ -111,6 +111,7 @@ export default function ProjectFinalAssembly({ projectId }: { projectId: string 
 
 function settingLabel(settings: Record<string, any>) {
   const fps = settings.fps ? Number(settings.fps).toFixed(2).replace(/\.00$/, "") : "?";
-  const duration = settings.totalDuration ? Number(settings.totalDuration).toFixed(1) : "?";
+  const durationValue = settings.finalDuration ?? settings.expectedDuration;
+  const duration = durationValue ? Number(durationValue).toFixed(1) : "?";
   return `${settings.width || "?"}×${settings.height || "?"} · ${fps}fps · H.264/AAC · 约 ${duration}s`;
 }
