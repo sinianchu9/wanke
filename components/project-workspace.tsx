@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Clapperboard, FolderKanban, Plus, Sparkles, Trash2, Unlink } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Clapperboard, FolderKanban, Plus, Sparkles, Trash2, Unlink } from "lucide-react";
 import type { PublicSubjectCard } from "@/components/subject-library";
 import type { ProductionProject, ProjectShot } from "@/lib/project-types";
-import { JOB_KIND_LABELS, type StoredJob } from "@/lib/types";
+import { JOB_KIND_LABELS, type ResultMedia, type StoredJob } from "@/lib/types";
 
 export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, onCreateInShot }: {
   projects: ProductionProject[];
@@ -67,6 +67,16 @@ export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, 
     } catch { /* message already visible */ }
   }
 
+  async function moveShot(shotId: string, delta: -1 | 1) {
+    if (!current) return;
+    const index = current.shots.findIndex(shot => shot.id === shotId);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= current.shots.length) return;
+    const shotIds = current.shots.map(shot => shot.id);
+    [shotIds[index], shotIds[target]] = [shotIds[target], shotIds[index]];
+    try { await mutate({ action: "reorder_shots", projectId: current.id, shotIds }); } catch { /* visible */ }
+  }
+
   async function remove(type: "project" | "shot", id: string) {
     const label = type === "project" ? "这个项目" : "这个镜头";
     if (!confirm(`删除${label}的组织关系？生成任务和结果不会被删除。`)) return;
@@ -122,6 +132,8 @@ export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, 
           {subjects.length ? <div className="asset-chips" style={{marginTop:12}}>{subjects.map(subject => <button type="button" key={subject.id} className={current.subjectIds.includes(subject.id) ? "selected" : ""} disabled={busy} onClick={() => toggleSubject(subject.id)}>{subject.subjectType === "person" ? "👤" : "📦"} {subject.name}</button>)}</div> : <div className="muted mini" style={{marginTop:10}}>主体库还没有人物或产品卡，可以先去“主体库”创建。</div>}
         </div>
 
+        <FinalCutReview project={current} jobMap={jobMap}/>
+
         <div className="panel" style={{marginBottom:18}}>
           <div className="panel-title"><Clapperboard size={17}/><div><h3>新增镜头</h3><p>一个 Shot 表示一个明确镜头目标；它可以有很多候选任务，但只采用一个版本。</p></div></div>
           <div className="form-grid two" style={{marginTop:12}}>
@@ -139,6 +151,10 @@ export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, 
             jobMap={jobMap}
             unassignedJobs={unassignedJobs}
             busy={busy}
+            canMoveUp={index > 0}
+            canMoveDown={index < current.shots.length - 1}
+            onMoveUp={() => moveShot(shot.id, -1)}
+            onMoveDown={() => moveShot(shot.id, 1)}
             onCreate={() => onCreateInShot(shot.id)}
             onAssign={jobId => mutate({ action: "assign_job", shotId: shot.id, jobId })}
             onUnassign={jobId => mutate({ action: "unassign_job", shotId: shot.id, jobId })}
@@ -151,10 +167,10 @@ export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, 
         <details className="advanced" style={{marginTop:18}}>
           <summary>项目 / Shot 怎么用？</summary>
           <div className="advanced-body">
-            <div className="muted mini"><strong>推荐流程：</strong>创建项目 → 建 Shot → 绑定常用主体 → 点击“在此镜头创作” → 生成 1–4 个候选 → 在项目里选择采用版本。</div>
+            <div className="muted mini"><strong>推荐流程：</strong>创建项目 → 建 Shot → 调整镜头顺序 → 绑定常用主体 → 点击“在此镜头创作” → 生成 1–4 个候选 → 在项目里选择采用版本。</div>
+            <div className="muted mini"><strong>成片准备：</strong>上方“定稿顺序预览”严格按 Shot 顺序展示每个采用视频；没有定稿的镜头会明确显示缺口。</div>
             <div className="muted mini"><strong>自动继承：</strong>某个候选的失败重试、类似版本、继续创作、视频延长、视频编辑都会自动留在同一个 Shot，不用再次归类。</div>
             <div className="muted mini"><strong>删除边界：</strong>删除 Project 或 Shot 只删除组织关系，不删除任务和视频结果；删除任务则会自动从 Shot 候选中移除。</div>
-            <div className="muted mini"><strong>最终结果：</strong>每个 Shot 最多标记一个含视频输出的“采用版本”；项目层因此天然形成最终镜头清单，为以后接时间线/成片导出做准备。</div>
           </div>
         </details>
 
@@ -164,12 +180,36 @@ export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, 
   </div>;
 }
 
-function ShotCard({ shot, index, jobMap, unassignedJobs, busy, onCreate, onAssign, onUnassign, onSelect, onDelete }: {
+function FinalCutReview({ project, jobMap }: { project: ProductionProject; jobMap: Map<string, StoredJob> }) {
+  const adopted = project.shots.filter(shot => shot.selectedJobId).length;
+  const missing = project.shots.length - adopted;
+  return <section className="panel" style={{marginBottom:18}}>
+    <div className="panel-title"><Check size={17}/><div><h3>定稿顺序预览</h3><p>{project.shots.length ? `已定稿 ${adopted}/${project.shots.length}${missing ? `，还缺 ${missing} 个镜头` : "，全部镜头已具备成片输入"}` : "先添加镜头，再逐个选择采用版本。"}</p></div></div>
+    {project.shots.length > 0 && <div className={`result-grid ${project.shots.length === 1 ? "single" : ""}`} style={{marginTop:14}}>
+      {project.shots.map((shot, index) => {
+        const job = shot.selectedJobId ? jobMap.get(shot.selectedJobId) : null;
+        const output = job ? firstVideoOutput(job) : null;
+        const url = output ? outputUrl(output) : "";
+        return <article className="result-card" key={shot.id}>
+          {url ? <video src={url} controls preload="metadata"/> : <div className="no-preview">未定稿</div>}
+          <div className="result-info"><div><strong>{String(index + 1).padStart(2, "0")} · {shot.name}</strong><span>{job ? job.title : "尚未选择采用视频"}</span>{shot.brief && <span>{shot.brief}</span>}</div></div>
+        </article>;
+      })}
+    </div>}
+    <div className="muted mini" style={{marginTop:10}}>这里是“成片输入清单”，不是时间线。顺序来自 Shot；视频来自每个 Shot 的采用版本。后续拼接只应消费这份已经定稿的顺序，不重新猜候选。</div>
+  </section>;
+}
+
+function ShotCard({ shot, index, jobMap, unassignedJobs, busy, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onCreate, onAssign, onUnassign, onSelect, onDelete }: {
   shot: ProjectShot;
   index: number;
   jobMap: Map<string, StoredJob>;
   unassignedJobs: StoredJob[];
   busy: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
   onCreate: () => void;
   onAssign: (jobId: string) => Promise<unknown> | unknown;
   onUnassign: (jobId: string) => Promise<unknown> | unknown;
@@ -183,10 +223,15 @@ function ShotCard({ shot, index, jobMap, unassignedJobs, busy, onCreate, onAssig
   return <section className="panel">
     <div className="panel-head">
       <div><div className="eyebrow">SHOT {String(index + 1).padStart(2, "0")}</div><h3>{shot.name}</h3><div className="muted mini">{shot.brief || "未填写镜头目标"}</div></div>
-      <div className="inline-actions"><button className="secondary" disabled={busy} onClick={onCreate}><Sparkles size={15}/>在此镜头创作</button><button className="icon-button danger" disabled={busy} onClick={onDelete}><Trash2 size={15}/></button></div>
+      <div className="inline-actions">
+        <button className="icon-button" disabled={busy || !canMoveUp} onClick={onMoveUp} title="镜头上移"><ArrowUp size={15}/></button>
+        <button className="icon-button" disabled={busy || !canMoveDown} onClick={onMoveDown} title="镜头下移"><ArrowDown size={15}/></button>
+        <button className="secondary" disabled={busy} onClick={onCreate}><Sparkles size={15}/>在此镜头创作</button>
+        <button className="icon-button danger" disabled={busy} onClick={onDelete}><Trash2 size={15}/></button>
+      </div>
     </div>
 
-    {selected && <div className="notice" style={{marginTop:10}}><Check size={15}/><span>采用版本：<strong>{selected.title}</strong></span><button className="link-button" disabled={busy} onClick={() => onSelect(null)}>取消采用</button></div>}
+    {selected && <div className="notice" style={{marginTop:10}}><Check size={15}/><span>采用版本：<strong>{selected.title}</strong></span><button className="link-button" disabled={busy} onClick={async () => { try { await onSelect(null); } catch { /* parent surfaces the error */ } }}>取消采用</button></div>}
 
     <div className="subhead" style={{marginTop:14}}><h3>候选版本</h3><span>{candidates.length} 个任务</span></div>
     <div className="job-list">
@@ -194,8 +239,8 @@ function ShotCard({ shot, index, jobMap, unassignedJobs, busy, onCreate, onAssig
         <span className={`status-icon ${job.status === "succeeded" ? "success" : job.status === "failed" ? "fail" : "queued"}`}>{job.status === "succeeded" ? <Check size={14}/> : <Clapperboard size={14}/>}</span>
         <div className="job-row-main"><strong>{job.title}</strong><span>{JOB_KIND_LABELS[job.kind]} · {statusLabel(job.status)}{job.outputs.length ? ` · ${job.outputs.length} 个结果` : ""}</span></div>
         <div className="inline-actions">
-          {job.status === "succeeded" && hasVideoResult(job) && <button className={shot.selectedJobId === job.id ? "primary" : "secondary"} disabled={busy} onClick={() => onSelect(job.id)}>{shot.selectedJobId === job.id ? <><Check size={14}/>已采用</> : "采用"}</button>}
-          <button className="icon-button" disabled={busy} title="从这个镜头移除，但不删除任务" onClick={() => onUnassign(job.id)}><Unlink size={14}/></button>
+          {job.status === "succeeded" && hasVideoResult(job) && <button className={shot.selectedJobId === job.id ? "primary" : "secondary"} disabled={busy} onClick={async () => { try { await onSelect(job.id); } catch { /* parent surfaces the error */ } }}>{shot.selectedJobId === job.id ? <><Check size={14}/>已采用</> : "采用"}</button>}
+          <button className="icon-button" disabled={busy} title="从这个镜头移除，但不删除任务" onClick={async () => { try { await onUnassign(job.id); } catch { /* parent surfaces the error */ } }}><Unlink size={14}/></button>
         </div>
       </div>)}
       {!candidates.length && <div className="empty-list">还没有候选任务</div>}
@@ -208,12 +253,16 @@ function ShotCard({ shot, index, jobMap, unassignedJobs, busy, onCreate, onAssig
   </section>;
 }
 
+function firstVideoOutput(job: StoredJob) {
+  return job.outputs.find(output => output.kind === "video") || job.outputs.find(output => /\.(mp4|mov|webm)(\?|$)/i.test(String(output.outputUrl || ""))) || null;
+}
+
+function outputUrl(output: ResultMedia) {
+  return output.archivedFile ? `/api/archive/${encodeURIComponent(output.archivedFile)}` : (output.outputUrl || "");
+}
+
 function hasVideoResult(job: StoredJob) {
-  return job.outputs.some(output => {
-    if (output.kind === "video") return true;
-    const url = String(output.outputUrl || "").toLowerCase();
-    return /\.(mp4|mov|webm)(\?|$)/.test(url);
-  });
+  return Boolean(firstVideoOutput(job));
 }
 
 function statusLabel(status: string) {
