@@ -2,6 +2,7 @@ import "server-only";
 import type { JobKind, StoredAsset } from "@/lib/types";
 import { listAssets } from "@/lib/repository";
 import { resolveStudioAssetUrl } from "@/lib/yike/assets";
+import { isLocalInputRef, localInputToDataUrl } from "@/lib/video/local-input";
 
 function providerIds(asset: StoredAsset) {
   const provider: any = asset.provider || {};
@@ -52,9 +53,9 @@ function isPublicHttpUrl(value: string) {
 /**
  * Prepare stable Wanke asset references for whichever video provider will actually run.
  *
- * Public URLs remain public and do not trigger any Yike API call. Only legacy assets that
- * physically live in Yike's private ICE bucket need a fresh signed URL. This keeps direct
- * Model Studio generation independent from Yike whenever the source asset is already public.
+ * Public URLs remain public and do not trigger any Yike API call. Local image refs are kept
+ * small in SQLite and converted to Base64 only for the outbound generation request. Only
+ * legacy assets that physically live in Yike's private ICE bucket need a fresh signed URL.
  */
 export async function prepareJobInput(kind: JobKind, input: Record<string, any>) {
   if (kind !== "video_generation" || !Array.isArray(input.medias) || !input.medias.length) return input;
@@ -63,6 +64,12 @@ export async function prepareJobInput(kind: JobKind, input: Record<string, any>)
   const medias = await Promise.all(input.medias.map(async (media: any) => {
     const url = typeof media?.url === "string" ? media.url.trim() : "";
     const mediaId = typeof media?.mediaId === "string" ? media.mediaId.trim() : "";
+
+    if (isLocalInputRef(url)) {
+      if (media?.type !== "image") throw new Error("Wanke 本地输入当前只支持图片");
+      return { ...media, url: await localInputToDataUrl(url), mediaId: "" };
+    }
+
     const stored = findStoredAsset(assets, { url, mediaId });
 
     // A visible public URL is provider-neutral. Never replace it with a Yike URL or MediaId.
