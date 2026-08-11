@@ -54,7 +54,8 @@ export async function probeResultMedia(output: ResultMedia): Promise<MediaProbe>
     encoding: "utf8",
   });
 
-  const parsed = JSON.parse(stdout || "{}") as any;
+  const text = typeof stdout === "string" ? stdout : Buffer.from(stdout || []).toString("utf8");
+  const parsed = JSON.parse(text || "{}") as any;
   const streams = Array.isArray(parsed.streams) ? parsed.streams : [];
   const video = streams.find((stream: any) => stream.codec_type === "video");
   if (!video) throw new Error("没有检测到视频流");
