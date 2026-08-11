@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 import { getAsset } from "@/lib/repository";
+import type { StoredAsset } from "@/lib/types";
 
 export type SubjectType = "person" | "product";
 
@@ -101,14 +102,16 @@ export function deleteSubjectCard(id: string) {
 
 export function publicSubjectCards() {
   return listSubjectCards().map(card => {
-    const assets = card.assetIds.map(id => getAsset(id)).filter(Boolean);
+    const assets = card.assetIds.map(id => getAsset(id)).filter((asset): asset is StoredAsset => Boolean(asset));
     const primaryAsset = getAsset(card.primaryAssetId) || assets[0] || null;
+    const liveAssetIds = assets.map(asset => asset.id);
     return {
       ...card,
       primaryAssetId: primaryAsset?.id || card.primaryAssetId,
+      assetIds: liveAssetIds,
       assets,
       primaryAsset,
-      missingAssetCount: card.assetIds.length - assets.length,
+      missingAssetCount: card.assetIds.length - liveAssetIds.length,
     };
   });
 }
