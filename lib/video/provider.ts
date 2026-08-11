@@ -2,7 +2,8 @@ import "server-only";
 import type { JobKind, StoredJob } from "@/lib/types";
 import { validateJobInput } from "@/lib/yike/schemas";
 import { refreshJob as refreshYikeJob, resumeStoryboard, submitJob as submitYikeJob } from "@/lib/yike/jobs";
-import { canUseModelStudio, refreshModelStudioVideo, submitModelStudioVideo } from "@/lib/video/modelstudio";
+import { canUseModelStudio, refreshModelStudioVideo, submitModelStudioVideo, submitModelStudioVideoExtension } from "@/lib/video/modelstudio";
+import { validateVideoExtensionInput } from "@/lib/video/extension";
 import { getModelStudioRuntimeConfig, getVideoProviderMode } from "@/lib/settings";
 import { applyVideoRecipe, getVideoRecipe, recipeSupportsMode } from "@/lib/video/recipes";
 
@@ -41,6 +42,15 @@ async function submitThroughYike(kind: JobKind, input: any, routeReason: string,
 }
 
 export async function submitJob(kind: JobKind, rawInput: unknown) {
+  if (kind === "video_extension") {
+    const input = validateVideoExtensionInput(rawInput);
+    const config = getModelStudioRuntimeConfig();
+    if (!config.apiKey) {
+      throw new Error("视频延长当前使用百炼 Wan 2.7 原生 continuation。请先在设置中配置百炼 API Key。");
+    }
+    return submitModelStudioVideoExtension(input);
+  }
+
   if (kind !== "video_generation") return submitYikeJob(kind, rawInput);
 
   const input = validateJobInput(kind, rawInput) as any;
@@ -79,7 +89,7 @@ export async function submitJob(kind: JobKind, rawInput: unknown) {
 }
 
 export async function refreshJob(job: StoredJob) {
-  if (job.kind === "video_generation" && job.details?.engine === "modelstudio") {
+  if (job.details?.engine === "modelstudio") {
     return refreshModelStudioVideo(job);
   }
   return refreshYikeJob(job);

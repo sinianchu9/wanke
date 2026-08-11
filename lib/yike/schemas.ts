@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { JobKind } from "@/lib/types";
+import { videoExtensionSchema } from "@/lib/video/extension";
 
 const ratio = z.enum(["16:9", "9:16", "4:3", "3:4", "1:1"]);
 const standardRatio = z.enum(["16:9", "9:16", "4:3", "3:4"]);
@@ -92,6 +93,8 @@ const schemas = {
       });
     }
   }),
+
+  video_extension: videoExtensionSchema,
 
   video_analysis: z.object({
     sourceUrl: z.string().url("请输入可访问的视频 URL"),

@@ -1,5 +1,6 @@
 import "server-only";
 import type { JobStatus, StoredJob } from "@/lib/types";
+import type { VideoExtensionInput } from "@/lib/video/extension";
 import { getModelStudioRuntimeConfig } from "@/lib/settings";
 
 type VideoInput = {
@@ -232,6 +233,47 @@ export async function submitModelStudioVideo(input: VideoInput) {
   };
 }
 
+export async function submitModelStudioVideoExtension(input: VideoExtensionInput) {
+  const model = "wan2.7-i2v-2026-04-25";
+  const body = await requestJson(`${apiBase()}/services/aigc/video-generation/video-synthesis`, {
+    method: "POST",
+    body: JSON.stringify({
+      model,
+      input: {
+        prompt: input.prompt,
+        media: [{ type: "first_clip", url: input.sourceUrl }],
+      },
+      parameters: {
+        resolution: input.resolution,
+        duration: input.targetDuration,
+        prompt_extend: true,
+        watermark: false,
+      },
+    }),
+  });
+  const taskId = body?.output?.task_id;
+  if (!taskId) throw new Error(`百炼视频延长没有返回任务编号，请勿重复提交。RequestId：${body?.request_id || "未知"}`);
+  return {
+    providerJobId: String(taskId),
+    requestId: body?.request_id || null,
+    provider: body,
+    initialStatus: "queued" as JobStatus,
+    details: {
+      pollable: true,
+      engine: "modelstudio",
+      model,
+      route: "wan-video-extension",
+      routeReason: "视频延长使用 Wan 2.7 原生 first_clip continuation，不使用 reference-to-video 代替",
+      creationAction: "video_extension",
+      sourceJobId: input.sourceJobId,
+      sourceOutputIndex: input.sourceOutputIndex,
+      sourceDuration: input.sourceDuration,
+      targetDuration: input.targetDuration,
+      endpoint: rootUrl(),
+    },
+  };
+}
+
 function normalizeStatus(value: string | undefined): JobStatus {
   if (value === "PENDING") return "queued";
   if (value === "RUNNING") return "running";
@@ -251,7 +293,7 @@ export async function refreshModelStudioVideo(job: StoredJob) {
     provider: body,
     requestId: body?.request_id || job.requestId,
     error: status === "failed" ? friendlyProviderMessage(output.code, output.message) : null,
-    outputs: videoUrl ? [{ outputUrl: videoUrl, kind: "video" as const, label: "视频结果" }] : job.outputs,
+    outputs: videoUrl ? [{ outputUrl: videoUrl, kind: "video" as const, label: job.kind === "video_extension" ? "延长后视频" : "视频结果" }] : job.outputs,
     details: { ...(job.details || {}), usage: body?.usage || null, taskStatus: output.task_status || null },
   };
 }

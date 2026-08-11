@@ -180,7 +180,7 @@ export default function Studio() {
           )}
           {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={yikeReady} />}
           {tab === "subjects" && <SubjectLibrary subjects={subjects} assets={assets} onChanged={loadAll} />}
-          {tab === "jobs" && <JobCenter jobs={jobs} onChanged={loadAll} onGoAssets={() => setTab("assets")} />}
+          {tab === "jobs" && <JobCenter jobs={jobs} modelStudioAvailable={modelStudioConfigured} onChanged={loadAll} onGoAssets={() => setTab("assets")} />}
           {tab === "settings" && <SettingsPanel onChanged={loadAll} />}
         </section>
       </main>
