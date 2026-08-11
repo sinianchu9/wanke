@@ -1,5 +1,6 @@
 "use client";
 
+import OSS from "ali-oss";
 import { useMemo, useState } from "react";
 import { Box, Image as ImageIcon, Play, Sparkles, UserRound, WandSparkles } from "lucide-react";
 import type { PublicSubjectCard } from "@/components/subject-library";
@@ -15,8 +16,10 @@ type Props = {
   onCreated: (projectId: string) => Promise<void> | void;
   onAdvanced: () => void;
   onSettings: () => void;
+  onAssetsChanged: () => Promise<void> | void;
   generationReady: boolean | null;
   directAvailable: boolean;
+  extendedUploadAvailable: boolean;
 };
 
 const templates: Array<{ id: CreationType; label: string; desc: string; icon: any; demo: string }> = [
@@ -25,7 +28,7 @@ const templates: Array<{ id: CreationType; label: string; desc: string; icon: an
   { id: "image_video", label: "图片变视频", desc: "给一张图，说怎么动，不需要理解生成参数。", icon: ImageIcon, demo: "让画面有轻微风吹效果，镜头慢慢推近，主体不要变形。" },
 ];
 
-export default function QuickCreationWizard({ assets, subjects, onCreated, onAdvanced, onSettings, generationReady, directAvailable }: Props) {
+export default function QuickCreationWizard({ assets, subjects, onCreated, onAdvanced, onSettings, onAssetsChanged, generationReady, directAvailable, extendedUploadAvailable }: Props) {
   const [type, setType] = useState<CreationType>("product_ad");
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
@@ -46,6 +49,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   const directReferenceReady = Boolean(localInput || imageAssetId || referenceUrl.trim());
   const referenceReady = type === "image_video" ? directReferenceReady : Boolean(subjectId) || directReferenceReady;
   const ready = generationReady === true && Boolean(goal.trim()) && referenceReady && !busy && !localUploading;
+  const canChooseComputerImage = directAvailable || extendedUploadAvailable;
 
   function clearLocal() {
     if (localInput) discardLocalImage(localInput.ref);
@@ -90,20 +94,77 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   }
 
   async function chooseLocal(file: File | undefined) {
-    if (!file || !directAvailable) return;
+    if (!file || !canChooseComputerImage) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError("请选择 JPG、PNG 或 WEBP 图片");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError("图片不能超过 10 MB");
+      return;
+    }
+
     setLocalUploading(true); setError("");
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const response = await fetch("/api/video-inputs", { method: "POST", body: form });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "图片准备失败");
-      if (localInput) discardLocalImage(localInput.ref);
-      setLocalInput(body.input as LocalInput);
-      setSubjectId(""); setImageAssetId(""); setReferenceUrl("");
+      if (directAvailable) {
+        const form = new FormData();
+        form.append("file", file);
+        const response = await fetch("/api/video-inputs", { method: "POST", body: form });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || "图片准备失败");
+        if (localInput) discardLocalImage(localInput.ref);
+        setLocalInput(body.input as LocalInput);
+        setSubjectId(""); setImageAssetId(""); setReferenceUrl("");
+        return;
+      }
+
+      const asset = await uploadImageToExtendedLibrary(file);
+      clearLocal();
+      setSubjectId(""); setReferenceUrl("");
+      setImageAssetId(asset.id);
+      await onAssetsChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally { setLocalUploading(false); }
+  }
+
+  async function uploadImageToExtendedLibrary(file: File) {
+    const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+    const credentialResponse = await fetch("/api/assets/upload-credential", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileExt: ext }),
+    });
+    const credential = await credentialResponse.json();
+    if (!credentialResponse.ok) throw new Error(credential.error || "图片上传准备失败");
+
+    const address = decodeJson(credential.uploadAddress);
+    const auth = decodeJson(credential.uploadAuth);
+    if (!address.Bucket || !address.FileName || !address.Endpoint || !auth.AccessKeyId || !auth.AccessKeySecret || !auth.SecurityToken) {
+      throw new Error("图片上传凭证不完整，请检查视频服务设置");
+    }
+
+    const client = new OSS({
+      endpoint: address.Endpoint,
+      bucket: address.Bucket,
+      accessKeyId: auth.AccessKeyId,
+      accessKeySecret: auth.AccessKeySecret,
+      stsToken: auth.SecurityToken,
+      secure: true,
+    });
+    await client.multipartUpload(address.FileName, file, {
+      parallel: 3,
+      partSize: Math.max(1024 * 1024, Math.min(5 * 1024 * 1024, Math.ceil(file.size / 50))),
+    });
+
+    const registerResponse = await fetch("/api/assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: file.name, sourceUrl: credential.fileURL, mediaType: "image" }),
+    });
+    const registered = await registerResponse.json();
+    if (!registerResponse.ok || !registered.asset?.id) throw new Error(registered.error || "图片保存失败");
+    return registered.asset as StoredAsset;
   }
 
   async function create() {
@@ -195,15 +256,16 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
             </div>
           </div>
 
-          {directAvailable && <div className="field" style={{marginTop:10}}>
+          {canChooseComputerImage && <div className="field" style={{marginTop:10}}>
             <span className="field-label">或直接选择电脑里的图片<small>JPG / PNG / WEBP，10MB 内</small></span>
             <input type="file" accept="image/jpeg,image/png,image/webp" disabled={localUploading} onChange={event => { chooseLocal(event.target.files?.[0]); event.currentTarget.value = ""; }}/>
             {localUploading && <div className="muted mini">正在准备图片…</div>}
             {localInput && <div className="asset-chips"><button type="button" className="selected" onClick={clearLocal}>🖼️ {localInput.name} ×</button></div>}
+            {!directAvailable && extendedUploadAvailable && imageAssetId && <div className="muted mini">这张电脑图片已自动准备到素材库，可以直接开始创作，以后也能继续复用。</div>}
           </div>}
 
-          {!directAvailable && <div className="muted mini" style={{marginTop:8}}>当前视频服务不能直接读取电脑里的图片；可以从已有图片选择，或粘贴一条公网图片直链。</div>}
-          {!images.length && !directAvailable && <div className="muted mini">素材库为空也不影响开始，只要粘贴一张公网图片直链即可。</div>}
+          {!canChooseComputerImage && <div className="muted mini" style={{marginTop:8}}>当前视频服务不能直接准备电脑里的图片；可以从已有图片选择，或粘贴一条公网图片直链。</div>}
+          {!images.length && !canChooseComputerImage && <div className="muted mini">素材库为空也不影响开始，只要粘贴一张公网图片直链即可。</div>}
         </div>}
       </div>
 
@@ -253,6 +315,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
         <div className="muted mini"><strong>人物短视频：</strong>自动规划亮相、动作、互动和收尾，并优先保持人物身份一致。</div>
         <div className="muted mini"><strong>图片变视频：</strong>以原图为基础规划自然运动，不主动重新设计主体。</div>
         <div className="muted mini"><strong>主体库不是前置条件：</strong>保存过的主体用于长期复用；第一次做视频可以直接提供一张图片。</div>
+        <div className="muted mini"><strong>电脑图片自动适配：</strong>系统会根据当前视频服务选择临时直传或自动上传素材，用户不需要理解底层区别。</div>
         <div className="muted mini"><strong>不会替你乱选：</strong>如果一个镜头后来有多个好版本，最终成片前会让你明确选择。</div>
       </div>
     </details>
@@ -261,4 +324,10 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
 
 function discardLocalImage(ref: string) {
   fetch(`/api/video-inputs?ref=${encodeURIComponent(ref)}`, { method: "DELETE" }).catch(() => undefined);
+}
+
+function decodeJson(value: string) {
+  const binary = atob(value);
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
 }
