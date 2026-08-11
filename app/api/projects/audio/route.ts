@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { db } from "@/lib/db";
 import { listAssets } from "@/lib/repository";
 import { getProjectAudioSettings, setProjectAudioSettings } from "@/lib/video/project-audio";
 import { describeError } from "@/lib/errors";
@@ -20,6 +21,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const projectId = url.searchParams.get("projectId") || "";
     if (!projectId) return NextResponse.json({ error: "缺少 projectId" }, { status: 400 });
+    if (!db.prepare("SELECT 1 FROM projects WHERE id=?").get(projectId)) return NextResponse.json({ error: "项目不存在" }, { status: 404 });
     const audioAssets = listAssets(500).filter(asset => asset.mediaType === "audio");
     return NextResponse.json({ settings: getProjectAudioSettings(projectId), audioAssets });
   } catch (error) {
