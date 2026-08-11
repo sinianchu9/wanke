@@ -4,19 +4,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Braces, Clapperboard, CopyCheck, Film, FolderKanban, Languages, Library, ListVideo, Mic2, RefreshCw, ScanFace, Settings as SettingsIcon, Sparkles, UserRound, WandSparkles } from "lucide-react";
 import CreatorForms from "@/components/forms";
 import SimpleVideoGenerator from "@/components/simple-video-generator";
+import QuickCreationWizard from "@/components/quick-creation-wizard";
 import AssetLibrary from "@/components/asset-library";
 import JobCenter from "@/components/job-center";
-import ProjectWorkspace from "@/components/project-workspace";
+import ProjectHome from "@/components/project-home";
 import SettingsPanel from "@/components/settings-panel";
 import SubjectLibrary, { type PublicSubjectCard } from "@/components/subject-library";
 import type { ProductionProject } from "@/lib/project-types";
 import type { StoredAsset, StoredJob } from "@/lib/types";
 
-type Tab = "generate" | "projects" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "subjects" | "jobs" | "settings";
+type Tab = "quick" | "generate" | "projects" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "subjects" | "jobs" | "settings";
 
 const tabs: { id: Tab; label: string; icon: any; desc: string }[] = [
-  { id: "generate", label: "AI 视频", icon: Sparkles, desc: "说需求，系统自动选模型" },
-  { id: "projects", label: "作品项目", icon: FolderKanban, desc: "项目 / Shot / 候选 / 定稿" },
+  { id: "quick", label: "快速创作", icon: WandSparkles, desc: "一句话开始做视频" },
+  { id: "projects", label: "我的作品", icon: FolderKanban, desc: "看进度、选结果、出成片" },
+  { id: "generate", label: "高级创作", icon: Sparkles, desc: "生成方式、Recipe 与参考素材" },
   { id: "remake", label: "高级复刻", icon: Braces, desc: "拆解 → 脚本 → 独立渲染" },
   { id: "clone", label: "快速复刻", icon: CopyCheck, desc: "一键变体，替换人物/商品" },
   { id: "avatar", label: "数字人口播", icon: ScanFace, desc: "讲解 / 固定机位数字人" },
@@ -30,7 +32,7 @@ const tabs: { id: Tab; label: string; icon: any; desc: string }[] = [
 ];
 
 export default function Studio() {
-  const [tab, setTab] = useState<Tab>("generate");
+  const [tab, setTab] = useState<Tab>("quick");
   const [jobs, setJobs] = useState<StoredJob[]>([]);
   const [assets, setAssets] = useState<StoredAsset[]>([]);
   const [subjects, setSubjects] = useState<PublicSubjectCard[]>([]);
@@ -157,6 +159,13 @@ export default function Studio() {
     setTab("generate");
   }
 
+  async function quickCreated(projectId: string) {
+    await loadAll();
+    const project = projects.find(item => item.id === projectId);
+    setNotice(project ? `作品「${project.name}」已建立，镜头正在生成。` : "作品已建立，镜头正在生成。");
+    setTab("projects");
+  }
+
   const modelStudioConfigured = status?.modelStudio?.configured === true;
   const yikeReady = status?.yike?.configured === true;
   const providerMode = status?.providerMode || "auto";
@@ -213,8 +222,9 @@ export default function Studio() {
         {tab === "generate" && activeShot && <div className="notice"><Clapperboard size={16}/><span>当前生成目标：<strong>{activeShot.project.name} / {activeShot.shot.name}</strong>{activeShot.shot.brief ? ` · ${activeShot.shot.brief}` : ""}。新任务和批量版本会自动进入这个 Shot。</span><button className="link-button" onClick={() => setActiveShotId("")}>退出镜头上下文</button></div>}
 
         <section className="workspace">
+          {tab === "quick" && <QuickCreationWizard assets={assets} subjects={subjects} onCreated={quickCreated} onAdvanced={() => setTab("generate")}/>} 
           {tab === "generate" && <SimpleVideoGenerator assets={assets} subjects={subjects} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />}
-          {tab === "projects" && <ProjectWorkspace projects={projects} jobs={jobs} subjects={subjects} onChanged={loadAll} onCreateInShot={createInShot} />}
+          {tab === "projects" && <ProjectHome projects={projects} jobs={jobs} subjects={subjects} onChanged={loadAll} onCreateInShot={createInShot} />}
           {(["remake", "clone", "avatar", "voice", "storyboard", "translation"] as Tab[]).includes(tab) && (
             <CreatorForms mode={tab as any} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />
           )}
