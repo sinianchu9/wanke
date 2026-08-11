@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 
-const extensionSchema = z.object({
+export const videoExtensionSchema = z.object({
   sourceUrl: z.string().url("延长视频需要可访问的云端视频 URL").refine(value => {
     try {
       const url = new URL(value);
@@ -26,8 +26,8 @@ const extensionSchema = z.object({
   }
 });
 
-export type VideoExtensionInput = z.infer<typeof extensionSchema>;
+export type VideoExtensionInput = z.infer<typeof videoExtensionSchema>;
 
 export function validateVideoExtensionInput(input: unknown) {
-  return extensionSchema.parse(input);
+  return videoExtensionSchema.parse(input);
 }
