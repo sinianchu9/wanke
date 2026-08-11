@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { HelpCircle, Image as ImageIcon, Images, Send, Sparkles, WandSparkles, Waypoints } from "lucide-react";
+import type { PublicSubjectCard } from "@/components/subject-library";
 import type { StoredAsset } from "@/lib/types";
 import { VIDEO_RECIPES, getVideoRecipe, recipeSupportsMode, type VideoRecipeId } from "@/lib/video/recipes";
 
@@ -9,6 +10,7 @@ type Mode = "text_to_video" | "image_to_video" | "first_last_frame" | "reference
 type LocalInput = { ref: string; name: string; size: number };
 type Props = {
   assets: StoredAsset[];
+  subjects: PublicSubjectCard[];
   onSubmit: (kind: string, input: Record<string, unknown>, title?: string, parentJobId?: string) => Promise<any>;
   onSubmitBatch: (input: Record<string, unknown>, count: number, title?: string) => Promise<any>;
   submitting: boolean;
@@ -22,7 +24,7 @@ const modeOptions: { id: Mode; label: string; desc: string; icon: any }[] = [
   { id: "reference_to_video", label: "保持人物 / 产品一致", desc: "给人物、产品或场景参考，自动保持一致性", icon: Images },
 ];
 
-export default function SimpleVideoGenerator({ assets, onSubmit, onSubmitBatch, submitting, directAvailable }: Props) {
+export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSubmitBatch, submitting, directAvailable }: Props) {
   const [mode, setMode] = useState<Mode>("text_to_video");
   const [recipeId, setRecipeId] = useState<VideoRecipeId>("general");
   const [title, setTitle] = useState("");
@@ -37,6 +39,7 @@ export default function SimpleVideoGenerator({ assets, onSubmit, onSubmitBatch, 
   const [lastUrl, setLastUrl] = useState("");
   const [firstLocal, setFirstLocal] = useState<LocalInput | null>(null);
   const [lastLocal, setLastLocal] = useState<LocalInput | null>(null);
+  const [subjectIds, setSubjectIds] = useState<string[]>([]);
   const [referenceIds, setReferenceIds] = useState<string[]>([]);
   const [referenceUrls, setReferenceUrls] = useState("");
   const [referenceLocal, setReferenceLocal] = useState<LocalInput[]>([]);
@@ -49,8 +52,10 @@ export default function SimpleVideoGenerator({ assets, onSubmit, onSubmitBatch, 
   const recipe = useMemo(() => getVideoRecipe(recipeId), [recipeId]);
   const imageAssets = useMemo(() => assets.filter(asset => asset.mediaType === "image"), [assets]);
   const referenceAssets = useMemo(() => assets.filter(asset => asset.mediaType === "image" || asset.mediaType === "video"), [assets]);
+  const subjectAssetIds = useMemo(() => subjectIdsToAssetIds(subjectIds, subjects), [subjectIds, subjects]);
+  const effectiveReferenceAssetIds = useMemo(() => uniqueStrings([...subjectAssetIds, ...referenceIds]), [subjectAssetIds, referenceIds]);
   const manualReferenceCount = referenceUrls.split(/\n/).map(value => value.trim()).filter(Boolean).length;
-  const referenceCount = referenceLocal.length + referenceIds.length + manualReferenceCount;
+  const referenceCount = referenceLocal.length + effectiveReferenceAssetIds.length + manualReferenceCount;
 
   function storedMedia(assetId: string) {
     const asset = assets.find(item => item.id === assetId);
@@ -91,7 +96,7 @@ export default function SimpleVideoGenerator({ assets, onSubmit, onSubmitBatch, 
       return [first, last].filter(Boolean);
     }
     const local = referenceLocal.map(localMedia).filter(Boolean);
-    const picked = referenceIds.map(storedMedia).filter(Boolean);
+    const picked = effectiveReferenceAssetIds.map(storedMedia).filter(Boolean);
     const manual = referenceUrls.split(/\n/).map(value => manualMedia(value)).filter(Boolean);
     return [...local, ...picked, ...manual];
   }
@@ -111,6 +116,7 @@ export default function SimpleVideoGenerator({ assets, onSubmit, onSubmitBatch, 
   function changeMode(next: Mode) {
     if (referenceLocal.length) referenceLocal.forEach(item => discardLocalImage(item.ref));
     setMode(next);
+    setSubjectIds([]);
     setReferenceIds([]);
     setReferenceUrls("");
     setReferenceLocal([]);
@@ -130,7 +136,25 @@ export default function SimpleVideoGenerator({ assets, onSubmit, onSubmitBatch, 
     setEnhanceError("");
   }
 
+  function toggleSubject(id: string) {
+    setLocalError("");
+    if (subjectIds.includes(id)) {
+      setSubjectIds(current => current.filter(item => item !== id));
+      return;
+    }
+    const nextSubjectIds = [...subjectIds, id];
+    const nextSubjectAssets = subjectIdsToAssetIds(nextSubjectIds, subjects);
+    const nextPickedAssets = uniqueStrings([...nextSubjectAssets, ...referenceIds]);
+    const nextTotal = referenceLocal.length + nextPickedAssets.length + manualReferenceCount;
+    if (nextTotal > 5) {
+      setLocalError("这张主体卡展开后会超过 5 个参考素材。请先移除其他主体、单独素材或 URL。");
+      return;
+    }
+    setSubjectIds(nextSubjectIds);
+  }
+
   function toggleReference(id: string) {
+    if (subjectAssetIds.includes(id)) return;
     setReferenceIds(current => current.includes(id)
       ? current.filter(item => item !== id)
       : referenceCount >= 5 ? current : [...current, id]);
@@ -196,6 +220,7 @@ export default function SimpleVideoGenerator({ assets, onSubmit, onSubmitBatch, 
       resolution,
       model: "happyhorse-1.1",
       n: 1,
+      _subjectCardIds: mode === "reference_to_video" ? subjectIds : [],
     };
   }
 
@@ -276,18 +301,40 @@ export default function SimpleVideoGenerator({ assets, onSubmit, onSubmitBatch, 
         </div>}
 
         {mode === "reference_to_video" && <div className="field">
-          <span className="field-label">选择参考素材<small>人物、产品、场景都可以；最多 5 个，系统自动判断图片或视频参考</small></span>
-          {directAvailable && <div><input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={localUploading || referenceCount >= 5} onChange={event => { addReferenceFiles(event.target.files); event.currentTarget.value=""; }} /><div className="muted mini">{localUploading?"正在准备本地图片…":"可直接选择本地 JPG / PNG / WEBP，不需要先上传素材库"}</div></div>}
+          <span className="field-label">选择参考素材<small>主体卡、单独图片和视频合计最多 5 个</small></span>
+
+          {subjects.length > 0 && <>
+            <div className="muted mini"><strong>主体卡：</strong>选择后会把卡内参考图片展开到当前任务。它只提供身份，不会自动切换 Recipe。</div>
+            <div className="asset-chips">
+              {subjects.map(card => <button type="button" key={card.id} className={subjectIds.includes(card.id) ? "selected" : ""} onClick={() => toggleSubject(card.id)} title={`${card.subjectType === "person" ? "人物" : "产品"} · ${card.assets.length} 张参考图${card.usageNotes ? ` · ${card.usageNotes}` : ""}`}>
+                {card.subjectType === "person" ? "👤" : "📦"} {card.name} · {card.assets.length} 图
+              </button>)}
+            </div>
+            {subjectIds.length > 0 && <div className="muted mini">已引用主体：{subjectIds.map(id => subjects.find(card => card.id === id)?.name).filter(Boolean).join(" + ")}。建议根据创作目标手动选择“人物一致”或“产品广告”Recipe，主体卡本身不做这个决定。</div>}
+          </>}
+
+          {directAvailable && <div><input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={localUploading || referenceCount >= 5} onChange={event => { addReferenceFiles(event.target.files); event.currentTarget.value=""; }} /><div className="muted mini">{localUploading?"正在准备本地图片…":"还可以直接追加本地 JPG / PNG / WEBP"}</div></div>}
           {referenceLocal.length > 0 && <div className="asset-chips">{referenceLocal.map(item=><button type="button" className="selected" key={item.ref} onClick={()=>removeReferenceLocal(item)}>🖼️ {item.name} ×</button>)}</div>}
           {referenceAssets.length > 0 && <div className="asset-chips">
-            {referenceAssets.map(asset => <button type="button" key={asset.id} className={referenceIds.includes(asset.id) ? "selected" : ""} onClick={() => toggleReference(asset.id)}>
-              {asset.mediaType === "video" ? "🎬" : "🖼️"} {asset.name}
-            </button>)}
+            {referenceAssets.map(asset => {
+              const suppliedBySubject = subjectAssetIds.includes(asset.id);
+              return <button type="button" key={asset.id} disabled={suppliedBySubject} className={effectiveReferenceAssetIds.includes(asset.id) ? "selected" : ""} onClick={() => toggleReference(asset.id)} title={suppliedBySubject ? "这张图片已经由已选主体卡提供" : "作为单独参考素材选择"}>
+                {asset.mediaType === "video" ? "🎬" : "🖼️"} {asset.name}{suppliedBySubject ? " · 主体卡" : ""}
+              </button>;
+            })}
           </div>}
           <textarea value={referenceUrls} onChange={event => setReferenceUrls(event.target.value)} placeholder="也可以粘贴公网图片或 MP4/MOV 视频 URL，每行一个" />
-          <div className="muted mini">已选择 {Math.min(referenceCount, 99)} / 5 个参考素材</div>
-          {tooManyReferences && <div className="mini error-text">参考素材最多 5 个，请删除多余的素材或 URL 后再生成。</div>}
+          <div className="muted mini">已使用 {Math.min(referenceCount, 99)} / 5 个参考素材；主体卡内部每张图都会计入总数。</div>
+          {tooManyReferences && <div className="mini error-text">参考素材最多 5 个，请删除多余的主体、素材或 URL 后再生成。</div>}
           {hasVideoReference && <div className="muted mini">检测到视频参考：系统已自动使用支持视频参考的生成路线，并把最长时长限制为 10 秒。</div>}
+          <details className="advanced" style={{marginTop:8}}>
+            <summary><HelpCircle size={15}/> 主体卡和普通参考有什么区别？</summary>
+            <div className="advanced-body">
+              <div className="muted mini"><strong>主体卡：</strong>长期复用同一个人物 / 产品身份；修改卡以后，新任务会使用新的参考图片。</div>
+              <div className="muted mini"><strong>普通参考：</strong>只服务当前一次任务，不产生可复用身份。</div>
+              <div className="muted mini"><strong>演示：</strong>选择“品牌女主角 A”人物卡 + “黑色智能手环”产品卡 → 两张卡的图片一起进入多参考生成 → Prompt 描述两者在这个镜头中做什么 → Recipe 决定怎么拍。</div>
+            </div>
+          </details>
         </div>}
 
         {localError && <div className="error-banner">{localError}</div>}
@@ -329,11 +376,26 @@ export default function SimpleVideoGenerator({ assets, onSubmit, onSubmitBatch, 
             <Send size={16} />{submitting ? "正在提交…" : localUploading ? "正在准备图片…" : versionCount > 1 ? `生成 ${versionCount} 个版本` : "开始生成"}
           </button>
           {!ready && <span className="muted mini">填写描述并补齐当前模式需要的素材后即可生成</span>}
-          {ready && <span className="muted mini">当前：{recipe.label} · {versionCount > 1 ? `${versionCount} 个独立版本 · ` : ""}模型和 Provider 路由由系统设置决定</span>}
+          {ready && <span className="muted mini">当前：{recipe.label} · {subjectIds.length ? `${subjectIds.length} 个主体 · ` : ""}{versionCount > 1 ? `${versionCount} 个独立版本 · ` : ""}模型和 Provider 路由由系统设置决定</span>}
         </div>
       </div>
     </section>
   </div>;
+}
+
+function subjectIdsToAssetIds(subjectIds: string[], subjects: PublicSubjectCard[]) {
+  const ordered: string[] = [];
+  for (const id of subjectIds) {
+    const card = subjects.find(item => item.id === id);
+    if (!card) continue;
+    const cardIds = uniqueStrings([card.primaryAssetId, ...card.assetIds]);
+    for (const assetId of cardIds) if (!ordered.includes(assetId)) ordered.push(assetId);
+  }
+  return ordered;
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
 }
 
 function ImagePicker({ label, assets, assetId, setAssetId, url, setUrl, local, setLocal, directAvailable, compact = false }: {

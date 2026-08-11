@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Braces, Clapperboard, CopyCheck, Film, Languages, Library, ListVideo, Mic2, RefreshCw, ScanFace, Settings as SettingsIcon, Sparkles, WandSparkles } from "lucide-react";
+import { Braces, Clapperboard, CopyCheck, Film, Languages, Library, ListVideo, Mic2, RefreshCw, ScanFace, Settings as SettingsIcon, Sparkles, UserRound, WandSparkles } from "lucide-react";
 import CreatorForms from "@/components/forms";
 import SimpleVideoGenerator from "@/components/simple-video-generator";
 import AssetLibrary from "@/components/asset-library";
 import JobCenter from "@/components/job-center";
 import SettingsPanel from "@/components/settings-panel";
+import SubjectLibrary, { type PublicSubjectCard } from "@/components/subject-library";
 import type { StoredAsset, StoredJob } from "@/lib/types";
 
-type Tab = "generate" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "jobs" | "settings";
+type Tab = "generate" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "subjects" | "jobs" | "settings";
 
 const tabs: { id: Tab; label: string; icon: any; desc: string }[] = [
   { id: "generate", label: "AI 视频", icon: Sparkles, desc: "说需求，系统自动选模型" },
@@ -20,6 +21,7 @@ const tabs: { id: Tab; label: string; icon: any; desc: string }[] = [
   { id: "storyboard", label: "故事板", icon: Clapperboard, desc: "长文本拆镜、生成、续跑" },
   { id: "translation", label: "视频翻译", icon: Languages, desc: "字幕 / 语音多语言翻译" },
   { id: "assets", label: "素材库", icon: Library, desc: "统一管理图片、视频和音频" },
+  { id: "subjects", label: "主体库", icon: UserRound, desc: "复用人物和产品身份" },
   { id: "jobs", label: "任务中心", icon: ListVideo, desc: "续查、对比、重试与回炉" },
   { id: "settings", label: "设置", icon: SettingsIcon, desc: "API、空间 ID 与视频引擎" },
 ];
@@ -28,18 +30,21 @@ export default function Studio() {
   const [tab, setTab] = useState<Tab>("generate");
   const [jobs, setJobs] = useState<StoredJob[]>([]);
   const [assets, setAssets] = useState<StoredAsset[]>([]);
+  const [subjects, setSubjects] = useState<PublicSubjectCard[]>([]);
   const [notice, setNotice] = useState<string>("");
   const [status, setStatus] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
   const loadAll = useCallback(async () => {
-    const [j, a, s] = await Promise.all([
+    const [j, a, subjectData, s] = await Promise.all([
       fetch("/api/jobs", { cache: "no-store" }).then(r => r.json()),
       fetch("/api/assets", { cache: "no-store" }).then(r => r.json()),
+      fetch("/api/subjects", { cache: "no-store" }).then(r => r.json()),
       fetch("/api/status", { cache: "no-store" }).then(r => r.json()),
     ]);
     setJobs(j.jobs || []);
     setAssets(a.assets || []);
+    setSubjects(subjectData.subjects || []);
     setStatus(s);
   }, []);
 
@@ -169,11 +174,12 @@ export default function Studio() {
         {notice && <div className="notice"><WandSparkles size={16} />{notice}</div>}
 
         <section className="workspace">
-          {tab === "generate" && <SimpleVideoGenerator assets={assets} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />}
+          {tab === "generate" && <SimpleVideoGenerator assets={assets} subjects={subjects} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />}
           {(["remake", "clone", "avatar", "voice", "storyboard", "translation"] as Tab[]).includes(tab) && (
             <CreatorForms mode={tab as any} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />
           )}
           {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={yikeReady} />}
+          {tab === "subjects" && <SubjectLibrary subjects={subjects} assets={assets} onChanged={loadAll} />}
           {tab === "jobs" && <JobCenter jobs={jobs} onChanged={loadAll} onGoAssets={() => setTab("assets")} />}
           {tab === "settings" && <SettingsPanel onChanged={loadAll} />}
         </section>

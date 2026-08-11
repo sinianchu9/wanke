@@ -50,6 +50,19 @@ function openDb() {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS subject_cards (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      subject_type TEXT NOT NULL CHECK(subject_type IN ('person','product')),
+      description TEXT NOT NULL DEFAULT '',
+      usage_notes TEXT NOT NULL DEFAULT '',
+      primary_asset_id TEXT NOT NULL,
+      asset_ids_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_subject_cards_type_updated ON subject_cards(subject_type, updated_at DESC);
   `);
   return db;
 }

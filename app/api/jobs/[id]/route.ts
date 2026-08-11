@@ -69,14 +69,16 @@ export async function POST(request: Request, ctx: Ctx) {
       }
 
       const base = withoutBatchMembership(job.request) as Record<string, any>;
+      const { _subjectCardIds: sourceSubjectCardIds, ...directInputsRemoved } = base;
       const continueRequest = {
-        ...base,
+        ...directInputsRemoved,
         title: `${job.title} · 继续创作`,
         prompt,
         jobType: "reference_to_video",
         medias: [{ type: "video", url: sourceUrl, mediaId: "" }],
         duration: Math.min(Number(base.duration) || 5, 10),
         n: 1,
+        _sourceSubjectCardIds: Array.isArray(sourceSubjectCardIds) ? sourceSubjectCardIds : [],
       };
       const child = await submitChild(job, continueRequest, `${job.title} · 继续创作`, {
         creationAction: "continue_from_result",
