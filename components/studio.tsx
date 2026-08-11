@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Braces, Clapperboard, CopyCheck, Film, Languages, Library, ListVideo, Mic2, RefreshCw, ScanFace, Sparkles, WandSparkles } from "lucide-react";
 import CreatorForms from "@/components/forms";
+import SimpleVideoGenerator from "@/components/simple-video-generator";
 import AssetLibrary from "@/components/asset-library";
 import JobCenter from "@/components/job-center";
 import type { StoredAsset, StoredJob } from "@/lib/types";
@@ -10,14 +11,14 @@ import type { StoredAsset, StoredJob } from "@/lib/types";
 type Tab = "generate" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "jobs";
 
 const tabs: { id: Tab; label: string; icon: any; desc: string }[] = [
-  { id: "generate", label: "AI 视频", icon: Sparkles, desc: "文生 / 图生 / 首尾帧 / 多参考" },
+  { id: "generate", label: "AI 视频", icon: Sparkles, desc: "说需求，系统自动选模型" },
   { id: "remake", label: "高级复刻", icon: Braces, desc: "拆解 → 脚本 → 独立渲染" },
   { id: "clone", label: "快速复刻", icon: CopyCheck, desc: "一键变体，替换人物/商品" },
   { id: "avatar", label: "数字人口播", icon: ScanFace, desc: "讲解 / 固定机位数字人" },
   { id: "voice", label: "旁白成片", icon: Mic2, desc: "素材 + 文案 + 配音包装" },
   { id: "storyboard", label: "故事板", icon: Clapperboard, desc: "长文本拆镜、生成、续跑" },
   { id: "translation", label: "视频翻译", icon: Languages, desc: "字幕 / 语音多语言翻译" },
-  { id: "assets", label: "素材库", icon: Library, desc: "OSS 直传与 MediaId 管理" },
+  { id: "assets", label: "素材库", icon: Library, desc: "统一管理图片、视频和音频" },
   { id: "jobs", label: "任务中心", icon: ListVideo, desc: "续查、对比、重试与回炉" },
 ];
 
@@ -86,6 +87,9 @@ export default function Studio() {
     setStatus(s);
   }
 
+  const directVideo = status?.modelStudio?.configured === true;
+  const yikeReady = status?.yike?.configured === true;
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -104,17 +108,14 @@ export default function Studio() {
           })}
         </nav>
         <div className="side-status">
-          <div className="status-row"><span className={`dot ${status?.configured ? "ok" : "bad"}`} /><span>{status?.configured ? "Yike 凭证已配置" : "等待配置 Yike 凭证"}</span></div>
-          <div className="muted mini">{status?.regionName || "新加坡"} · {status?.regionId || "ap-southeast-1"}</div>
+          <div className="status-row"><span className={`dot ${directVideo || yikeReady ? "ok" : "bad"}`} /><span>{directVideo ? "视频生成：百炼直连已配置" : yikeReady ? "视频生成：兼容模式" : "等待配置视频凭证"}</span></div>
+          <div className="muted mini">{status?.regionName || "新加坡"} · 自动模型路由</div>
           {status?.endpoint && <div className="muted mini" title={status.endpoint}>{status.endpoint}</div>}
-          <button className="link-button" onClick={probe} disabled={status?.probing}>{status?.probing ? "测试中…" : "测试连接"}</button>
-          {status?.connected === true && <>
-            <div className="mini success-text">Core API 2026-07-07 可访问</div>
-            <div className="mini muted">AI 生成资格：实际提交时校验</div>
-            {status?.studio?.ok === true && <div className="mini success-text">Studio / 故事板 2026-03-19 可访问</div>}
-            {status?.studio?.ok === false && <div className="mini error-text">Studio：{status.studio.hint || status.studio.error}</div>}
-          </>}
-          {status?.connected === false && <div className="mini error-text">{status?.core?.hint || status.error}</div>}
+          {directVideo && <div className="mini muted">可直接选择本地图片；首次生成时自动校验 Key、Workspace 和模型权限</div>}
+          {!directVideo && yikeReady && <div className="mini muted">未配置百炼 Key，基础生成自动回退兼容链路</div>}
+          {yikeReady && <button className="link-button" onClick={probe} disabled={status?.probing}>{status?.probing ? "检查中…" : "检查扩展工作流"}</button>}
+          {yikeReady && status?.connected === true && <div className="mini success-text">复刻 / 故事板等扩展工作流可用</div>}
+          {yikeReady && status?.connected === false && <div className="mini error-text">{status.yikeError || status.error || "扩展工作流连接未就绪"}</div>}
         </div>
       </aside>
 
@@ -135,10 +136,11 @@ export default function Studio() {
         {notice && <div className="notice"><WandSparkles size={16} />{notice}</div>}
 
         <section className="workspace">
-          {(["generate", "remake", "clone", "avatar", "voice", "storyboard", "translation"] as Tab[]).includes(tab) && (
+          {tab === "generate" && <SimpleVideoGenerator assets={assets} onSubmit={submit} submitting={loading} directAvailable={directVideo} />}
+          {(["remake", "clone", "avatar", "voice", "storyboard", "translation"] as Tab[]).includes(tab) && (
             <CreatorForms mode={tab as any} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />
           )}
-          {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} />}
+          {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={yikeReady} />}
           {tab === "jobs" && <JobCenter jobs={jobs} onChanged={loadAll} onGoAssets={() => setTab("assets")} />}
         </section>
       </main>

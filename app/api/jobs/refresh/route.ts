@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { listActiveJobs, updateJobRemote } from "@/lib/repository";
-import { refreshJob } from "@/lib/yike/provider";
+import { refreshJob } from "@/lib/video/provider";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
