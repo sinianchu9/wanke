@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { CircleCheck, CircleX, ScanSearch } from "lucide-react";
 import ProjectFinalAssembly from "@/components/project-final-assembly";
 import ProjectSubtitleSettings from "@/components/project-subtitle-settings";
+import ProjectTransitionSettings from "@/components/project-transition-settings";
 
 type Probe = {
   source: "archive" | "remote";
@@ -101,10 +102,11 @@ export default function ProjectMediaReadiness({ projectId }: { projectId: string
           <div className="muted mini"><strong>检查：</strong>时长、画面尺寸、视频编码、像素格式、FPS、是否有音频、音频编码、采样率和声道。</div>
           <div className="muted mini"><strong>不做：</strong>不会转码、不会补音轨、不会改变画幅、不会拼接视频。</div>
           <div className="muted mini"><strong>工具：</strong>使用服务器系统中的 ffprobe。没有安装时，可以之后安装 FFmpeg/ffprobe，或通过 <code>FFPROBE_PATH</code> 指定可执行文件。</div>
-          <div className="muted mini"><strong>下一步：</strong>如果要生成项目成片，下面的装配层会对本机归档的定稿视频做统一转码后再按 Shot 顺序拼接，不会裸 concat 不同规格文件。</div>
+          <div className="muted mini"><strong>下一步：</strong>如果要生成项目成片，下面的装配层会对本机归档的定稿视频做统一转码后，再按 Shot 顺序、转场、声音和字幕设置完成项目成片。</div>
         </div>
       </details>
     </section>
+    <ProjectTransitionSettings projectId={projectId}/>
     <ProjectSubtitleSettings projectId={projectId}/>
     <ProjectFinalAssembly projectId={projectId}/>
   </>;
