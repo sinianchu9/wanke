@@ -1,6 +1,7 @@
 import "server-only";
 import type { JobStatus, StoredJob } from "@/lib/types";
 import type { VideoExtensionInput } from "@/lib/video/extension";
+import type { VideoEditingInput } from "@/lib/video/editing";
 import { getModelStudioRuntimeConfig } from "@/lib/settings";
 
 type VideoInput = {
@@ -55,18 +56,10 @@ export function canUseModelStudio(input: VideoInput) {
 }
 
 function chooseRoute(input: VideoInput): RouteDecision {
-  if (input.jobType === "text_to_video") {
-    return { model: "happyhorse-1.1-t2v", route: "happyhorse-t2v", reason: "文生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动" };
-  }
-  if (input.jobType === "image_to_video") {
-    return { model: "happyhorse-1.1-i2v", route: "happyhorse-i2v", reason: "单图生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动" };
-  }
-  if (input.jobType === "first_last_frame") {
-    return { model: "wan2.7-i2v-2026-04-25", route: "wan-i2v", reason: "首尾帧由 Wan 2.7 原生支持" };
-  }
-  if (input.medias.every(media => media.type === "image")) {
-    return { model: "happyhorse-1.1-r2v", route: "happyhorse-r2v", reason: "纯图片多参考优先 HappyHorse 1.1，强化人物与产品一致性" };
-  }
+  if (input.jobType === "text_to_video") return { model: "happyhorse-1.1-t2v", route: "happyhorse-t2v", reason: "文生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动" };
+  if (input.jobType === "image_to_video") return { model: "happyhorse-1.1-i2v", route: "happyhorse-i2v", reason: "单图生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动" };
+  if (input.jobType === "first_last_frame") return { model: "wan2.7-i2v-2026-04-25", route: "wan-i2v", reason: "首尾帧由 Wan 2.7 原生支持" };
+  if (input.medias.every(media => media.type === "image")) return { model: "happyhorse-1.1-r2v", route: "happyhorse-r2v", reason: "纯图片多参考优先 HappyHorse 1.1，强化人物与产品一致性" };
   return { model: "wan2.7-r2v-2026-06-12", route: "wan-r2v", reason: "存在视频参考，自动使用 Wan 2.7 多模态参考能力" };
 }
 
@@ -100,61 +93,31 @@ function routedPrompt(input: VideoInput, decision: RouteDecision) {
 function buildPayload(input: VideoInput, decision: RouteDecision) {
   const duration = effectiveDuration(input, decision);
   const prompt = routedPrompt(input, decision);
-  const parameters: Record<string, unknown> = {
-    resolution: input.resolution,
-    duration,
-    watermark: false,
-  };
+  const parameters: Record<string, unknown> = { resolution: input.resolution, duration, watermark: false };
 
   if (decision.route === "happyhorse-t2v") {
     parameters.ratio = input.aspectRatio;
     return { model: decision.model, input: { prompt }, parameters };
   }
-
   if (decision.route === "happyhorse-i2v") {
-    return {
-      model: decision.model,
-      input: { prompt, media: [{ type: "first_frame", url: requireUrl(input.medias[0], 0) }] },
-      parameters,
-    };
+    return { model: decision.model, input: { prompt, media: [{ type: "first_frame", url: requireUrl(input.medias[0], 0) }] }, parameters };
   }
-
   if (decision.route === "wan-i2v") {
     return {
       model: decision.model,
-      input: {
-        prompt,
-        media: [
-          { type: "first_frame", url: requireUrl(input.medias[0], 0) },
-          { type: "last_frame", url: requireUrl(input.medias[1], 1) },
-        ],
-      },
+      input: { prompt, media: [{ type: "first_frame", url: requireUrl(input.medias[0], 0) }, { type: "last_frame", url: requireUrl(input.medias[1], 1) }] },
       parameters: { ...parameters, prompt_extend: true },
     };
   }
-
   if (decision.route === "happyhorse-r2v") {
     parameters.ratio = input.aspectRatio;
-    return {
-      model: decision.model,
-      input: {
-        prompt,
-        media: input.medias.map((media, index) => ({ type: "reference_image", url: requireUrl(media, index) })),
-      },
-      parameters,
-    };
+    return { model: decision.model, input: { prompt, media: input.medias.map((media, index) => ({ type: "reference_image", url: requireUrl(media, index) })) }, parameters };
   }
 
   parameters.ratio = input.aspectRatio;
   return {
     model: decision.model,
-    input: {
-      prompt,
-      media: input.medias.map((media, index) => ({
-        type: media.type === "video" ? "reference_video" : "reference_image",
-        url: requireUrl(media, index),
-      })),
-    },
+    input: { prompt, media: input.medias.map((media, index) => ({ type: media.type === "video" ? "reference_video" : "reference_image", url: requireUrl(media, index) })) },
     parameters: { ...parameters, prompt_extend: false },
   };
 }
@@ -163,25 +126,12 @@ function friendlyProviderMessage(codeValue: unknown, messageValue: unknown, stat
   const code = String(codeValue || "");
   const message = String(messageValue || "").trim();
   const haystack = `${code} ${message}`.toLowerCase();
-
-  if (status === 401 || haystack.includes("invalidapikey") || haystack.includes("invalid api key")) {
-    return "百炼 API Key 无效，或 Key 与新加坡 Endpoint 不属于同一地域。请到设置检查 API Key 和 Workspace。";
-  }
-  if (status === 403 || haystack.includes("accessdenied") || haystack.includes("permission")) {
-    return "当前百炼 Key 没有调用该视频模型的权限，请检查 Workspace、模型授权或账号状态。";
-  }
-  if (status === 429 || haystack.includes("thrott") || haystack.includes("rate limit")) {
-    return "百炼当前请求过多，任务没有重复提交。请稍后直接重试这条任务。";
-  }
-  if (haystack.includes("quota") || haystack.includes("arrear") || haystack.includes("balance")) {
-    return "百炼额度或账户余额不足，请检查模型额度与账户状态。";
-  }
-  if (haystack.includes("url") && (haystack.includes("invalid") || haystack.includes("download") || haystack.includes("access"))) {
-    return `参考素材无法被百炼访问。请确认是公网直链，或重新从素材库选择。${message ? ` 原因：${message}` : ""}`;
-  }
-  if (haystack.includes("invalidparameter") || haystack.includes("invalid parameter")) {
-    return `素材或画面参数不符合当前模型要求。${message ? ` 原因：${message}` : ""}`;
-  }
+  if (status === 401 || haystack.includes("invalidapikey") || haystack.includes("invalid api key")) return "百炼 API Key 无效，或 Key 与新加坡 Endpoint 不属于同一地域。请到设置检查 API Key 和 Workspace。";
+  if (status === 403 || haystack.includes("accessdenied") || haystack.includes("permission")) return "当前百炼 Key 没有调用该视频模型的权限，请检查 Workspace、模型授权或账号状态。";
+  if (status === 429 || haystack.includes("thrott") || haystack.includes("rate limit")) return "百炼当前请求过多，任务没有重复提交。请稍后直接重试这条任务。";
+  if (haystack.includes("quota") || haystack.includes("arrear") || haystack.includes("balance")) return "百炼额度或账户余额不足，请检查模型额度与账户状态。";
+  if (haystack.includes("url") && (haystack.includes("invalid") || haystack.includes("download") || haystack.includes("access"))) return `参考素材无法被百炼访问。请确认是公网直链，或重新从素材库选择。${message ? ` 原因：${message}` : ""}`;
+  if (haystack.includes("invalidparameter") || haystack.includes("invalid parameter")) return `素材或画面参数不符合当前模型要求。${message ? ` 原因：${message}` : ""}`;
   return message ? `百炼视频生成失败：${message}` : `百炼视频接口失败${status ? `（HTTP ${status}）` : ""}`;
 }
 
@@ -199,9 +149,7 @@ async function requestJson(url: string, init: RequestInit) {
     cache: "no-store",
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok || body?.code) {
-    throw new Error(friendlyProviderMessage(body?.code, body?.message, response.status));
-  }
+  if (!response.ok || body?.code) throw new Error(friendlyProviderMessage(body?.code, body?.message, response.status));
   return body;
 }
 
@@ -209,27 +157,12 @@ export async function submitModelStudioVideo(input: VideoInput) {
   const decision = chooseRoute(input);
   const duration = effectiveDuration(input, decision);
   const payload = buildPayload(input, decision);
-  const body = await requestJson(`${apiBase()}/services/aigc/video-generation/video-synthesis`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  const body = await requestJson(`${apiBase()}/services/aigc/video-generation/video-synthesis`, { method: "POST", body: JSON.stringify(payload) });
   const taskId = body?.output?.task_id;
   if (!taskId) throw new Error(`百炼没有返回任务编号，请勿重复点击生成。RequestId：${body?.request_id || "未知"}`);
   return {
-    providerJobId: String(taskId),
-    requestId: body?.request_id || null,
-    provider: body,
-    initialStatus: "queued" as JobStatus,
-    details: {
-      pollable: true,
-      engine: "modelstudio",
-      model: decision.model,
-      route: decision.route,
-      routeReason: decision.reason,
-      requestedDuration: input.duration,
-      effectiveDuration: duration,
-      endpoint: rootUrl(),
-    },
+    providerJobId: String(taskId), requestId: body?.request_id || null, provider: body, initialStatus: "queued" as JobStatus,
+    details: { pollable: true, engine: "modelstudio", model: decision.model, route: decision.route, routeReason: decision.reason, requestedDuration: input.duration, effectiveDuration: duration, endpoint: rootUrl() },
   };
 }
 
@@ -239,36 +172,57 @@ export async function submitModelStudioVideoExtension(input: VideoExtensionInput
     method: "POST",
     body: JSON.stringify({
       model,
-      input: {
-        prompt: input.prompt,
-        media: [{ type: "first_clip", url: input.sourceUrl }],
-      },
-      parameters: {
-        resolution: input.resolution,
-        duration: input.targetDuration,
-        prompt_extend: true,
-        watermark: false,
-      },
+      input: { prompt: input.prompt, media: [{ type: "first_clip", url: input.sourceUrl }] },
+      parameters: { resolution: input.resolution, duration: input.targetDuration, prompt_extend: true, watermark: false },
     }),
   });
   const taskId = body?.output?.task_id;
   if (!taskId) throw new Error(`百炼视频延长没有返回任务编号，请勿重复提交。RequestId：${body?.request_id || "未知"}`);
   return {
-    providerJobId: String(taskId),
-    requestId: body?.request_id || null,
-    provider: body,
-    initialStatus: "queued" as JobStatus,
+    providerJobId: String(taskId), requestId: body?.request_id || null, provider: body, initialStatus: "queued" as JobStatus,
+    details: {
+      pollable: true, engine: "modelstudio", model, route: "wan-video-extension",
+      routeReason: "视频延长使用 Wan 2.7 原生 first_clip continuation，不使用 reference-to-video 代替",
+      creationAction: "video_extension", sourceJobId: input.sourceJobId, sourceOutputIndex: input.sourceOutputIndex,
+      sourceDuration: input.sourceDuration, targetDuration: input.targetDuration, endpoint: rootUrl(),
+    },
+  };
+}
+
+export async function submitModelStudioVideoEditing(input: VideoEditingInput) {
+  const model = "wan2.7-videoedit";
+  const media = [
+    { type: "video", url: input.sourceUrl },
+    ...input.referenceImages.map(url => ({ type: "reference_image", url })),
+  ];
+  const body = await requestJson(`${apiBase()}/services/aigc/video-generation/video-synthesis`, {
+    method: "POST",
+    body: JSON.stringify({
+      model,
+      input: { prompt: input.prompt, media },
+      parameters: {
+        resolution: input.resolution,
+        prompt_extend: true,
+        watermark: false,
+        audio_setting: input.audioSetting,
+      },
+    }),
+  });
+  const taskId = body?.output?.task_id;
+  if (!taskId) throw new Error(`百炼视频编辑没有返回任务编号，请勿重复提交。RequestId：${body?.request_id || "未知"}`);
+  return {
+    providerJobId: String(taskId), requestId: body?.request_id || null, provider: body, initialStatus: "queued" as JobStatus,
     details: {
       pollable: true,
       engine: "modelstudio",
       model,
-      route: "wan-video-extension",
-      routeReason: "视频延长使用 Wan 2.7 原生 first_clip continuation，不使用 reference-to-video 代替",
-      creationAction: "video_extension",
+      route: "wan-video-editing",
+      routeReason: "整条视频指令编辑使用 Wan 2.7 Video Editing；当前没有时间段或 mask 参数，不标记为 Retake",
+      creationAction: "video_editing",
       sourceJobId: input.sourceJobId,
       sourceOutputIndex: input.sourceOutputIndex,
       sourceDuration: input.sourceDuration,
-      targetDuration: input.targetDuration,
+      referenceImageCount: input.referenceImages.length,
       endpoint: rootUrl(),
     },
   };
@@ -288,12 +242,13 @@ export async function refreshModelStudioVideo(job: StoredJob) {
   const output = body?.output || {};
   const status = normalizeStatus(output.task_status);
   const videoUrl = output.video_url;
+  const label = job.kind === "video_extension" ? "延长后视频" : job.kind === "video_editing" ? "编辑后视频" : "视频结果";
   return {
     status,
     provider: body,
     requestId: body?.request_id || job.requestId,
     error: status === "failed" ? friendlyProviderMessage(output.code, output.message) : null,
-    outputs: videoUrl ? [{ outputUrl: videoUrl, kind: "video" as const, label: job.kind === "video_extension" ? "延长后视频" : "视频结果" }] : job.outputs,
+    outputs: videoUrl ? [{ outputUrl: videoUrl, kind: "video" as const, label }] : job.outputs,
     details: { ...(job.details || {}), usage: body?.usage || null, taskStatus: output.task_status || null },
   };
 }
