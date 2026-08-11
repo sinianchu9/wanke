@@ -90,8 +90,8 @@ export async function assembleProject(projectId: string) {
     sources.push({ shotId: shot.id, shotName: shot.name, jobId: job.id, jobTitle: job.title, archivedFile: output.archivedFile, filePath, probe });
   }
 
-  const totalDuration = sources.reduce((sum, source) => sum + (source.probe.duration || 0), 0);
-  if (totalDuration > 900) throw new Error("单次成片定稿总时长不能超过 15 分钟");
+  const expectedDuration = sources.reduce((sum, source) => sum + (source.probe.duration || 0), 0);
+  if (expectedDuration > 900) throw new Error("单次成片定稿总时长不能超过 15 分钟");
 
   const target = targetProfile(sources[0].probe);
   const assemblyId = randomUUID();
@@ -109,7 +109,7 @@ export async function assembleProject(projectId: string) {
     }
 
     const concatFile = path.join(tempRoot, "concat.txt");
-    await fsp.writeFile(concatFile, normalizedFiles.map(file => `file '${escapeConcatPath(file)}'`).join("\n"), "utf8");
+    await fsp.writeFile(concatFile, normalizedFiles.map(file => `file '${path.basename(file)}'`).join("\n"), "utf8");
     await runFfmpeg([
       "-y",
       "-f", "concat",
@@ -122,6 +122,7 @@ export async function assembleProject(projectId: string) {
 
     const stat = await fsp.stat(finalPath);
     if (!stat.isFile() || stat.size <= 0) throw new Error("FFmpeg 没有生成有效的成片文件");
+    const finalProbe = await probeResultMedia({ archivedFile: outputFile, kind: "video" });
 
     const now = new Date().toISOString();
     const settings = {
@@ -133,9 +134,11 @@ export async function assembleProject(projectId: string) {
       audioCodec: "aac",
       audioSampleRate: 48000,
       audioChannels: 2,
-      totalDuration,
+      expectedDuration,
+      finalDuration: finalProbe.duration,
       shotCount: sources.length,
       scaleMode: "fit-with-black-padding",
+      finalProbe,
     };
     const sourceSnapshot = sources.map((source, index) => ({
       index: index + 1,
@@ -249,10 +252,6 @@ function formatFps(value: number) {
 
 function formatDuration(value: number) {
   return Math.max(0.1, value).toFixed(3);
-}
-
-function escapeConcatPath(value: string) {
-  return value.replace(/'/g, "'\\''");
 }
 
 function firstVideoOutput(outputs: ResultMedia[]) {
