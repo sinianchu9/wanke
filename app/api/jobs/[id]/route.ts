@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { StoredJob } from "@/lib/types";
 import { createJob, deleteJob, getJob, requestReferenceExists, updateJobRemote } from "@/lib/repository";
 import { refreshJob, resumeStoryboard, submitJob } from "@/lib/video/provider";
 import { prepareJobInput } from "@/lib/video/prepare";
@@ -32,19 +33,58 @@ export async function POST(request: Request, ctx: Ctx) {
     }
 
     if (action === "retry") {
-      // A retry is a child of one concrete version, not a new peer in the original batch.
-      // Keep all generation inputs but remove batch membership metadata.
-      const retryRequest = withoutBatchMembership(job.request);
-      const child = createJob({ kind: job.kind, title: `${job.title} · 重试`, request: retryRequest, parentJobId: job.id });
-      try {
-        const preparedInput = await prepareJobInput(job.kind, retryRequest);
-        const submitted = await submitJob(job.kind, preparedInput);
-        const updated = updateJobRemote(child.id, { providerJobId: submitted.providerJobId, status: submitted.initialStatus, provider: submitted.provider, requestId: submitted.requestId, error: null, details: submitted.details });
-        return NextResponse.json({ job: updated }, { status: 201 });
-      } catch (error) {
-        updateJobRemote(child.id, { status: "failed", error: describeError(error) });
-        throw error;
+      if (job.status !== "failed") {
+        return NextResponse.json({ error: "重试只用于失败任务。成功结果请使用“再来一个类似版本”或“继续创作”。" }, { status: 400 });
       }
+      const retryRequest = withoutBatchMembership(job.request);
+      const child = await submitChild(job, retryRequest, `${job.title} · 重试`, {
+        creationAction: "retry",
+        sourceJobId: job.id,
+      });
+      return NextResponse.json({ job: child }, { status: 201 });
+    }
+
+    if (action === "similar") {
+      requireSuccessfulVideoJob(job);
+      const similarRequest = withoutBatchMembership(job.request);
+      const child = await submitChild(job, similarRequest, `${job.title} · 类似版本`, {
+        creationAction: "similar_variant",
+        sourceJobId: job.id,
+      });
+      return NextResponse.json({ job: child }, { status: 201 });
+    }
+
+    if (action === "continue") {
+      requireSuccessfulVideoJob(job);
+      const outputIndex = Number(body.outputIndex ?? 0);
+      const prompt = String(body.prompt || "").trim();
+      if (!prompt) return NextResponse.json({ error: "继续创作需要填写新的创作要求" }, { status: 400 });
+      if (!Number.isInteger(outputIndex) || outputIndex < 0 || outputIndex >= job.outputs.length) {
+        return NextResponse.json({ error: "请选择一个有效的视频结果作为参考" }, { status: 400 });
+      }
+      const output = job.outputs[outputIndex];
+      const sourceUrl = output.outputUrl?.trim();
+      if (!sourceUrl) {
+        return NextResponse.json({ error: "这个结果没有可供远端模型访问的云端视频 URL，暂时不能作为继续创作参考" }, { status: 400 });
+      }
+
+      const base = withoutBatchMembership(job.request) as Record<string, any>;
+      const continueRequest = {
+        ...base,
+        title: `${job.title} · 继续创作`,
+        prompt,
+        jobType: "reference_to_video",
+        medias: [{ type: "video", url: sourceUrl, mediaId: "" }],
+        duration: Math.min(Number(base.duration) || 5, 10),
+        n: 1,
+      };
+      const child = await submitChild(job, continueRequest, `${job.title} · 继续创作`, {
+        creationAction: "continue_from_result",
+        sourceJobId: job.id,
+        sourceOutputIndex: outputIndex,
+        sourceOutputUrl: sourceUrl,
+      });
+      return NextResponse.json({ job: child }, { status: 201 });
     }
 
     if (action === "resume") {
@@ -81,6 +121,31 @@ export async function DELETE(_: Request, ctx: Ctx) {
   const orphaned = localRefs.filter(ref => !requestReferenceExists(ref));
   await Promise.allSettled(orphaned.map(deleteLocalInput));
   return NextResponse.json({ ok: true });
+}
+
+async function submitChild(parent: StoredJob, request: Record<string, unknown>, title: string, relationDetails: Record<string, unknown>) {
+  const child = createJob({ kind: parent.kind, title, request, parentJobId: parent.id });
+  try {
+    const preparedInput = await prepareJobInput(parent.kind, request);
+    const submitted = await submitJob(parent.kind, preparedInput);
+    return updateJobRemote(child.id, {
+      providerJobId: submitted.providerJobId,
+      status: submitted.initialStatus,
+      provider: submitted.provider,
+      requestId: submitted.requestId,
+      error: null,
+      details: { ...(submitted.details || {}), ...relationDetails },
+    })!;
+  } catch (error) {
+    updateJobRemote(child.id, { status: "failed", error: describeError(error), details: relationDetails });
+    throw error;
+  }
+}
+
+function requireSuccessfulVideoJob(job: StoredJob) {
+  if (job.kind !== "video_generation" || job.status !== "succeeded") {
+    throw new Error("只有已完成的 AI 视频生成任务支持继续创作");
+  }
 }
 
 function withoutBatchMembership(request: Record<string, unknown>) {
