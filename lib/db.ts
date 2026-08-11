@@ -127,6 +127,16 @@ function openDb() {
       FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
       FOREIGN KEY(bgm_asset_id) REFERENCES assets(id) ON DELETE SET NULL
     );
+
+    CREATE TABLE IF NOT EXISTS project_subtitle_settings (
+      project_id TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      content TEXT NOT NULL DEFAULT '',
+      language TEXT NOT NULL DEFAULT 'zho',
+      title TEXT NOT NULL DEFAULT '字幕',
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
   `);
   return db;
 }
