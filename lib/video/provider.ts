@@ -12,13 +12,18 @@ export async function submitJob(kind: JobKind, rawInput: unknown) {
   const input = validateJobInput(kind, rawInput) as any;
   if (canUseModelStudio(input)) return submitModelStudioVideo(input);
 
+  const hasInlineLocalImage = Array.isArray(input.medias) && input.medias.some((media: any) => typeof media?.url === "string" && media.url.startsWith("data:image/"));
+  if (hasInlineLocalImage) {
+    throw new Error("这条任务使用了本地图片直传，需要配置百炼 Model Studio API Key 后才能生成。请检查 DASHSCOPE_API_KEY。 ");
+  }
+
   const submitted = await submitYikeJob(kind, input);
   return {
     ...submitted,
     details: {
       ...(submitted.details || {}),
       engine: "yike-fallback",
-      routeReason: "百炼 Model Studio API Key 未配置，或素材暂时只有 Yike MediaId；自动回退现有 Yike 生成链路",
+      routeReason: "百炼 Model Studio API Key 未配置，或素材暂时只有兼容工作流 MediaId；自动使用现有兼容生成链路",
     },
   };
 }
