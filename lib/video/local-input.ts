@@ -62,3 +62,27 @@ export async function localInputToDataUrl(ref: string) {
     throw error;
   }
 }
+
+export async function deleteLocalInput(ref: string) {
+  const name = safeFileName(ref);
+  try {
+    await fs.unlink(path.join(inputDir(), name));
+  } catch (error: any) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+}
+
+export function collectLocalInputRefs(value: unknown, out = new Set<string>()) {
+  if (typeof value === "string") {
+    if (isLocalInputRef(value)) out.add(value);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectLocalInputRefs(item, out);
+    return out;
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value as Record<string, unknown>)) collectLocalInputRefs(item, out);
+  }
+  return out;
+}
