@@ -14,6 +14,7 @@ import {
   updateProject,
   updateShot,
 } from "@/lib/projects";
+import { getJob } from "@/lib/repository";
 import { describeError } from "@/lib/errors";
 
 export const runtime = "nodejs";
@@ -61,7 +62,8 @@ const actionSchema = z.discriminatedUnion("action", [
 ]);
 
 export async function GET() {
-  return NextResponse.json({ projects: listProjects() });
+  const projects = listProjects();
+  return NextResponse.json({ projects, jobs: projectJobs(projects) });
 }
 
 export async function POST(request: Request) {
@@ -95,4 +97,9 @@ export async function DELETE(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
+}
+
+function projectJobs(projects: ReturnType<typeof listProjects>) {
+  const ids = [...new Set(projects.flatMap(project => project.shots.flatMap(shot => shot.jobIds)))];
+  return ids.map(id => getJob(id)).filter(Boolean);
 }
