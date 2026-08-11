@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Braces, Clapperboard, CopyCheck, Film, Languages, Library, ListVideo, Mic2, RefreshCw, ScanFace, Sparkles, WandSparkles } from "lucide-react";
+import { Braces, Clapperboard, CopyCheck, Film, Languages, Library, ListVideo, Mic2, RefreshCw, ScanFace, Settings as SettingsIcon, Sparkles, WandSparkles } from "lucide-react";
 import CreatorForms from "@/components/forms";
 import SimpleVideoGenerator from "@/components/simple-video-generator";
 import AssetLibrary from "@/components/asset-library";
 import JobCenter from "@/components/job-center";
+import SettingsPanel from "@/components/settings-panel";
 import type { StoredAsset, StoredJob } from "@/lib/types";
 
-type Tab = "generate" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "jobs";
+type Tab = "generate" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "jobs" | "settings";
 
 const tabs: { id: Tab; label: string; icon: any; desc: string }[] = [
   { id: "generate", label: "AI 视频", icon: Sparkles, desc: "说需求，系统自动选模型" },
@@ -20,6 +21,7 @@ const tabs: { id: Tab; label: string; icon: any; desc: string }[] = [
   { id: "translation", label: "视频翻译", icon: Languages, desc: "字幕 / 语音多语言翻译" },
   { id: "assets", label: "素材库", icon: Library, desc: "统一管理图片、视频和音频" },
   { id: "jobs", label: "任务中心", icon: ListVideo, desc: "续查、对比、重试与回炉" },
+  { id: "settings", label: "设置", icon: SettingsIcon, desc: "API、空间 ID 与视频引擎" },
 ];
 
 export default function Studio() {
@@ -87,8 +89,11 @@ export default function Studio() {
     setStatus(s);
   }
 
-  const directVideo = status?.modelStudio?.configured === true;
+  const modelStudioConfigured = status?.modelStudio?.configured === true;
   const yikeReady = status?.yike?.configured === true;
+  const providerMode = status?.providerMode || "auto";
+  const directVideo = modelStudioConfigured && providerMode !== "yike";
+  const providerLabel = providerMode === "modelstudio" ? "百炼" : providerMode === "yike" ? "万镜一刻" : "自动";
 
   return (
     <div className="app-shell">
@@ -108,14 +113,16 @@ export default function Studio() {
           })}
         </nav>
         <div className="side-status">
-          <div className="status-row"><span className={`dot ${directVideo || yikeReady ? "ok" : "bad"}`} /><span>{directVideo ? "视频生成：百炼直连已配置" : yikeReady ? "视频生成：兼容模式" : "等待配置视频凭证"}</span></div>
-          <div className="muted mini">{status?.regionName || "新加坡"} · 自动模型路由</div>
+          <div className="status-row"><span className={`dot ${status?.generationReady ? "ok" : "bad"}`} /><span>{status?.generationReady ? `视频生成：${providerLabel}模式` : "等待配置视频凭证"}</span></div>
+          <div className="muted mini">{status?.regionName || "新加坡"} · {providerMode === "auto" ? "自动模型路由" : "固定 provider"}</div>
           {status?.endpoint && <div className="muted mini" title={status.endpoint}>{status.endpoint}</div>}
-          {directVideo && <div className="mini muted">可直接选择本地图片；首次生成时自动校验 Key、Workspace 和模型权限</div>}
-          {!directVideo && yikeReady && <div className="mini muted">未配置百炼 Key，基础生成自动回退兼容链路</div>}
+          {directVideo && <div className="mini muted">百炼直连可直接选择本地图片；首次生成时校验 Key、Workspace 和模型权限</div>}
+          {providerMode === "yike" && <div className="mini muted">基础视频已固定使用万镜一刻；本地图片请先进入素材库或使用公网 URL</div>}
+          {providerMode === "auto" && !modelStudioConfigured && yikeReady && <div className="mini muted">百炼未配置，基础生成自动使用万镜一刻兼容链路</div>}
           {yikeReady && <button className="link-button" onClick={probe} disabled={status?.probing}>{status?.probing ? "检查中…" : "检查扩展工作流"}</button>}
           {yikeReady && status?.connected === true && <div className="mini success-text">复刻 / 故事板等扩展工作流可用</div>}
           {yikeReady && status?.connected === false && <div className="mini error-text">{status.yikeError || status.error || "扩展工作流连接未就绪"}</div>}
+          <button className="link-button" onClick={()=>setTab("settings")}>配置 API 与引擎</button>
         </div>
       </aside>
 
@@ -142,6 +149,7 @@ export default function Studio() {
           )}
           {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={yikeReady} />}
           {tab === "jobs" && <JobCenter jobs={jobs} onChanged={loadAll} onGoAssets={() => setTab("assets")} />}
+          {tab === "settings" && <SettingsPanel onChanged={loadAll} />}
         </section>
       </main>
     </div>
