@@ -139,7 +139,19 @@ function mergeOutputMetadata(previous: ResultMedia[], next: ResultMedia[]) {
 }
 
 export function deleteJob(id: string) {
-  return db.prepare("DELETE FROM jobs WHERE id=?").run(id).changes > 0;
+  const membership = db.prepare("SELECT shot_id FROM shot_jobs WHERE job_id=?").get(id) as { shot_id?: string } | undefined;
+  const now = new Date().toISOString();
+  const transaction = db.transaction(() => {
+    const changed = db.prepare("DELETE FROM jobs WHERE id=?").run(id).changes > 0;
+    if (changed && membership?.shot_id) {
+      // FK cascades remove shot_jobs and clear selected_job_id. Touch the owning Shot/Project
+      // as well so stale-final detection and Project ordering reflect the real relationship change.
+      db.prepare("UPDATE shots SET updated_at=? WHERE id=?").run(now, membership.shot_id);
+      db.prepare("UPDATE projects SET updated_at=? WHERE id=(SELECT project_id FROM shots WHERE id=?)").run(now, membership.shot_id);
+    }
+    return changed;
+  });
+  return transaction();
 }
 
 export function requestReferenceExists(value: string) {
