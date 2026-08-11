@@ -2,6 +2,8 @@ import "server-only";
 import fsp from "node:fs/promises";
 import fs from "node:fs";
 import path from "node:path";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { pipeline } from "node:stream/promises";
 import { Readable, Transform } from "node:stream";
 import { execFile } from "node:child_process";
@@ -86,14 +88,13 @@ export async function renderProjectAudio(input: {
   const snapshot = projectAudioSnapshot(input.projectId);
   const duration = Math.max(0.1, input.duration);
   const targetLufs = snapshot.targetLufs;
-  const originalGain = `${formatDb(snapshot.originalGainDb)}dB`;
 
   if (!snapshot.bgm) {
     await runFfmpeg([
       "-y", "-i", input.timelinePath,
       "-map", "0:v:0", "-map", "0:a:0",
       "-c:v", "copy",
-      "-af", `volume=${originalGain},loudnorm=I=${targetLufs}:TP=-1.5:LRA=11`,
+      "-af", `loudnorm=I=${targetLufs}:TP=-1.5:LRA=11`,
       "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
       "-t", formatDuration(duration),
       "-movflags", "+faststart",
@@ -105,9 +106,10 @@ export async function renderProjectAudio(input: {
   const bgmPath = path.join(input.tempRoot, "project-bgm");
   await downloadAudio(snapshot.bgm.sourceUrl, bgmPath);
   const fadeOutStart = Math.max(0, duration - 1);
+  const originalGain = `${formatDb(snapshot.originalGainDb)}dB`;
   const bgmGain = `${formatDb(snapshot.bgmGainDb)}dB`;
   const filter = [
-    `[0:a]volume=${originalGain},loudnorm=I=${targetLufs}:TP=-1.5:LRA=11[program]`,
+    `[0:a]loudnorm=I=${targetLufs}:TP=-1.5:LRA=11,volume=${originalGain}[program]`,
     `[1:a]loudnorm=I=-16:TP=-1.5:LRA=11,volume=${bgmGain},afade=t=in:st=0:d=1,afade=t=out:st=${fadeOutStart.toFixed(3)}:d=1[bgm]`,
     `[program][bgm]amix=inputs=2:duration=first:dropout_transition=2,alimiter=limit=0.95,loudnorm=I=${targetLufs}:TP=-1.5:LRA=11[mix]`,
   ].join(";");
@@ -127,13 +129,9 @@ export async function renderProjectAudio(input: {
 }
 
 async function downloadAudio(sourceUrl: string, destination: string) {
-  let url: URL;
-  try { url = new URL(sourceUrl); } catch { throw new Error("BGM 素材地址无效"); }
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error("BGM 素材只支持 HTTP/HTTPS 地址");
-
   const timeoutMs = boundedNumber(process.env.WANKE_BGM_DOWNLOAD_TIMEOUT_MS, 300_000, 30_000, 900_000);
   const maxBytes = boundedNumber(process.env.WANKE_MAX_BGM_MB, 250, 10, 1024) * 1024 * 1024;
-  const response = await fetch(sourceUrl, { cache: "no-store", redirect: "follow", signal: AbortSignal.timeout(timeoutMs) });
+  const response = await fetchPublicAudio(sourceUrl, AbortSignal.timeout(timeoutMs));
   if (!response.ok || !response.body) throw new Error(`下载 BGM 失败：HTTP ${response.status}`);
   const declared = Number(response.headers.get("content-length") || 0);
   if (declared > maxBytes) throw new Error(`BGM 超过 ${Math.round(maxBytes / 1024 / 1024)} MB 上限`);
@@ -149,6 +147,57 @@ async function downloadAudio(sourceUrl: string, destination: string) {
   await pipeline(Readable.fromWeb(response.body as any), limiter, fs.createWriteStream(destination, { flags: "wx" }));
   const stat = await fsp.stat(destination);
   if (!stat.isFile() || stat.size <= 0) throw new Error("BGM 下载结果为空");
+}
+
+async function fetchPublicAudio(sourceUrl: string, signal: AbortSignal) {
+  let current: URL;
+  try { current = new URL(sourceUrl); } catch { throw new Error("BGM 素材地址无效"); }
+
+  for (let redirects = 0; redirects <= 5; redirects += 1) {
+    await assertPublicHttpUrl(current);
+    const response = await fetch(current, { cache: "no-store", redirect: "manual", signal });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get("location");
+    if (!location) throw new Error("BGM 下载重定向缺少目标地址");
+    if (redirects === 5) throw new Error("BGM 下载重定向次数过多");
+    current = new URL(location, current);
+  }
+  throw new Error("BGM 下载失败");
+}
+
+async function assertPublicHttpUrl(url: URL) {
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error("BGM 素材只支持 HTTP/HTTPS 地址");
+  const hostname = url.hostname.toLowerCase();
+  if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) {
+    throw new Error("BGM 地址不能指向本机或内网主机");
+  }
+  if (isIP(hostname)) {
+    if (isPrivateAddress(hostname)) throw new Error("BGM 地址不能指向本机或内网 IP");
+    return;
+  }
+  let addresses: Awaited<ReturnType<typeof lookup>>;
+  try { addresses = await lookup(hostname, { all: true, verbatim: true }) as any; }
+  catch { throw new Error("无法解析 BGM 素材域名"); }
+  if (!Array.isArray(addresses) || !addresses.length) throw new Error("无法解析 BGM 素材域名");
+  if (addresses.some(item => isPrivateAddress(item.address))) throw new Error("BGM 素材域名解析到了本机或内网地址");
+}
+
+function isPrivateAddress(address: string) {
+  const value = address.toLowerCase();
+  if (value.includes(".")) {
+    const mapped = value.startsWith("::ffff:") ? value.slice(7) : value;
+    const parts = mapped.split(".").map(Number);
+    if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return true;
+    const [a, b] = parts;
+    return a === 0 || a === 10 || a === 127 || a >= 224 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 198 && (b === 18 || b === 19));
+  }
+  return value === "::" || value === "::1" || value.startsWith("fc") || value.startsWith("fd") ||
+    /^fe[89ab]/.test(value) || value.startsWith("2001:db8:");
 }
 
 function ffmpegPath() {
