@@ -69,7 +69,7 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
         <button className="secondary" onClick={onAdvanced}><Settings2 size={15}/>高级编辑</button>
       </div>
 
-      <div className="notice"><Sparkles size={16}/><span>简单模式只显示“镜头完成没有、最终视频能不能生成”。模型、Provider、LUFS、媒体规格等高级控制仍保留在高级编辑里。</span></div>
+      <div className="notice"><Sparkles size={16}/><span>这里先只看作品进度和结果。需要换版本、调声音、字幕、转场或处理失败镜头时，再进入高级编辑。</span></div>
 
       <div className={`result-grid ${current.shots.length === 1 ? "single" : ""}`} style={{marginTop:16}}>
         {current.shots.map((shot, index) => {
@@ -90,9 +90,9 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
       </div>
 
       <section className="panel" style={{marginTop:18}}>
-        <div className="panel-title"><Film size={17}/><div><h3>最终视频</h3><p>简单模式会自动采用“唯一的成功版本”、自动保存定稿视频到本机，再执行项目已有的转场、声音和字幕设置。</p></div></div>
+        <div className="panel-title"><Film size={17}/><div><h3>最终视频</h3><p>所有镜头完成后，系统会自动准备唯一确定的版本并生成最终成片；有多个候选时会先让你选择，不替你猜。</p></div></div>
         <div className="asset-chips" style={{marginTop:12}}>
-          <span className="chip selected">声音：标准</span>
+          <span className="chip selected">声音：自动处理 / 项目设置</span>
           <span className="chip selected">转场：自然 / 项目设置</span>
           <span className="chip selected">字幕：按项目设置</span>
         </div>
