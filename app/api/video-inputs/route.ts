@@ -5,8 +5,14 @@ import { describeError } from "@/lib/errors";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const MAX_REQUEST_BYTES = 11 * 1024 * 1024;
+
 export async function POST(request: Request) {
   try {
+    const contentLength = Number(request.headers.get("content-length") || 0);
+    if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
+      return NextResponse.json({ error: "图片过大，请使用 10MB 以内的 JPG、PNG 或 WEBP" }, { status: 413 });
+    }
     const form = await request.formData();
     const value = form.get("file");
     if (!(value instanceof File)) return NextResponse.json({ error: "请选择一张图片" }, { status: 400 });
