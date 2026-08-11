@@ -108,14 +108,14 @@ export default function Studio() {
           })}
         </nav>
         <div className="side-status">
-          <div className="status-row"><span className={`dot ${directVideo || yikeReady ? "ok" : "bad"}`} /><span>{directVideo ? "视频生成：百炼直连" : yikeReady ? "视频生成：兼容模式" : "等待配置视频凭证"}</span></div>
+          <div className="status-row"><span className={`dot ${directVideo || yikeReady ? "ok" : "bad"}`} /><span>{directVideo ? "视频生成：百炼直连已配置" : yikeReady ? "视频生成：兼容模式" : "等待配置视频凭证"}</span></div>
           <div className="muted mini">{status?.regionName || "新加坡"} · 自动模型路由</div>
           {status?.endpoint && <div className="muted mini" title={status.endpoint}>{status.endpoint}</div>}
-          <button className="link-button" onClick={probe} disabled={status?.probing}>{status?.probing ? "检查中…" : "检查连接"}</button>
-          {directVideo && <div className="mini success-text">HappyHorse / Wan 直连已就绪</div>}
-          {!directVideo && yikeReady && <div className="mini muted">未配置百炼 Key，基础生成自动回退 Yike</div>}
-          {yikeReady && status?.connected === true && <div className="mini success-text">复刻 / 故事板等旧工作流可用</div>}
-          {status?.connected === false && !directVideo && <div className="mini error-text">{status.error || "连接未就绪"}</div>}
+          {directVideo && <div className="mini muted">首次生成时自动校验 Key、Workspace 和模型权限</div>}
+          {!directVideo && yikeReady && <div className="mini muted">未配置百炼 Key，基础生成自动回退兼容链路</div>}
+          {yikeReady && <button className="link-button" onClick={probe} disabled={status?.probing}>{status?.probing ? "检查中…" : "检查扩展工作流"}</button>}
+          {yikeReady && status?.connected === true && <div className="mini success-text">复刻 / 故事板等扩展工作流可用</div>}
+          {yikeReady && status?.connected === false && <div className="mini error-text">{status.yikeError || status.error || "扩展工作流连接未就绪"}</div>}
         </div>
       </aside>
 
