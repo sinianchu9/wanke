@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { CircleCheck, CircleX, ScanSearch } from "lucide-react";
 import ProjectFinalAssembly from "@/components/project-final-assembly";
+import ProjectSubtitleSettings from "@/components/project-subtitle-settings";
 
 type Probe = {
   source: "archive" | "remote";
@@ -104,6 +105,7 @@ export default function ProjectMediaReadiness({ projectId }: { projectId: string
         </div>
       </details>
     </section>
+    <ProjectSubtitleSettings projectId={projectId}/>
     <ProjectFinalAssembly projectId={projectId}/>
   </>;
 }
