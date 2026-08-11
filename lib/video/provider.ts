@@ -4,7 +4,7 @@ import { validateJobInput } from "@/lib/yike/schemas";
 import { refreshJob as refreshYikeJob, resumeStoryboard, submitJob as submitYikeJob } from "@/lib/yike/jobs";
 import { canUseModelStudio, refreshModelStudioVideo, submitModelStudioVideo } from "@/lib/video/modelstudio";
 import { getModelStudioRuntimeConfig, getVideoProviderMode } from "@/lib/settings";
-import { applyVideoRecipe, getVideoRecipe } from "@/lib/video/recipes";
+import { applyVideoRecipe, getVideoRecipe, recipeSupportsMode } from "@/lib/video/recipes";
 
 export { resumeStoryboard };
 
@@ -45,6 +45,9 @@ export async function submitJob(kind: JobKind, rawInput: unknown) {
 
   const input = validateJobInput(kind, rawInput) as any;
   const recipe = getVideoRecipe((rawInput as any)?.recipeId);
+  if (!recipeSupportsMode(recipe.id, input.jobType)) {
+    throw new Error(`生成预设“${recipe.label}”不适用于当前生成方式，请重新选择预设。`);
+  }
   const executionInput = {
     ...input,
     prompt: applyVideoRecipe(input.prompt, recipe.id),
