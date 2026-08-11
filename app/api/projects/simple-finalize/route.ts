@@ -40,8 +40,16 @@ export async function POST(request: Request) {
       }
     }
 
-    const result = await assembleProject(projectId);
-    return NextResponse.json({ ...result, assemblies: listProjectAssemblies(projectId) }, { status: 201 });
+    try {
+      const result = await assembleProject(projectId);
+      return NextResponse.json({ ...result, assemblies: listProjectAssemblies(projectId) }, { status: 201 });
+    } catch (error) {
+      const message = describeError(error);
+      if (/ffmpeg|ffprobe/i.test(message)) {
+        throw new Error("镜头都已经准备好了，但服务器还没有准备好最终成片能力。请在高级设置中完成成片环境配置；已经生成的镜头不会丢失。");
+      }
+      throw error;
+    }
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues.map(issue => issue.message).join("；") }, { status: 400 });
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
