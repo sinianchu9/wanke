@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAsset, deleteAsset, getAsset, listAssets } from "@/lib/repository";
+import { detachAssetFromSubjectCards } from "@/lib/subjects";
 import { deleteAssetCloud, registerAsset } from "@/lib/yike/provider";
 import { describeError } from "@/lib/errors";
 
@@ -51,8 +52,6 @@ export async function POST(request: Request) {
       const asset = createAsset({ providerMediaId: registered.mediaId, name: input.name, mediaType: input.mediaType, sourceUrl: input.sourceUrl, provider: registered.provider });
       return NextResponse.json({ asset }, { status: 201 });
     } catch (error) {
-      // A stale or unavailable extension provider must not make a perfectly good public URL
-      // unusable for the direct video-generation path.
       const extensionError = describeError(error);
       const asset = createUrlOnlyAsset(input, "provider-neutral", extensionError);
       return NextResponse.json({ asset, warning: "素材已保存，可用于基础视频生成；扩展工作流登记暂未成功。" }, { status: 201 });
@@ -70,7 +69,9 @@ export async function DELETE(request: Request) {
   if (!asset) return NextResponse.json({ error: "素材不存在" }, { status: 404 });
   try {
     if (url.searchParams.get("cloud") === "1" && (asset.providerMediaId || asset.provider)) await deleteAssetCloud(asset.provider, asset.providerMediaId);
-    return deleteAsset(id) ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "本地素材删除失败" }, { status: 500 });
+    if (!deleteAsset(id)) return NextResponse.json({ error: "本地素材删除失败" }, { status: 500 });
+    detachAssetFromSubjectCards(id);
+    return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
