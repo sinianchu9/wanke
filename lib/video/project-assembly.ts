@@ -8,6 +8,7 @@ import { archivedFilePath, outputDirectory } from "@/lib/archive";
 import { db } from "@/lib/db";
 import { listProjects } from "@/lib/projects";
 import { getJob } from "@/lib/repository";
+import { renderProjectAudio } from "@/lib/video/project-audio";
 import { ffprobeAvailable, probeResultMedia, type MediaProbe } from "@/lib/video/media-probe";
 import type { ResultMedia } from "@/lib/types";
 
@@ -109,6 +110,7 @@ export async function assembleProject(projectId: string) {
     }
 
     const concatFile = path.join(tempRoot, "concat.txt");
+    const timelinePath = path.join(tempRoot, "timeline.mp4");
     await fsp.writeFile(concatFile, normalizedFiles.map(file => `file '${path.basename(file)}'`).join("\n"), "utf8");
     await runFfmpeg([
       "-y",
@@ -117,8 +119,19 @@ export async function assembleProject(projectId: string) {
       "-i", concatFile,
       "-c", "copy",
       "-movflags", "+faststart",
-      finalPath,
+      timelinePath,
     ]);
+
+    const timelineStat = await fsp.stat(timelinePath);
+    if (!timelineStat.isFile() || timelineStat.size <= 0) throw new Error("FFmpeg 没有生成有效的时间线文件");
+
+    const audioSnapshot = await renderProjectAudio({
+      projectId: project.id,
+      timelinePath,
+      finalPath,
+      tempRoot,
+      duration: expectedDuration,
+    });
 
     const stat = await fsp.stat(finalPath);
     if (!stat.isFile() || stat.size <= 0) throw new Error("FFmpeg 没有生成有效的成片文件");
@@ -138,6 +151,12 @@ export async function assembleProject(projectId: string) {
       finalDuration: finalProbe.duration,
       shotCount: sources.length,
       scaleMode: "fit-with-black-padding",
+      audioMix: {
+        targetLufs: audioSnapshot.targetLufs,
+        originalGainDb: audioSnapshot.originalGainDb,
+        bgmGainDb: audioSnapshot.bgmGainDb,
+        bgm: audioSnapshot.bgm ? { id: audioSnapshot.bgm.id, name: audioSnapshot.bgm.name } : null,
+      },
       finalProbe,
     };
     const sourceSnapshot = sources.map((source, index) => ({
