@@ -53,9 +53,9 @@ export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, 
     if (!projectName.trim()) return;
     try {
       const data = await mutate({ action: "create_project", name: projectName.trim(), description: projectDescription.trim() });
-      const created = (data.projects as ProductionProject[] | undefined)?.find(project => project.name === projectName.trim());
+      const created = data.result as ProductionProject | undefined;
       setProjectName(""); setProjectDescription("");
-      if (created) setSelectedId(created.id);
+      if (created?.id) setSelectedId(created.id);
     } catch { /* message already visible */ }
   }
 
@@ -154,7 +154,7 @@ export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, 
             <div className="muted mini"><strong>推荐流程：</strong>创建项目 → 建 Shot → 绑定常用主体 → 点击“在此镜头创作” → 生成 1–4 个候选 → 在项目里选择采用版本。</div>
             <div className="muted mini"><strong>自动继承：</strong>某个候选的失败重试、类似版本、继续创作、视频延长、视频编辑都会自动留在同一个 Shot，不用再次归类。</div>
             <div className="muted mini"><strong>删除边界：</strong>删除 Project 或 Shot 只删除组织关系，不删除任务和视频结果；删除任务则会自动从 Shot 候选中移除。</div>
-            <div className="muted mini"><strong>最终结果：</strong>每个 Shot 最多标记一个“采用版本”；项目层因此天然形成最终镜头清单，为以后接时间线/成片导出做准备。</div>
+            <div className="muted mini"><strong>最终结果：</strong>每个 Shot 最多标记一个含视频输出的“采用版本”；项目层因此天然形成最终镜头清单，为以后接时间线/成片导出做准备。</div>
           </div>
         </details>
 
@@ -194,7 +194,7 @@ function ShotCard({ shot, index, jobMap, unassignedJobs, busy, onCreate, onAssig
         <span className={`status-icon ${job.status === "succeeded" ? "success" : job.status === "failed" ? "fail" : "queued"}`}>{job.status === "succeeded" ? <Check size={14}/> : <Clapperboard size={14}/>}</span>
         <div className="job-row-main"><strong>{job.title}</strong><span>{JOB_KIND_LABELS[job.kind]} · {statusLabel(job.status)}{job.outputs.length ? ` · ${job.outputs.length} 个结果` : ""}</span></div>
         <div className="inline-actions">
-          {job.status === "succeeded" && job.outputs.length > 0 && <button className={shot.selectedJobId === job.id ? "primary" : "secondary"} disabled={busy} onClick={() => onSelect(job.id)}>{shot.selectedJobId === job.id ? <><Check size={14}/>已采用</> : "采用"}</button>}
+          {job.status === "succeeded" && hasVideoResult(job) && <button className={shot.selectedJobId === job.id ? "primary" : "secondary"} disabled={busy} onClick={() => onSelect(job.id)}>{shot.selectedJobId === job.id ? <><Check size={14}/>已采用</> : "采用"}</button>}
           <button className="icon-button" disabled={busy} title="从这个镜头移除，但不删除任务" onClick={() => onUnassign(job.id)}><Unlink size={14}/></button>
         </div>
       </div>)}
@@ -203,9 +203,17 @@ function ShotCard({ shot, index, jobMap, unassignedJobs, busy, onCreate, onAssig
 
     {unassignedJobs.length > 0 && <div className="form-grid two" style={{marginTop:12}}>
       <div className="field"><span className="field-label">加入已有任务<small>用于整理之前已经生成的结果</small></span><select value={existingJobId} onChange={event => setExistingJobId(event.target.value)}><option value="">— 选择未归类任务 —</option>{unassignedJobs.slice(0,100).map(job => <option key={job.id} value={job.id}>{job.title} · {statusLabel(job.status)}</option>)}</select></div>
-      <div className="stage-run" style={{margin:0,alignSelf:"end"}}><button className="secondary" disabled={busy || !existingJobId} onClick={async () => { if (!existingJobId) return; await onAssign(existingJobId); setExistingJobId(""); }}>加入这个 Shot</button></div>
+      <div className="stage-run" style={{margin:0,alignSelf:"end"}}><button className="secondary" disabled={busy || !existingJobId} onClick={async () => { if (!existingJobId) return; try { await onAssign(existingJobId); setExistingJobId(""); } catch { /* parent surfaces the error */ } }}>加入这个 Shot</button></div>
     </div>}
   </section>;
+}
+
+function hasVideoResult(job: StoredJob) {
+  return job.outputs.some(output => {
+    if (output.kind === "video") return true;
+    const url = String(output.outputUrl || "").toLowerCase();
+    return /\.(mp4|mov|webm)(\?|$)/.test(url);
+  });
 }
 
 function statusLabel(status: string) {
