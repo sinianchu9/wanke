@@ -252,7 +252,7 @@ export async function refreshModelStudioVideo(job: StoredJob) {
     provider: body,
     requestId: body?.request_id || job.requestId,
     error: status === "failed" ? friendlyProviderMessage(output.code, output.message) : null,
-    outputs: videoUrl ? [{ outputUrl: videoUrl, kind: "video" as const, label: String(job.details?.model || "AI 视频") }] : job.outputs,
+    outputs: videoUrl ? [{ outputUrl: videoUrl, kind: "video" as const, label: "视频结果" }] : job.outputs,
     details: { ...(job.details || {}), usage: body?.usage || null, taskStatus: output.task_status || null },
   };
 }
