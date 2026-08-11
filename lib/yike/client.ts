@@ -1,11 +1,7 @@
 import "server-only";
 import CoreYikeClient from "@alicloud/yike20260707";
 import StudioYikeClient from "@alicloud/yike20260319";
-
-type GlobalWithYike = typeof globalThis & {
-  __wankeCoreYike?: CoreYikeClient;
-  __wankeStudioYike?: StudioYikeClient;
-};
+import { getYikeRuntimeConfig } from "@/lib/settings";
 
 export const YIKE_REGIONS = {
   "ap-southeast-1": {
@@ -21,7 +17,8 @@ export const YIKE_REGIONS = {
 export type YikeRegionId = keyof typeof YIKE_REGIONS;
 
 function resolveRegion() {
-  const requested = (process.env.ALIYUN_REGION_ID || "ap-southeast-1").trim();
+  const runtime = getYikeRuntimeConfig();
+  const requested = (runtime.regionId || "ap-southeast-1").trim();
   if (!(requested in YIKE_REGIONS)) {
     throw new Error(`Wanke 当前仅支持万镜一刻地域 ap-southeast-1（新加坡）或 cn-shanghai（上海），收到：${requested}`);
   }
@@ -30,16 +27,15 @@ function resolveRegion() {
 }
 
 function config() {
-  const accessKeyId = process.env.ALIYUN_ACCESS_KEY_ID;
-  const accessKeySecret = process.env.ALIYUN_ACCESS_KEY_SECRET;
+  const runtime = getYikeRuntimeConfig();
   const region = resolveRegion();
-  const endpoint = (process.env.ALIYUN_YIKE_ENDPOINT || region.endpoint).trim();
-  if (!accessKeyId || !accessKeySecret) {
-    throw new Error("未配置 ALIYUN_ACCESS_KEY_ID / ALIYUN_ACCESS_KEY_SECRET");
+  const endpoint = (runtime.endpoint || region.endpoint).trim();
+  if (!runtime.accessKeyId || !runtime.accessKeySecret) {
+    throw new Error("未配置万镜一刻 AccessKey，请到设置中填写 AccessKey ID / Secret");
   }
   return {
-    accessKeyId,
-    accessKeySecret,
+    accessKeyId: runtime.accessKeyId,
+    accessKeySecret: runtime.accessKeySecret,
     type: "access_key",
     regionId: region.regionId,
     endpoint,
@@ -48,26 +44,24 @@ function config() {
 
 /** 2026-07-07: core video generation / breakdown / remake / render / translation / media. */
 export function getCoreYikeClient() {
-  const g = globalThis as GlobalWithYike;
-  if (!g.__wankeCoreYike) g.__wankeCoreYike = new CoreYikeClient(config());
-  return g.__wankeCoreYike;
+  return new CoreYikeClient(config());
 }
 
 /** 2026-03-19: marketing agents / storyboard / upload credential APIs that are not exposed by 2026-07-07 SDK. */
 export function getStudioYikeClient() {
-  const g = globalThis as GlobalWithYike;
-  if (!g.__wankeStudioYike) g.__wankeStudioYike = new StudioYikeClient(config());
-  return g.__wankeStudioYike;
+  return new StudioYikeClient(config());
 }
 
 export function yikeConfigSummary() {
+  const runtime = getYikeRuntimeConfig();
   const region = resolveRegion();
   return {
-    configured: Boolean(process.env.ALIYUN_ACCESS_KEY_ID && process.env.ALIYUN_ACCESS_KEY_SECRET),
+    configured: Boolean(runtime.accessKeyId && runtime.accessKeySecret),
     regionId: region.regionId,
     regionName: region.label,
-    endpoint: (process.env.ALIYUN_YIKE_ENDPOINT || region.endpoint).trim(),
-    endpointOverridden: Boolean(process.env.ALIYUN_YIKE_ENDPOINT),
+    endpoint: (runtime.endpoint || region.endpoint).trim(),
+    endpointOverridden: Boolean(runtime.endpoint),
+    configSource: runtime.sources,
     apiVersions: ["2026-07-07", "2026-03-19"],
     supportedRegions: Object.entries(YIKE_REGIONS).map(([id, value]) => ({ id, ...value })),
   };
