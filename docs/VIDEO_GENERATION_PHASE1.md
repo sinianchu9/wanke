@@ -166,7 +166,14 @@ npm run build
 npm run doctor
 ```
 
-随后用真实新加坡百炼 Key 对四种入口各做一次最小 smoke test。Key 只放 `.env.local`，不要提交到 GitHub。
+随后用真实新加坡百炼 Key 对以下四条最小路径各做一次 smoke test：
+
+1. 纯文字 → 5 秒 1080P；
+2. 本地 JPG/PNG → 单图生视频；
+3. 两张本地图片 → 首尾帧；
+4. 多参考图片，以及一条带公网 MP4/MOV 的参考任务。
+
+检查点：任务成功提交、自动轮询、结果预览、失败中文提示、复制参数重跑、本机保存。Key 只放 `.env.local`，不要提交到 GitHub。
 
 ## Phase 1 暂不做
 
