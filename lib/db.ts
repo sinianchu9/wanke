@@ -137,6 +137,14 @@ function openDb() {
       updated_at TEXT NOT NULL,
       FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS project_transition_settings (
+      project_id TEXT PRIMARY KEY,
+      transition_type TEXT NOT NULL DEFAULT 'cut' CHECK(transition_type IN ('cut','fade')),
+      duration REAL NOT NULL DEFAULT 0.5,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
   `);
   return db;
 }

@@ -10,6 +10,7 @@ import { listProjects } from "@/lib/projects";
 import { getJob } from "@/lib/repository";
 import { renderProjectAudio } from "@/lib/video/project-audio";
 import { renderProjectSubtitles } from "@/lib/video/project-subtitles";
+import { renderProjectTimeline } from "@/lib/video/project-transitions";
 import { ffprobeAvailable, probeResultMedia, type MediaProbe } from "@/lib/video/media-probe";
 import type { ResultMedia } from "@/lib/types";
 
@@ -92,8 +93,8 @@ export async function assembleProject(projectId: string) {
     sources.push({ shotId: shot.id, shotName: shot.name, jobId: job.id, jobTitle: job.title, archivedFile: output.archivedFile, filePath, probe });
   }
 
-  const expectedDuration = sources.reduce((sum, source) => sum + (source.probe.duration || 0), 0);
-  if (expectedDuration > 900) throw new Error("单次成片定稿总时长不能超过 15 分钟");
+  const sourceDuration = sources.reduce((sum, source) => sum + (source.probe.duration || 0), 0);
+  if (sourceDuration > 900) throw new Error("单次成片定稿总时长不能超过 15 分钟");
 
   const target = targetProfile(sources[0].probe);
   const assemblyId = randomUUID();
@@ -110,19 +111,16 @@ export async function assembleProject(projectId: string) {
       normalizedFiles.push(normalized);
     }
 
-    const concatFile = path.join(tempRoot, "concat.txt");
     const timelinePath = path.join(tempRoot, "timeline.mp4");
     const audioMasterPath = path.join(tempRoot, "audio-master.mp4");
-    await fsp.writeFile(concatFile, normalizedFiles.map(file => `file '${path.basename(file)}'`).join("\n"), "utf8");
-    await runFfmpeg([
-      "-y",
-      "-f", "concat",
-      "-safe", "0",
-      "-i", concatFile,
-      "-c", "copy",
-      "-movflags", "+faststart",
-      timelinePath,
-    ]);
+    const transitionSnapshot = await renderProjectTimeline({
+      projectId: project.id,
+      files: normalizedFiles,
+      durations: sources.map(source => Number(source.probe.duration || 0)),
+      outputPath: timelinePath,
+      tempRoot,
+    });
+    const expectedDuration = transitionSnapshot.timelineDuration;
 
     const timelineStat = await fsp.stat(timelinePath);
     if (!timelineStat.isFile() || timelineStat.size <= 0) throw new Error("FFmpeg 没有生成有效的时间线文件");
@@ -159,10 +157,12 @@ export async function assembleProject(projectId: string) {
       audioCodec: "aac",
       audioSampleRate: 48000,
       audioChannels: 2,
+      sourceDuration,
       expectedDuration,
       finalDuration: finalProbe.duration,
       shotCount: sources.length,
       scaleMode: "fit-with-black-padding",
+      transition: transitionSnapshot,
       audioMix: {
         targetLufs: audioSnapshot.targetLufs,
         originalGainDb: audioSnapshot.originalGainDb,
