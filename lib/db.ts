@@ -44,6 +44,12 @@ function openDb() {
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_assets_type_created ON assets(media_type, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
   return db;
 }
