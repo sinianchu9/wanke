@@ -48,7 +48,8 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   const selectedTemplate = templates.find(item => item.id === type)!;
   const directReferenceReady = Boolean(localInput || imageAssetId || referenceUrl.trim());
   const referenceReady = type === "image_video" ? directReferenceReady : Boolean(subjectId) || directReferenceReady;
-  const ready = generationReady === true && Boolean(goal.trim()) && referenceReady && !busy && !localUploading;
+  const interactionLocked = busy || localUploading;
+  const ready = generationReady === true && Boolean(goal.trim()) && referenceReady && !interactionLocked;
   const canChooseComputerImage = directAvailable || extendedUploadAvailable;
 
   function clearLocal() {
@@ -57,6 +58,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   }
 
   function chooseType(next: CreationType) {
+    if (interactionLocked) return;
     clearLocal();
     setType(next);
     setSubjectId("");
@@ -67,6 +69,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   }
 
   function chooseSubject(value: string) {
+    if (interactionLocked) return;
     if (value) {
       clearLocal();
       setImageAssetId("");
@@ -76,6 +79,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   }
 
   function chooseAsset(value: string) {
+    if (interactionLocked) return;
     if (value) {
       clearLocal();
       setSubjectId("");
@@ -85,6 +89,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   }
 
   function changeReferenceUrl(value: string) {
+    if (interactionLocked) return;
     if (value.trim()) {
       clearLocal();
       setSubjectId("");
@@ -94,7 +99,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   }
 
   async function chooseLocal(file: File | undefined) {
-    if (!file || !canChooseComputerImage) return;
+    if (!file || !canChooseComputerImage || interactionLocked) return;
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       setError("请选择 JPG、PNG 或 WEBP 图片");
       return;
@@ -208,7 +213,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
         <h2>一句话开始做视频</h2>
         <p>不用先整理素材库，也不用选模型。给 Wanke 一个主体或一张图片，再说一句想表达什么，系统会自动建立作品、规划镜头并开始生成。</p>
       </div>
-      <button className="secondary" onClick={onAdvanced}><WandSparkles size={15}/>高级创作</button>
+      <button className="secondary" disabled={interactionLocked} onClick={onAdvanced}><WandSparkles size={15}/>高级创作</button>
     </div>
 
     {generationReady === null && <div className="notice"><span>正在检查视频服务状态…</span></div>}
@@ -223,7 +228,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
         <div className="asset-chips">
           {templates.map(item => {
             const Icon = item.icon;
-            return <button type="button" key={item.id} className={type === item.id ? "selected" : ""} onClick={() => chooseType(item.id)}><Icon size={15}/>{item.label}</button>;
+            return <button type="button" disabled={interactionLocked} key={item.id} className={type === item.id ? "selected" : ""} onClick={() => chooseType(item.id)}><Icon size={15}/>{item.label}</button>;
           })}
         </div>
         <div className="muted mini">{selectedTemplate.desc}</div>
@@ -233,7 +238,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
         <span className="field-label">2. 主体是什么？<small>{type === "image_video" ? "给一张图片即可" : "可选常用主体，也可本次直接给一张图片"}</small></span>
 
         {type !== "image_video" && availableSubjects.length > 0 && <div style={{marginBottom:10}}>
-          <select value={subjectId} onChange={event => chooseSubject(event.target.value)}>
+          <select disabled={interactionLocked} value={subjectId} onChange={event => chooseSubject(event.target.value)}>
             <option value="">— 选择保存过的{type === "product_ad" ? "产品" : "人物"}（可选）—</option>
             {availableSubjects.map(subject => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
           </select>
@@ -245,23 +250,23 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
           <div className="form-grid two" style={{marginTop:8}}>
             <div className="field">
               <span className="field-label">从已有图片选择</span>
-              <select value={imageAssetId} onChange={event => chooseAsset(event.target.value)}>
+              <select disabled={interactionLocked} value={imageAssetId} onChange={event => chooseAsset(event.target.value)}>
                 <option value="">— 可选 —</option>
                 {images.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
               </select>
             </div>
             <div className="field">
               <span className="field-label">或粘贴图片直链</span>
-              <input value={referenceUrl} onChange={event => changeReferenceUrl(event.target.value)} placeholder="https://...jpg / png / webp"/>
+              <input disabled={interactionLocked} value={referenceUrl} onChange={event => changeReferenceUrl(event.target.value)} placeholder="https://...jpg / png / webp"/>
             </div>
           </div>
 
           {canChooseComputerImage && <div className="field" style={{marginTop:10}}>
             <span className="field-label">或直接选择电脑里的图片<small>JPG / PNG / WEBP，10MB 内</small></span>
-            <input type="file" accept="image/jpeg,image/png,image/webp" disabled={localUploading} onChange={event => { chooseLocal(event.target.files?.[0]); event.currentTarget.value = ""; }}/>
+            <input type="file" accept="image/jpeg,image/png,image/webp" disabled={interactionLocked} onChange={event => { chooseLocal(event.target.files?.[0]); event.currentTarget.value = ""; }}/>
             {localUploading && <div className="muted mini">正在准备图片…</div>}
-            {localInput && <div className="asset-chips"><button type="button" className="selected" onClick={clearLocal}>🖼️ {localInput.name} ×</button></div>}
-            {!directAvailable && extendedUploadAvailable && imageAssetId && <div className="muted mini">这张电脑图片已自动准备到素材库，可以直接开始创作，以后也能继续复用。</div>}
+            {localInput && <div className="asset-chips"><button type="button" disabled={interactionLocked} className="selected" onClick={clearLocal}>🖼️ {localInput.name} ×</button></div>}
+            {!directAvailable && extendedUploadAvailable && imageAssetId && <div className="muted mini">电脑图片会自动准备到素材库，可以直接开始创作，以后也能继续复用。</div>}
           </div>}
 
           {!canChooseComputerImage && <div className="muted mini" style={{marginTop:8}}>当前视频服务不能直接准备电脑里的图片；可以从已有图片选择，或粘贴一条公网图片直链。</div>}
@@ -272,19 +277,19 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
       <div className="form-grid two" style={{marginTop:16}}>
         <div className="field">
           <span className="field-label">作品名称<small>可选</small></span>
-          <input value={name} onChange={event => setName(event.target.value)} placeholder={type === "product_ad" ? "例如：黑色手环夏季广告" : type === "person_short" ? "例如：咖啡店人物短片" : "例如：产品图动态展示"}/>
+          <input disabled={interactionLocked} value={name} onChange={event => setName(event.target.value)} placeholder={type === "product_ad" ? "例如：黑色手环夏季广告" : type === "person_short" ? "例如：咖啡店人物短片" : "例如：产品图动态展示"}/>
         </div>
         <div className="field">
           <span className="field-label">3. 你想表达什么？<small>一句话就够</small></span>
-          <textarea value={goal} onChange={event => setGoal(event.target.value)} placeholder={selectedTemplate.demo}/>
-          <button type="button" className="link-button" onClick={() => setGoal(selectedTemplate.demo)}>填入演示内容</button>
+          <textarea disabled={interactionLocked} value={goal} onChange={event => setGoal(event.target.value)} placeholder={selectedTemplate.demo}/>
+          <button type="button" disabled={interactionLocked} className="link-button" onClick={() => setGoal(selectedTemplate.demo)}>填入演示内容</button>
         </div>
       </div>
 
       <div className="form-grid two" style={{marginTop:16}}>
         <div className="field">
           <span className="field-label">4. 发到哪里？</span>
-          <select value={platform} onChange={event => setPlatform(event.target.value as Platform)}>
+          <select disabled={interactionLocked} value={platform} onChange={event => setPlatform(event.target.value as Platform)}>
             <option value="douyin">抖音 / 竖屏</option>
             <option value="xiaohongshu">小红书 / 竖屏</option>
             <option value="youtube">YouTube / 横屏</option>
@@ -293,7 +298,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
         </div>
         <div className="field">
           <span className="field-label">5. 大约多长？</span>
-          <div className="asset-chips">{([5,10,15,30] as const).map(value => <button type="button" className={duration === value ? "selected" : ""} key={value} onClick={() => setDuration(value)}>{value} 秒</button>)}</div>
+          <div className="asset-chips">{([5,10,15,30] as const).map(value => <button type="button" disabled={interactionLocked} className={duration === value ? "selected" : ""} key={value} onClick={() => setDuration(value)}>{value} 秒</button>)}</div>
         </div>
       </div>
 
