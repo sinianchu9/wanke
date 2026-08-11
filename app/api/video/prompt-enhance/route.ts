@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getModelStudioRuntimeConfig } from "@/lib/settings";
-import { buildTemplateEnhancedPrompt, getVideoRecipe } from "@/lib/video/recipes";
+import { buildTemplateEnhancedPrompt, getVideoRecipe, recipeSupportsMode } from "@/lib/video/recipes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,6 +42,9 @@ export async function POST(request: Request) {
   try {
     const input = schema.parse(await request.json());
     const recipe = getVideoRecipe(input.recipeId);
+    if (!recipeSupportsMode(recipe.id, input.jobType)) {
+      return NextResponse.json({ error: `生成预设“${recipe.label}”不适用于当前生成方式，请重新选择预设。` }, { status: 400 });
+    }
     const fallback = buildTemplateEnhancedPrompt(input.prompt, recipe.id, input.jobType);
     const config = getModelStudioRuntimeConfig();
     const baseUrl = compatibleBaseUrl();
@@ -51,7 +54,7 @@ export async function POST(request: Request) {
         prompt: fallback,
         engine: "template",
         recipeId: recipe.id,
-        note: "未检测到可用于文本模型的百炼 API Key + Workspace，已使用本地生成预设整理。",
+        note: "未检测到可用于文本模型的百炼 API Key + Workspace/专属 Base URL，已使用本地生成预设整理。",
       });
     }
 
