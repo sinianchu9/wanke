@@ -5,6 +5,7 @@ import { createJob, updateJobRemote } from "@/lib/repository";
 import { submitJob } from "@/lib/video/provider";
 import { prepareJobInput } from "@/lib/video/prepare";
 import { buildQuickCreationPlan } from "@/lib/video/quick-create";
+import { setProjectTransitionSettings } from "@/lib/video/project-transitions";
 import { describeError } from "@/lib/errors";
 
 export const runtime = "nodejs";
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
     const plan = buildQuickCreationPlan(input);
     const project = createProject({ name: plan.projectName, description: plan.projectDescription });
     if (input.subjectId) setProjectSubjects(project.id, [input.subjectId]);
+    if (plan.shots.length > 1) setProjectTransitionSettings({ projectId: project.id, transitionType: "fade", duration: 0.5 });
 
     const results: Array<{ shotId: string; shotName: string; jobId: string; status: string; error?: string | null }> = [];
     for (const shotPlan of plan.shots) {
