@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createJob, listJobs, updateJobRemote } from "@/lib/repository";
+import { assignJobToShot, getShot } from "@/lib/projects";
 import { JOB_KINDS } from "@/lib/types";
 import { submitJob } from "@/lib/video/provider";
 import { prepareJobInput } from "@/lib/video/prepare";
@@ -14,6 +15,7 @@ const createSchema = z.object({
   title: z.string().max(160).optional(),
   input: z.record(z.string(), z.unknown()),
   parentJobId: z.string().optional().nullable(),
+  shotId: z.string().optional().nullable(),
 });
 
 export async function GET() {
@@ -24,7 +26,9 @@ export async function POST(request: Request) {
   let job: ReturnType<typeof createJob> | null = null;
   try {
     const payload = createSchema.parse(await request.json());
+    if (payload.shotId && !getShot(payload.shotId)) return NextResponse.json({ error: "当前项目镜头已经不存在，请重新选择镜头" }, { status: 400 });
     job = createJob({ kind: payload.kind, title: payload.title, request: payload.input, parentJobId: payload.parentJobId });
+    if (payload.shotId) assignJobToShot(payload.shotId, job.id);
     const preparedInput = await prepareJobInput(payload.kind, payload.input);
     const submitted = await submitJob(payload.kind, preparedInput);
     job = updateJobRemote(job.id, {

@@ -63,6 +63,48 @@ function openDb() {
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_subject_cards_type_updated ON subject_cards(subject_type, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS shots (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      brief TEXT NOT NULL DEFAULT '',
+      position INTEGER NOT NULL DEFAULT 1,
+      selected_job_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY(selected_job_id) REFERENCES jobs(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_shots_project_position ON shots(project_id, position ASC, created_at ASC);
+
+    CREATE TABLE IF NOT EXISTS shot_jobs (
+      shot_id TEXT NOT NULL,
+      job_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(shot_id, job_id),
+      FOREIGN KEY(shot_id) REFERENCES shots(id) ON DELETE CASCADE,
+      FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_shot_jobs_shot_created ON shot_jobs(shot_id, created_at ASC);
+
+    CREATE TABLE IF NOT EXISTS project_subjects (
+      project_id TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, subject_id),
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY(subject_id) REFERENCES subject_cards(id) ON DELETE CASCADE
+    );
   `);
   return db;
 }

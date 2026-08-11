@@ -53,6 +53,16 @@ export function createJob(input: {
     (id, kind, title, status, request_json, output_json, parent_job_id, created_at, updated_at)
     VALUES (?, ?, ?, 'queued', ?, '[]', ?, ?, ?)`) 
     .run(id, input.kind, input.title?.trim() || defaultTitle(input.kind), JSON.stringify(input.request), input.parentJobId || null, now, now);
+
+  if (input.parentJobId) {
+    const membership = db.prepare("SELECT shot_id FROM shot_jobs WHERE job_id=?").get(input.parentJobId) as any;
+    if (membership?.shot_id) {
+      db.prepare("INSERT OR IGNORE INTO shot_jobs (shot_id,job_id,created_at) VALUES (?,?,?)").run(membership.shot_id, id, now);
+      db.prepare("UPDATE shots SET updated_at=? WHERE id=?").run(now, membership.shot_id);
+      db.prepare("UPDATE projects SET updated_at=? WHERE id=(SELECT project_id FROM shots WHERE id=?)").run(now, membership.shot_id);
+    }
+  }
+
   return getJob(id)!;
 }
 
