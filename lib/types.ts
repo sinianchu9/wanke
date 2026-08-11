@@ -1,6 +1,7 @@
 export const JOB_KINDS = [
   "video_generation",
   "video_extension",
+  "video_editing",
   "video_analysis",
   "remake_script",
   "video_render",
@@ -57,6 +58,7 @@ export interface StoredAsset {
 export const JOB_KIND_LABELS: Record<JobKind, string> = {
   video_generation: "AI 视频生成",
   video_extension: "视频延长",
+  video_editing: "视频编辑",
   video_analysis: "视频拆解",
   remake_script: "复刻脚本",
   video_render: "创意渲染",

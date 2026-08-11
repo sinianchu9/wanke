@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { JobKind } from "@/lib/types";
 import { videoExtensionSchema } from "@/lib/video/extension";
+import { videoEditingSchema } from "@/lib/video/editing";
 
 const ratio = z.enum(["16:9", "9:16", "4:3", "3:4", "1:1"]);
 const standardRatio = z.enum(["16:9", "9:16", "4:3", "3:4"]);
@@ -51,50 +52,27 @@ const schemas = {
   }).superRefine((v, ctx) => {
     const count = v.medias.length;
     if (v.jobType === "image_to_video" && count !== 1) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["medias"],
-        message: `图生视频只允许 1 个参考素材，当前收到 ${count} 个。需要首帧+尾帧请选择“首尾帧”；需要多个参考请选择“多参考”。`,
-      });
+      ctx.addIssue({ code: "custom", path: ["medias"], message: `图生视频只允许 1 个参考素材，当前收到 ${count} 个。需要首帧+尾帧请选择“首尾帧”；需要多个参考请选择“多参考”。` });
     }
     if (v.jobType === "image_to_video" && count === 1 && v.medias[0]?.type !== "image") {
-      ctx.addIssue({
-        code: "custom",
-        path: ["medias", 0, "type"],
-        message: "让图片动起来需要一张图片，不能使用视频或音频作为首帧。",
-      });
+      ctx.addIssue({ code: "custom", path: ["medias", 0, "type"], message: "让图片动起来需要一张图片，不能使用视频或音频作为首帧。" });
     }
     if (v.jobType === "first_last_frame" && count !== 2) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["medias"],
-        message: `首尾帧模式必须恰好 2 张图片（首帧 + 尾帧），当前收到 ${count} 个。`,
-      });
+      ctx.addIssue({ code: "custom", path: ["medias"], message: `首尾帧模式必须恰好 2 张图片（首帧 + 尾帧），当前收到 ${count} 个。` });
     }
     if (v.jobType === "first_last_frame" && count === 2 && v.medias.some(media => media.type !== "image")) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["medias"],
-        message: "首尾画面必须都是图片，不能混入视频或音频。",
-      });
+      ctx.addIssue({ code: "custom", path: ["medias"], message: "首尾画面必须都是图片，不能混入视频或音频。" });
     }
     if (v.jobType === "reference_to_video" && (count < 1 || count > 9)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["medias"],
-        message: `多参考模式需要 1-9 个参考素材，当前收到 ${count} 个。`,
-      });
+      ctx.addIssue({ code: "custom", path: ["medias"], message: `多参考模式需要 1-9 个参考素材，当前收到 ${count} 个。` });
     }
     if (v.jobType === "text_to_video" && count !== 0) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["medias"],
-        message: `文生视频不使用参考素材，当前仍有 ${count} 个。请删除参考素材或切换生成模式。`,
-      });
+      ctx.addIssue({ code: "custom", path: ["medias"], message: `文生视频不使用参考素材，当前仍有 ${count} 个。请删除参考素材或切换生成模式。` });
     }
   }),
 
   video_extension: videoExtensionSchema,
+  video_editing: videoEditingSchema,
 
   video_analysis: z.object({
     sourceUrl: z.string().url("请输入可访问的视频 URL"),

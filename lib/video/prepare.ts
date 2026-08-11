@@ -54,10 +54,20 @@ function isPublicHttpUrl(value: string) {
  * Prepare stable Wanke asset references for whichever video provider will actually run.
  *
  * Public URLs remain public and do not trigger any Yike API call. Local image refs are kept
- * small in SQLite and converted to Base64 only for the outbound generation request. Only
- * legacy assets that physically live in Yike's private ICE bucket need a fresh signed URL.
+ * small in SQLite and converted to Base64 only for the outbound generation/editing request.
  */
 export async function prepareJobInput(kind: JobKind, input: Record<string, any>) {
+  if (kind === "video_editing") {
+    const referenceImages = Array.isArray(input.referenceImages) ? input.referenceImages : [];
+    return {
+      ...input,
+      referenceImages: await Promise.all(referenceImages.map(async (value: unknown) => {
+        const ref = typeof value === "string" ? value.trim() : "";
+        return isLocalInputRef(ref) ? localInputToDataUrl(ref) : ref;
+      })),
+    };
+  }
+
   if (kind !== "video_generation" || !Array.isArray(input.medias) || !input.medias.length) return input;
 
   const assets = listAssets();
@@ -72,7 +82,6 @@ export async function prepareJobInput(kind: JobKind, input: Record<string, any>)
 
     const stored = findStoredAsset(assets, { url, mediaId });
 
-    // A visible public URL is provider-neutral. Never replace it with a Yike URL or MediaId.
     if (isPublicHttpUrl(url)) return { ...media, url, mediaId: "" };
 
     if (stored) {
@@ -93,12 +102,9 @@ export async function prepareJobInput(kind: JobKind, input: Record<string, any>)
         }
       }
 
-      // Legacy records that cannot be resolved to a URL are left as MediaId so the Yike
-      // compatibility provider still has a chance to accept them.
       return { ...media, url: "", mediaId: ids.coreMediaId || ids.fallbackMediaId || mediaId };
     }
 
-    // Unknown manual URLs are preserved for validation; unknown MediaIds stay available to Yike.
     if (url) return { ...media, url, mediaId: "" };
     return { ...media, url: "", mediaId };
   }));

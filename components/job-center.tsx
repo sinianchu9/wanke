@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Check, ChevronRight, Clock3, Copy, Download, ExternalLink, Film, GitBranch, Layers3, LoaderCircle, RefreshCw, Repeat2, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import ContinueCreation from "@/components/continue-creation";
 import VideoExtend from "@/components/video-extend";
+import VideoEdit from "@/components/video-edit";
 import { JOB_KIND_LABELS, type ResultMedia, type StoredJob } from "@/lib/types";
 
 const kindName: Record<string, string> = JOB_KIND_LABELS;
@@ -139,6 +140,7 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
 
         <ContinueCreation job={current} onCreated={selectCreated}/>
         <VideoExtend job={current} modelStudioAvailable={modelStudioAvailable} onCreated={selectCreated}/>
+        <VideoEdit job={current} modelStudioAvailable={modelStudioAvailable} onCreated={selectCreated}/>
         {current.kind === "storyboard" && <StoryboardDetails job={current}/>} 
 
         <details className="raw-detail"><summary>技术详情</summary><div className="raw-columns"><JsonBlock title="提交参数" value={current.request}/><JsonBlock title="服务原始响应" value={current.provider}/></div></details>
@@ -161,6 +163,7 @@ function relationLabel(job: StoredJob) {
   if (action === "similar_variant") return "类似版本源自";
   if (action === "continue_from_result") return "继续创作源自";
   if (action === "video_extension") return "视频延长源自";
+  if (action === "video_editing") return "视频编辑源自";
   return "上游 / 父任务";
 }
 
@@ -177,11 +180,17 @@ function PendingState({ job }: { job: StoredJob }) {
   } else if (job.status === "running") {
     text = job.kind === "video_extension"
       ? "正在沿原视频时间轴生成连续内容，完成后会返回包含原片的完整延长视频。"
-      : job.kind === "video_generation"
-        ? "正在生成视频，完成后结果会自动出现。"
-        : "任务正在执行，Wanke 会自动检查进度。";
+      : job.kind === "video_editing"
+        ? "正在按编辑指令处理整条输入视频，完成后会返回编辑后的完整视频。"
+        : job.kind === "video_generation"
+          ? "正在生成视频，完成后结果会自动出现。"
+          : "任务正在执行，Wanke 会自动检查进度。";
   } else if (job.status === "queued") {
-    text = job.kind === "video_extension" ? "视频延长任务已进入百炼队列。" : "任务已进入生成队列，Wanke 会自动检查进度。";
+    text = job.kind === "video_extension"
+      ? "视频延长任务已进入百炼队列。"
+      : job.kind === "video_editing"
+        ? "视频编辑任务已进入百炼队列。"
+        : "任务已进入生成队列，Wanke 会自动检查进度。";
   } else if (job.details?.pollable === false) {
     text = String(job.details?.note || "任务已提交，但当前没有可查询的进度接口。");
   }
