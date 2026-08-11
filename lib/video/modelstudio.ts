@@ -1,5 +1,6 @@
 import "server-only";
 import type { JobStatus, StoredJob } from "@/lib/types";
+import { getModelStudioRuntimeConfig } from "@/lib/settings";
 
 type VideoInput = {
   prompt: string;
@@ -17,14 +18,14 @@ type RouteDecision = {
 };
 
 function apiKey() {
-  return process.env.DASHSCOPE_API_KEY?.trim() || process.env.ALIYUN_MODELSTUDIO_API_KEY?.trim() || "";
+  return getModelStudioRuntimeConfig().apiKey;
 }
 
 function rootUrl() {
-  const explicit = process.env.ALIYUN_MODELSTUDIO_BASE_URL?.trim().replace(/\/+$/, "");
+  const config = getModelStudioRuntimeConfig();
+  const explicit = config.baseUrl.trim().replace(/\/+$/, "");
   if (explicit) return explicit.endsWith("/api/v1") ? explicit.slice(0, -7) : explicit;
-  const workspaceId = process.env.ALIYUN_MODELSTUDIO_WORKSPACE_ID?.trim();
-  if (workspaceId) return `https://${workspaceId}.ap-southeast-1.maas.aliyuncs.com`;
+  if (config.workspaceId) return `https://${config.workspaceId}.ap-southeast-1.maas.aliyuncs.com`;
   return "https://dashscope-intl.aliyuncs.com";
 }
 
@@ -33,15 +34,15 @@ function apiBase() {
 }
 
 export function modelStudioConfigSummary() {
-  const configured = Boolean(apiKey());
-  const workspaceId = process.env.ALIYUN_MODELSTUDIO_WORKSPACE_ID?.trim() || "";
+  const config = getModelStudioRuntimeConfig();
   return {
-    configured,
+    configured: Boolean(config.apiKey),
     provider: "modelstudio",
     regionId: "ap-southeast-1",
     regionName: "新加坡",
     endpoint: rootUrl(),
-    workspaceDedicatedDomain: Boolean(workspaceId || process.env.ALIYUN_MODELSTUDIO_BASE_URL),
+    workspaceDedicatedDomain: Boolean(config.workspaceId || config.baseUrl),
+    configSource: config.sources,
   };
 }
 
@@ -153,8 +154,6 @@ function buildPayload(input: VideoInput, decision: RouteDecision) {
         url: requireUrl(media, index),
       })),
     },
-    // Keep explicit Image N / Video N references stable. Prompt rewriting can be useful for
-    // generic T2V, but on R2V it can weaken the correspondence between prompt and media array.
     parameters: { ...parameters, prompt_extend: false },
   };
 }
@@ -165,7 +164,7 @@ function friendlyProviderMessage(codeValue: unknown, messageValue: unknown, stat
   const haystack = `${code} ${message}`.toLowerCase();
 
   if (status === 401 || haystack.includes("invalidapikey") || haystack.includes("invalid api key")) {
-    return "百炼 API Key 无效，或 Key 与新加坡 Endpoint 不属于同一地域。请检查 DASHSCOPE_API_KEY 和 Workspace。";
+    return "百炼 API Key 无效，或 Key 与新加坡 Endpoint 不属于同一地域。请到设置检查 API Key 和 Workspace。";
   }
   if (status === 403 || haystack.includes("accessdenied") || haystack.includes("permission")) {
     return "当前百炼 Key 没有调用该视频模型的权限，请检查 Workspace、模型授权或账号状态。";
@@ -187,7 +186,7 @@ function friendlyProviderMessage(codeValue: unknown, messageValue: unknown, stat
 
 async function requestJson(url: string, init: RequestInit) {
   const key = apiKey();
-  if (!key) throw new Error("未配置百炼 Model Studio API Key：请设置 DASHSCOPE_API_KEY");
+  if (!key) throw new Error("未配置百炼 Model Studio API Key：请到设置中填写百炼 API Key");
   const response = await fetch(url, {
     ...init,
     headers: {
