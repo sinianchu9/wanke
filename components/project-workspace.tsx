@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Check, Clapperboard, FolderKanban, Plus, Sparkles, Trash2, Unlink } from "lucide-react";
+import ProjectMediaReadiness from "@/components/project-media-readiness";
 import type { PublicSubjectCard } from "@/components/subject-library";
 import type { ProductionProject, ProjectShot } from "@/lib/project-types";
 import { JOB_KIND_LABELS, type ResultMedia, type StoredJob } from "@/lib/types";
@@ -133,6 +134,7 @@ export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, 
         </div>
 
         <FinalCutReview project={current} jobMap={jobMap}/>
+        <ProjectMediaReadiness projectId={current.id}/>
 
         <div className="panel" style={{marginBottom:18}}>
           <div className="panel-title"><Clapperboard size={17}/><div><h3>新增镜头</h3><p>一个 Shot 表示一个明确镜头目标；它可以有很多候选任务，但只采用一个版本。</p></div></div>
@@ -168,7 +170,7 @@ export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, 
           <summary>项目 / Shot 怎么用？</summary>
           <div className="advanced-body">
             <div className="muted mini"><strong>推荐流程：</strong>创建项目 → 建 Shot → 调整镜头顺序 → 绑定常用主体 → 点击“在此镜头创作” → 生成 1–4 个候选 → 在项目里选择采用版本。</div>
-            <div className="muted mini"><strong>成片准备：</strong>上方“定稿顺序预览”严格按 Shot 顺序展示每个采用视频；没有定稿的镜头会明确显示缺口。</div>
+            <div className="muted mini"><strong>成片准备：</strong>上方“定稿顺序预览”严格按 Shot 顺序展示每个采用视频；没有定稿的镜头会明确显示缺口。全部定稿后可用“成片规格检查”验证媒体参数。</div>
             <div className="muted mini"><strong>自动继承：</strong>某个候选的失败重试、类似版本、继续创作、视频延长、视频编辑都会自动留在同一个 Shot，不用再次归类。</div>
             <div className="muted mini"><strong>删除边界：</strong>删除 Project 或 Shot 只删除组织关系，不删除任务和视频结果；删除任务则会自动从 Shot 候选中移除。</div>
           </div>
