@@ -137,8 +137,11 @@ async function submitChild(parent: StoredJob, request: Record<string, unknown>, 
       details: { ...(submitted.details || {}), ...relationDetails },
     })!;
   } catch (error) {
-    updateJobRemote(child.id, { status: "failed", error: describeError(error), details: relationDetails });
-    throw error;
+    return updateJobRemote(child.id, {
+      status: "failed",
+      error: describeError(error),
+      details: relationDetails,
+    })!;
   }
 }
 
