@@ -31,24 +31,7 @@ export async function POST(request: Request) {
     for (const shot of project.shots) {
       const job = shot.selectedJobId ? getJob(shot.selectedJobId) : null;
       if (!job) throw new Error(`“${shot.name}”的采用版本不存在`);
-      const index = firstVideoOutputIndex(job.outputs);
-      if (index < 0) throw new Error(`“${shot.name}”没有可用视频结果`);
-      if (!job.outputs[index].archivedFile) {
-        try {
-          const archived = await archiveJobOutput(job, index);
-          const outputs = job.outputs.map((item, outputIndex) => outputIndex === index ? archived : item);
-          updateJobRemote(job.id, {
-            outputs,
-            details: { ...(job.details || {}), quickArchive: "saved", quickArchiveError: null },
-          });
-        } catch (error) {
-          const reason = describeError(error);
-          updateJobRemote(job.id, {
-            details: { ...(job.details || {}), quickArchive: "pending", quickArchiveError: reason },
-          });
-          throw new Error(`“${shot.name}”已经生成成功，但暂时无法把结果安全保存到本机。可以稍后再次点击“生成最终视频”；如果持续失败，可能是云端结果链接已经过期，请在这个镜头下“再生成一个版本”。`);
-        }
-      }
+      await ensureSelectedVideoArchived(job, shot.name);
     }
 
     try {
@@ -64,6 +47,40 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues.map(issue => issue.message).join("；") }, { status: 400 });
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
+  }
+}
+
+async function ensureSelectedVideoArchived(job: StoredJob, shotName: string) {
+  let current = getJob(job.id) || job;
+  let index = firstVideoOutputIndex(current.outputs);
+  if (index < 0) throw new Error(`“${shotName}”没有可用视频结果`);
+  if (current.outputs[index].archivedFile) return;
+
+  try {
+    const archived = await archiveJobOutput(current, index);
+    const outputs = current.outputs.map((item, outputIndex) => outputIndex === index ? archived : item);
+    updateJobRemote(current.id, {
+      outputs,
+      details: { ...(current.details || {}), quickArchive: "saved", quickArchiveError: null },
+    });
+    return;
+  } catch (error) {
+    // The background quick-archive path can finish at the same time as this explicit
+    // finalization request. Re-read before treating the archive as failed.
+    current = getJob(job.id) || current;
+    index = firstVideoOutputIndex(current.outputs);
+    if (index >= 0 && current.outputs[index]?.archivedFile) {
+      updateJobRemote(current.id, {
+        details: { ...(current.details || {}), quickArchive: "saved", quickArchiveError: null },
+      });
+      return;
+    }
+
+    const reason = describeError(error);
+    updateJobRemote(current.id, {
+      details: { ...(current.details || {}), quickArchive: "pending", quickArchiveError: reason },
+    });
+    throw new Error(`“${shotName}”已经生成成功，但暂时无法把结果安全保存到本机。可以稍后再次点击“生成最终视频”；如果持续失败，可能是云端结果链接已经过期，请在这个镜头下“再生成一个版本”。`);
   }
 }
 
