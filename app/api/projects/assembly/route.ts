@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { assembleProject, deleteProjectAssembly, ffmpegAvailable, listProjectAssemblies } from "@/lib/video/project-assembly";
+import { assembleProject, deleteProjectAssembly, listProjectAssemblies, projectAssemblyAvailable } from "@/lib/video/project-assembly";
 import { describeError } from "@/lib/errors";
 
 export const runtime = "nodejs";
@@ -12,7 +12,8 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const projectId = url.searchParams.get("projectId") || "";
   if (!projectId) return NextResponse.json({ error: "缺少 projectId" }, { status: 400 });
-  return NextResponse.json({ available: await ffmpegAvailable(), assemblies: listProjectAssemblies(projectId) });
+  const tools = await projectAssemblyAvailable();
+  return NextResponse.json({ ...tools, assemblies: listProjectAssemblies(projectId) });
 }
 
 export async function POST(request: Request) {
