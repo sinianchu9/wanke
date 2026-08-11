@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import { listProjects } from "@/lib/projects";
 import { getJob } from "@/lib/repository";
 import { renderProjectAudio } from "@/lib/video/project-audio";
+import { renderProjectSubtitles } from "@/lib/video/project-subtitles";
 import { ffprobeAvailable, probeResultMedia, type MediaProbe } from "@/lib/video/media-probe";
 import type { ResultMedia } from "@/lib/types";
 
@@ -111,6 +112,7 @@ export async function assembleProject(projectId: string) {
 
     const concatFile = path.join(tempRoot, "concat.txt");
     const timelinePath = path.join(tempRoot, "timeline.mp4");
+    const audioMasterPath = path.join(tempRoot, "audio-master.mp4");
     await fsp.writeFile(concatFile, normalizedFiles.map(file => `file '${path.basename(file)}'`).join("\n"), "utf8");
     await runFfmpeg([
       "-y",
@@ -128,7 +130,17 @@ export async function assembleProject(projectId: string) {
     const audioSnapshot = await renderProjectAudio({
       projectId: project.id,
       timelinePath,
-      finalPath,
+      finalPath: audioMasterPath,
+      tempRoot,
+      duration: expectedDuration,
+    });
+    const audioStat = await fsp.stat(audioMasterPath);
+    if (!audioStat.isFile() || audioStat.size <= 0) throw new Error("FFmpeg 没有生成有效的音频母版文件");
+
+    const subtitleSnapshot = await renderProjectSubtitles({
+      projectId: project.id,
+      inputPath: audioMasterPath,
+      outputPath: finalPath,
       tempRoot,
       duration: expectedDuration,
     });
@@ -157,6 +169,7 @@ export async function assembleProject(projectId: string) {
         bgmGainDb: audioSnapshot.bgmGainDb,
         bgm: audioSnapshot.bgm ? { id: audioSnapshot.bgm.id, name: audioSnapshot.bgm.name } : null,
       },
+      subtitleTrack: subtitleSnapshot,
       finalProbe,
     };
     const sourceSnapshot = sources.map((source, index) => ({
