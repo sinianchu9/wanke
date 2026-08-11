@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createJob, deleteJob, getJob, updateJobRemote } from "@/lib/repository";
 import { refreshJob, resumeStoryboard, submitJob } from "@/lib/video/provider";
-import { prepareJobInput } from "@/lib/yike/prepare";
+import { prepareJobInput } from "@/lib/video/prepare";
 import { archiveJobOutput, deleteArchivedOutputs } from "@/lib/archive";
 import { describeError } from "@/lib/errors";
 
