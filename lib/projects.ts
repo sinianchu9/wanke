@@ -152,8 +152,8 @@ export function selectShotJob(shotId: string, jobId: string | null) {
     const job = db.prepare("SELECT status, output_json FROM jobs WHERE id=?").get(jobId) as any;
     let outputs: unknown[] = [];
     try { outputs = JSON.parse(job?.output_json || "[]"); } catch { outputs = []; }
-    if (job?.status !== "succeeded" || !Array.isArray(outputs) || outputs.length < 1) {
-      throw new Error("只有已完成并产生结果的任务才能设为采用版本");
+    if (job?.status !== "succeeded" || !Array.isArray(outputs) || !outputs.some(isVideoOutput)) {
+      throw new Error("只有已完成并产生视频结果的任务才能设为采用版本");
     }
   }
   const now = new Date().toISOString();
@@ -175,6 +175,14 @@ export function setProjectSubjects(projectId: string, subjectIds: string[]) {
     touchProject(projectId, now);
   });
   transaction();
+}
+
+function isVideoOutput(value: unknown) {
+  if (!value || typeof value !== "object") return false;
+  const output = value as Record<string, unknown>;
+  if (output.kind === "video") return true;
+  const url = String(output.outputUrl || "").toLowerCase();
+  return /\.(mp4|mov|webm)(\?|$)/.test(url);
 }
 
 function touchProject(projectId: string, now = new Date().toISOString()) {
