@@ -1,6 +1,14 @@
 import "server-only";
 import { db } from "@/lib/db";
 
+// Keep this guard here as well as in db.ts so a dev hot reload can pick up the
+// settings feature without requiring the existing SQLite connection to restart.
+db.exec(`CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)`);
+
 export type VideoProviderMode = "auto" | "modelstudio" | "yike";
 export type SettingsSource = "ui" | "environment" | "default";
 
