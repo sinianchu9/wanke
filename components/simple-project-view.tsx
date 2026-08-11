@@ -17,6 +17,7 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [finalUrl, setFinalUrl] = useState("");
+  const [finalCreatedAt, setFinalCreatedAt] = useState("");
 
   useEffect(() => {
     if (!projects.length) setSelectedId("");
@@ -26,17 +27,21 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
   const current = projects.find(project => project.id === selectedId) || projects[0] || null;
   const jobMap = useMemo(() => new Map(jobs.map(job => [job.id, job])), [jobs]);
   const progress = current ? projectProgress(current, jobMap) : null;
+  const finalIsCurrent = Boolean(current && finalCreatedAt && finalCreatedAt >= current.updatedAt);
 
   useEffect(() => {
     let cancelled = false;
-    setFinalUrl("");
+    setFinalUrl(""); setFinalCreatedAt("");
     if (!current?.id) return () => { cancelled = true; };
     fetch(`/api/projects/assembly?projectId=${encodeURIComponent(current.id)}`, { cache: "no-store" })
       .then(response => response.json())
       .then(body => {
         if (cancelled) return;
-        const fileName = body?.assemblies?.[0]?.fileName;
-        if (fileName) setFinalUrl(`/api/archive/${encodeURIComponent(fileName)}`);
+        const latest = body?.assemblies?.[0];
+        if (latest?.fileName) {
+          setFinalUrl(`/api/archive/${encodeURIComponent(latest.fileName)}`);
+          setFinalCreatedAt(String(latest.createdAt || ""));
+        }
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
@@ -54,6 +59,7 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "生成最终视频失败");
       setFinalUrl(body.url || "");
+      setFinalCreatedAt(String(body.assembly?.createdAt || new Date().toISOString()));
       await onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -196,11 +202,13 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
           <span className="chip selected">字幕：按项目设置</span>
         </div>
         <div className="inline-actions" style={{marginTop:14}}>
-          <button className="primary" disabled={busy !== "" || !progress!.canFinalize} onClick={finalize}><Film size={15}/>{busy === "finalize" ? "正在准备并生成…" : "生成最终视频"}</button>
+          <button className="primary" disabled={busy !== "" || !progress!.canFinalize} onClick={finalize}><Film size={15}/>{busy === "finalize" ? "正在准备并生成…" : finalUrl ? "重新生成最终视频" : "生成最终视频"}</button>
           {!progress!.canFinalize && <span className="muted mini">{finalizeHint(progress!)}</span>}
         </div>
         {finalUrl && <div style={{marginTop:12}}>
-          <div className="notice"><Check size={16}/><span>这个作品已有可播放的最终视频。</span><a className="secondary" href={finalUrl} target="_blank" rel="noreferrer"><Download size={14}/>打开视频</a></div>
+          {finalIsCurrent
+            ? <div className="notice"><Check size={16}/><span>这个成片对应当前作品设置和已选版本。</span><a className="secondary" href={finalUrl} target="_blank" rel="noreferrer"><Download size={14}/>打开视频</a></div>
+            : <div className="error-banner warning"><span>这是之前生成的成片；作品之后有过版本、镜头或项目设置调整。旧成片仍可播放，但要反映当前选择请重新生成最终视频。</span><a className="secondary" href={finalUrl} target="_blank" rel="noreferrer"><Download size={14}/>打开旧成片</a></div>}
           <video src={finalUrl} controls preload="metadata" style={{width:"100%",marginTop:10,borderRadius:12}}/>
         </div>}
       </section>
@@ -225,6 +233,7 @@ function shotState(shot: ProjectShot, jobMap: Map<string, StoredJob>) {
   const shotJobs = shot.jobIds.map(id => jobMap.get(id)).filter(Boolean) as StoredJob[];
   const successful = shotJobs.filter(job => job.status === "succeeded" && firstVideoOutput(job.outputs)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const active = shotJobs.filter(job => job.status === "running" || job.status === "queued");
+  const failed = shotJobs.filter(job => job.status === "failed").sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const selected = shot.selectedJobId ? jobMap.get(shot.selectedJobId) : null;
   const selectedValid = selected && selected.status === "succeeded" && firstVideoOutput(selected.outputs) ? selected : null;
   const needsChoice = successful.length > 1 && !selectedValid;
@@ -244,7 +253,7 @@ function shotState(shot: ProjectShot, jobMap: Map<string, StoredJob>) {
   }
   if (needsChoice) return { status: "done" as const, label: "请选择版本", detail: "有多个可用版本，预览后选一个即可", successful, chosen: null, chosenOutput: null, needsChoice: true };
   if (chosen && chosenOutput) return { status: "done" as const, label: "已完成", detail: selectedValid ? "已经确定采用版本" : "只有一个成功版本，成片时会自动采用", successful, chosen, chosenOutput, needsChoice: false };
-  if (shotJobs.some(job => job.status === "failed")) return { status: "failed" as const, label: "需要重试", detail: "这个镜头没有可用结果，直接点击重试即可", successful, chosen: null, chosenOutput: null, needsChoice: false };
+  if (failed.length) return { status: "failed" as const, label: "需要重试", detail: failureDetail(failed[0].error), successful, chosen: null, chosenOutput: null, needsChoice: false };
   return { status: "empty" as const, label: "未开始", detail: "这个镜头还没有生成任务", successful, chosen: null, chosenOutput: null, needsChoice: false };
 }
 
@@ -254,6 +263,13 @@ function finalizeHint(progress: ReturnType<typeof projectProgress>) {
   if (progress.choices) return `还有 ${progress.choices} 个镜头有多个版本，请先在上方选一个喜欢的。`;
   if (progress.empty) return `还有 ${progress.empty} 个镜头尚未开始，需要先补充生成任务。`;
   return "镜头尚未全部准备好。";
+}
+
+function failureDetail(error: string | null | undefined) {
+  const clean = String(error || "").replace(/\s+/g, " ").trim();
+  if (!clean) return "这个镜头没有可用结果，直接点击重试即可";
+  const shortened = clean.length > 260 ? `${clean.slice(0, 257)}…` : clean;
+  return `失败原因：${shortened}`;
 }
 
 function firstVideoOutput(outputs: ResultMedia[]) {
