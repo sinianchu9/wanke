@@ -84,13 +84,13 @@ function routedPrompt(input: VideoInput, decision: RouteDecision) {
   const prompt = input.prompt.trim();
   if (decision.route === "happyhorse-r2v") {
     const refs = input.medias.map((_, index) => `[Image ${index + 1}]`).join("、");
-    return `${refs} 是参考素材。保持参考素材中的人物、产品、服装、外观特征和场景视觉身份一致，不要无故改变主体。${prompt}`;
+    return `参考素材为 ${refs}。请分别识别并保留各参考图中最显著的人物、产品、服装、道具或场景特征；人物身份与脸部特征不要互相混合，产品结构、颜色和标志不要无故改变。用户要求：${prompt}`;
   }
   if (decision.route === "wan-r2v") {
     let imageIndex = 0;
     let videoIndex = 0;
     const refs = input.medias.map(media => media.type === "video" ? `Video ${++videoIndex}` : `Image ${++imageIndex}`).join("、");
-    return `请将 ${refs} 作为主体与场景参考，保持人物、产品和关键视觉特征一致。${prompt}`;
+    return `参考素材为 ${refs}。请保持各参考主体的身份、外观、服装、产品结构和关键视觉特征一致，不要把不同参考主体的特征互相混合。用户要求：${prompt}`;
   }
   return prompt;
 }
@@ -153,8 +153,36 @@ function buildPayload(input: VideoInput, decision: RouteDecision) {
         url: requireUrl(media, index),
       })),
     },
-    parameters: { ...parameters, prompt_extend: true },
+    // Keep explicit Image N / Video N references stable. Prompt rewriting can be useful for
+    // generic T2V, but on R2V it can weaken the correspondence between prompt and media array.
+    parameters: { ...parameters, prompt_extend: false },
   };
+}
+
+function friendlyProviderMessage(codeValue: unknown, messageValue: unknown, status?: number) {
+  const code = String(codeValue || "");
+  const message = String(messageValue || "").trim();
+  const haystack = `${code} ${message}`.toLowerCase();
+
+  if (status === 401 || haystack.includes("invalidapikey") || haystack.includes("invalid api key")) {
+    return "百炼 API Key 无效，或 Key 与新加坡 Endpoint 不属于同一地域。请检查 DASHSCOPE_API_KEY 和 Workspace。";
+  }
+  if (status === 403 || haystack.includes("accessdenied") || haystack.includes("permission")) {
+    return "当前百炼 Key 没有调用该视频模型的权限，请检查 Workspace、模型授权或账号状态。";
+  }
+  if (status === 429 || haystack.includes("thrott") || haystack.includes("rate limit")) {
+    return "百炼当前请求过多，任务没有重复提交。请稍后直接重试这条任务。";
+  }
+  if (haystack.includes("quota") || haystack.includes("arrear") || haystack.includes("balance")) {
+    return "百炼额度或账户余额不足，请检查模型额度与账户状态。";
+  }
+  if (haystack.includes("url") && (haystack.includes("invalid") || haystack.includes("download") || haystack.includes("access"))) {
+    return `参考素材无法被百炼访问。请确认是公网直链，或重新从素材库选择。${message ? ` 原因：${message}` : ""}`;
+  }
+  if (haystack.includes("invalidparameter") || haystack.includes("invalid parameter")) {
+    return `素材或画面参数不符合当前模型要求。${message ? ` 原因：${message}` : ""}`;
+  }
+  return message ? `百炼视频生成失败：${message}` : `百炼视频接口失败${status ? `（HTTP ${status}）` : ""}`;
 }
 
 async function requestJson(url: string, init: RequestInit) {
@@ -172,7 +200,7 @@ async function requestJson(url: string, init: RequestInit) {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || body?.code) {
-    throw new Error(`百炼视频接口失败：${body?.message || body?.code || `HTTP ${response.status}`}`);
+    throw new Error(friendlyProviderMessage(body?.code, body?.message, response.status));
   }
   return body;
 }
@@ -186,7 +214,7 @@ export async function submitModelStudioVideo(input: VideoInput) {
     body: JSON.stringify(payload),
   });
   const taskId = body?.output?.task_id;
-  if (!taskId) throw new Error(`百炼未返回 task_id：${JSON.stringify(body).slice(0, 500)}`);
+  if (!taskId) throw new Error(`百炼没有返回任务编号，请勿重复点击生成。RequestId：${body?.request_id || "未知"}`);
   return {
     providerJobId: String(taskId),
     requestId: body?.request_id || null,
@@ -223,7 +251,7 @@ export async function refreshModelStudioVideo(job: StoredJob) {
     status,
     provider: body,
     requestId: body?.request_id || job.requestId,
-    error: status === "failed" ? (output.message || output.code || "视频生成失败") : null,
+    error: status === "failed" ? friendlyProviderMessage(output.code, output.message) : null,
     outputs: videoUrl ? [{ outputUrl: videoUrl, kind: "video" as const, label: String(job.details?.model || "AI 视频") }] : job.outputs,
     details: { ...(job.details || {}), usage: body?.usage || null, taskStatus: output.task_status || null },
   };
