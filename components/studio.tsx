@@ -147,22 +147,15 @@ export default function Studio() {
     } finally { setLoading(false); }
   }
 
-  async function probe() {
-    setStatus((s: any) => ({ ...(s || {}), probing: true }));
-    const s = await fetch("/api/status?probe=1", { cache: "no-store" }).then(r => r.json());
-    setStatus(s);
-  }
-
   function createInShot(shotId: string) {
     setActiveShotId(shotId);
     setNotice("");
     setTab("generate");
   }
 
-  async function quickCreated(projectId: string) {
+  async function quickCreated(_projectId: string) {
     await loadAll();
-    const project = projects.find(item => item.id === projectId);
-    setNotice(project ? `作品「${project.name}」已建立，镜头正在生成。` : "作品已建立，镜头正在生成。");
+    setNotice("作品已建立，镜头正在生成。你可以在“我的作品”里直接看进度。");
     setTab("projects");
   }
 
@@ -170,7 +163,6 @@ export default function Studio() {
   const yikeReady = status?.yike?.configured === true;
   const providerMode = status?.providerMode || "auto";
   const directVideo = modelStudioConfigured && providerMode !== "yike";
-  const providerLabel = providerMode === "modelstudio" ? "百炼" : providerMode === "yike" ? "万镜一刻" : "自动";
 
   return (
     <div className="app-shell">
@@ -190,24 +182,17 @@ export default function Studio() {
           })}
         </nav>
         <div className="side-status">
-          <div className="status-row"><span className={`dot ${status?.generationReady ? "ok" : "bad"}`} /><span>{status?.generationReady ? `视频生成：${providerLabel}模式` : "等待配置视频凭证"}</span></div>
-          <div className="muted mini">{status?.regionName || "新加坡"} · {providerMode === "auto" ? "自动模型路由" : "固定 provider"}</div>
-          {status?.endpoint && <div className="muted mini" title={status.endpoint}>{status.endpoint}</div>}
+          <div className="status-row"><span className={`dot ${status?.generationReady ? "ok" : "bad"}`} /><span>{status?.generationReady ? "视频服务可用" : "视频服务需要配置"}</span></div>
+          <div className="muted mini">{status?.generationReady ? "可以直接开始创作；模型和线路由由系统处理。" : "在设置中填写 API 信息后即可开始生成。"}</div>
           {activeShot && <div className="mini success-text">当前镜头：{activeShot.project.name} / {activeShot.shot.name}</div>}
-          {directVideo && <div className="mini muted">百炼直连可直接选择本地图片；首次生成时校验 Key、Workspace 和模型权限</div>}
-          {providerMode === "yike" && <div className="mini muted">基础视频已固定使用万镜一刻；本地图片请先进入素材库或使用公网 URL</div>}
-          {providerMode === "auto" && !modelStudioConfigured && yikeReady && <div className="mini muted">百炼未配置，基础生成自动使用万镜一刻兼容链路</div>}
-          {yikeReady && <button className="link-button" onClick={probe} disabled={status?.probing}>{status?.probing ? "检查中…" : "检查扩展工作流"}</button>}
-          {yikeReady && status?.connected === true && <div className="mini success-text">复刻 / 故事板等扩展工作流可用</div>}
-          {yikeReady && status?.connected === false && <div className="mini error-text">{status.yikeError || status.error || "扩展工作流连接未就绪"}</div>}
-          <button className="link-button" onClick={()=>setTab("settings")}>配置 API 与引擎</button>
+          <button className="link-button" onClick={()=>setTab("settings")}>{status?.generationReady ? "高级服务设置" : "去配置视频服务"}</button>
         </div>
       </aside>
 
       <main className="main">
         <header className="topbar">
           <div>
-            <div className="eyebrow">PERSONAL AI VIDEO WORKSTATION</div>
+            <div className="eyebrow">AI VIDEO CREATION</div>
             <h1>{tabs.find(t => t.id === tab)?.label}</h1>
           </div>
           <div className="top-stats">
