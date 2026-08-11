@@ -56,11 +56,25 @@ const schemas = {
         message: `图生视频只允许 1 个参考素材，当前收到 ${count} 个。需要首帧+尾帧请选择“首尾帧”；需要多个参考请选择“多参考”。`,
       });
     }
+    if (v.jobType === "image_to_video" && count === 1 && v.medias[0]?.type !== "image") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["medias", 0, "type"],
+        message: "让图片动起来需要一张图片，不能使用视频或音频作为首帧。",
+      });
+    }
     if (v.jobType === "first_last_frame" && count !== 2) {
       ctx.addIssue({
         code: "custom",
         path: ["medias"],
         message: `首尾帧模式必须恰好 2 张图片（首帧 + 尾帧），当前收到 ${count} 个。`,
+      });
+    }
+    if (v.jobType === "first_last_frame" && count === 2 && v.medias.some(media => media.type !== "image")) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["medias"],
+        message: "首尾画面必须都是图片，不能混入视频或音频。",
       });
     }
     if (v.jobType === "reference_to_video" && (count < 1 || count > 9)) {
