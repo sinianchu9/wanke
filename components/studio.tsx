@@ -68,7 +68,10 @@ export default function Studio() {
   useEffect(() => {
     const hasActive = jobs.some(j => ["queued", "running"].includes(j.status) && j.providerJobId);
     if (!hasActive) return;
-    const timer = window.setInterval(async () => {
+    let inFlight = false;
+    const tick = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         await fetch("/api/jobs/refresh", { method: "POST" });
         const [jobData, projectData] = await Promise.all([
@@ -78,7 +81,9 @@ export default function Studio() {
         setJobs(mergeJobs(jobData.jobs || [], projectData.jobs || []));
         setProjects(projectData.projects || []);
       } catch { /* keep UI usable while network recovers */ }
-    }, 6000);
+      finally { inFlight = false; }
+    };
+    const timer = window.setInterval(tick, 6000);
     return () => window.clearInterval(timer);
   }, [jobs]);
 
