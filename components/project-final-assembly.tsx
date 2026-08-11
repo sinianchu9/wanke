@@ -104,7 +104,7 @@ export default function ProjectFinalAssembly({ projectId }: { projectId: string 
 
   return <section className="panel" style={{marginBottom:18}}>
     <div className="panel-head">
-      <div className="panel-title"><Film size={17}/><div><h3>生成项目成片</h3><p>统一 Shot 画面与音频规格，应用项目 BGM / 响度设置后，按当前 Shot 顺序生成一个本机 MP4。</p></div></div>
+      <div className="panel-title"><Film size={17}/><div><h3>生成项目成片</h3><p>按 Shot 顺序应用转场、项目声音和字幕设置，生成可追溯的本机 MP4。</p></div></div>
       <button className="primary" disabled={busy || available !== true} onClick={assemble}><Film size={15}/>{busy ? "正在统一并生成…" : "生成成片"}</button>
     </div>
 
@@ -132,8 +132,8 @@ export default function ProjectFinalAssembly({ projectId }: { projectId: string 
           </select>
         </div>
         <div className="field">
-          <span className="field-label">镜头原声增益<small>{audio.originalGainDb} dB</small></span>
-          <input type="range" min={-12} max={6} step={1} value={audio.originalGainDb} onChange={event => setAudio(current => ({ ...current, originalGainDb: Number(event.target.value) }))}/>
+          <span className="field-label">原声相对增益<small>{audio.bgmAssetId ? `${audio.originalGainDb} dB` : "使用 BGM 时生效"}</small></span>
+          <input type="range" min={-12} max={6} step={1} value={audio.originalGainDb} disabled={!audio.bgmAssetId} onChange={event => setAudio(current => ({ ...current, originalGainDb: Number(event.target.value) }))}/>
         </div>
         <div className="field">
           <span className="field-label">BGM 相对增益<small>{audio.bgmGainDb} dB</small></span>
@@ -159,7 +159,9 @@ export default function ProjectFinalAssembly({ projectId }: { projectId: string 
               <div>
                 <strong>{new Date(assembly.createdAt).toLocaleString()}</strong>
                 <span>{settingLabel(assembly.settings)}</span>
+                <span>{transitionLabel(assembly.settings)}</span>
                 <span>{audioLabel(assembly.settings)}</span>
+                <span>{subtitleLabel(assembly.settings)}</span>
                 <span>{assembly.sources.length} 个 Shot · 本机成片</span>
               </div>
               <div className="result-actions">
@@ -176,11 +178,13 @@ export default function ProjectFinalAssembly({ projectId }: { projectId: string 
       <summary>成片规则是什么？</summary>
       <div className="advanced-body">
         <div className="muted mini"><strong>画面：</strong>目标尺寸和 FPS 取第一个定稿 Shot；其他镜头保持比例缩放，空余区域补黑边，不拉伸主体。</div>
+        <div className="muted mini"><strong>转场：</strong>直接切换继续使用统一片段 concat copy；淡化才使用 xfade + acrossfade 重叠相邻镜头，因此淡化后的项目总时长会相应缩短。</div>
         <div className="muted mini"><strong>镜头音频：</strong>先统一 AAC / 48kHz / 双声道；无音轨镜头补静音、短音轨补静音到画面结束，再按项目目标 LUFS 做最终响度处理。</div>
-        <div className="muted mini"><strong>BGM：</strong>从素材库选择一条音频；成片时临时下载、循环覆盖全片，首尾各淡入淡出约 1 秒，再按设置的相对增益与原声混合。</div>
-        <div className="muted mini"><strong>历史可追溯：</strong>每次成片都记录当时使用的目标响度、原声增益、BGM 增益和 BGM 名称；之后改设置不会修改旧成片。</div>
-        <div className="muted mini"><strong>边界：</strong>当前仍是单轨顺序成片；这一阶段不做自动对白 ducking、多轨关键帧或分镜级音乐剪辑。</div>
-        <div className="muted mini"><strong>限制：</strong>单次最多 60 个 Shot、定稿总时长最多 15 分钟；长项目应先拆分章节。</div>
+        <div className="muted mini"><strong>BGM：</strong>从素材库选择一条音频；成片时临时下载、循环覆盖转场后的真实全片时长，首尾各淡入淡出约 1 秒，再按设置的相对增益与原声混合。</div>
+        <div className="muted mini"><strong>字幕：</strong>启用时最后封装为可选择的 MP4 字幕轨；字幕时间轴也使用转场后的实际项目时长校验。</div>
+        <div className="muted mini"><strong>历史可追溯：</strong>每次成片都记录转场、声音、字幕和最终媒体参数；之后改项目设置不会修改旧成片。</div>
+        <div className="muted mini"><strong>边界：</strong>当前仍是单轨项目装配，不做多轨关键帧、每个边界独立转场或分镜级音乐剪辑。</div>
+        <div className="muted mini"><strong>限制：</strong>直接切换最多 60 个 Shot；淡化首版最多 30 个 Shot；源镜头总时长最多 15 分钟。</div>
       </div>
     </details>
   </section>;
@@ -193,9 +197,20 @@ function settingLabel(settings: Record<string, any>) {
   return `${settings.width || "?"}×${settings.height || "?"} · ${fps}fps · H.264/AAC · 约 ${duration}s`;
 }
 
+function transitionLabel(settings: Record<string, any>) {
+  const transition = settings.transition || {};
+  if (transition.transitionType === "fade" && Number(transition.boundaryCount || 0) > 0) return `转场：淡化 ${transition.duration ?? 0.5}s · ${transition.boundaryCount} 处`;
+  return "转场：直接切换";
+}
+
 function audioLabel(settings: Record<string, any>) {
   const mix = settings.audioMix || {};
   const target = mix.targetLufs ?? -16;
-  const bgm = mix.bgm?.name ? ` · BGM：${mix.bgm.name} ${mix.bgmGainDb ?? -12}dB` : " · 无 BGM";
-  return `目标 ${target} LUFS · 原声 ${mix.originalGainDb ?? 0}dB${bgm}`;
+  const bgm = mix.bgm?.name ? ` · 原声 ${mix.originalGainDb ?? 0}dB · BGM：${mix.bgm.name} ${mix.bgmGainDb ?? -12}dB` : " · 无 BGM";
+  return `目标 ${target} LUFS${bgm}`;
+}
+
+function subtitleLabel(settings: Record<string, any>) {
+  const subtitle = settings.subtitleTrack || {};
+  return subtitle.enabled ? `字幕：${subtitle.title || "字幕"} · ${subtitle.cueCount || 0} 条` : "字幕：关闭";
 }
