@@ -95,14 +95,15 @@ export default function Studio() {
     setLoading(true);
     setNotice("");
     try {
+      const shotId = tab === "generate" ? (activeShotId || undefined) : undefined;
       const res = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, input, title, parentJobId, shotId: activeShotId || undefined }),
+        body: JSON.stringify({ kind, input, title, parentJobId, shotId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "任务提交失败");
-      setNotice(activeShot ? `已提交到「${activeShot.project.name} / ${activeShot.shot.name}」：${data.job.title}` : `已提交：${data.job.title}`);
+      setNotice(shotId && activeShot ? `已提交到「${activeShot.project.name} / ${activeShot.shot.name}」：${data.job.title}` : `已提交：${data.job.title}`);
       await loadAll();
       setTab("jobs");
       return data.job;
