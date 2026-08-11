@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createJob, updateJobRemote } from "@/lib/repository";
+import { assignJobToShot, getShot } from "@/lib/projects";
 import { submitJob } from "@/lib/video/provider";
 import { prepareJobInput } from "@/lib/video/prepare";
 import { describeError } from "@/lib/errors";
@@ -14,6 +15,7 @@ const schema = z.object({
   title: z.string().max(160).optional(),
   input: z.record(z.string(), z.unknown()),
   count: z.coerce.number().int().min(2).max(4),
+  shotId: z.string().optional().nullable(),
 });
 
 type BatchMeta = { id: string; index: number; total: number };
@@ -21,6 +23,7 @@ type BatchMeta = { id: string; index: number; total: number };
 export async function POST(request: Request) {
   try {
     const payload = schema.parse(await request.json());
+    if (payload.shotId && !getShot(payload.shotId)) return NextResponse.json({ error: "当前项目镜头已经不存在，请重新选择镜头" }, { status: 400 });
     const batchId = randomUUID();
     const jobs: ReturnType<typeof createJob>[] = [];
 
@@ -31,6 +34,7 @@ export async function POST(request: Request) {
       const baseTitle = payload.title?.trim() || "AI 视频生成";
       const requestInput = { ...payload.input, _batch: batch };
       let job = createJob({ kind: "video_generation", title: `${baseTitle} · 版本 ${index}/${payload.count}`, request: requestInput });
+      if (payload.shotId) assignJobToShot(payload.shotId, job.id);
 
       try {
         const preparedInput = await prepareJobInput("video_generation", requestInput);
