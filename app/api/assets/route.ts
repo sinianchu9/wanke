@@ -21,6 +21,19 @@ function yikeConfigured() {
   return Boolean(process.env.ALIYUN_ACCESS_KEY_ID && process.env.ALIYUN_ACCESS_KEY_SECRET);
 }
 
+function createUrlOnlyAsset(input: z.infer<typeof schema>, registration: string, extensionRegistrationError?: string) {
+  return createAsset({
+    name: input.name,
+    mediaType: input.mediaType,
+    sourceUrl: input.sourceUrl,
+    provider: {
+      storage: "external-url",
+      registration,
+      ...(extensionRegistrationError ? { extensionRegistrationError } : {}),
+    },
+  });
+}
+
 export async function GET() {
   return NextResponse.json({ assets: listAssets() });
 }
@@ -29,18 +42,21 @@ export async function POST(request: Request) {
   try {
     const input = schema.parse(await request.json());
     if (input.trackOnly || !yikeConfigured()) {
-      const asset = createAsset({
-        name: input.name,
-        mediaType: input.mediaType,
-        sourceUrl: input.sourceUrl,
-        provider: { storage: "external-url", registration: input.trackOnly ? "track-only" : "provider-neutral" },
-      });
+      const asset = createUrlOnlyAsset(input, input.trackOnly ? "track-only" : "provider-neutral");
       return NextResponse.json({ asset }, { status: 201 });
     }
 
-    const registered = await registerAsset({ inputURL: input.sourceUrl, mediaType: input.mediaType, title: input.name });
-    const asset = createAsset({ providerMediaId: registered.mediaId, name: input.name, mediaType: input.mediaType, sourceUrl: input.sourceUrl, provider: registered.provider });
-    return NextResponse.json({ asset }, { status: 201 });
+    try {
+      const registered = await registerAsset({ inputURL: input.sourceUrl, mediaType: input.mediaType, title: input.name });
+      const asset = createAsset({ providerMediaId: registered.mediaId, name: input.name, mediaType: input.mediaType, sourceUrl: input.sourceUrl, provider: registered.provider });
+      return NextResponse.json({ asset }, { status: 201 });
+    } catch (error) {
+      // A stale or unavailable extension provider must not make a perfectly good public URL
+      // unusable for the direct video-generation path.
+      const extensionError = describeError(error);
+      const asset = createUrlOnlyAsset(input, "provider-neutral", extensionError);
+      return NextResponse.json({ asset, warning: "素材已保存，可用于基础视频生成；扩展工作流登记暂未成功。" }, { status: 201 });
+    }
   } catch (error) {
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
