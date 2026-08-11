@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { createJob, deleteJob, getJob, updateJobRemote } from "@/lib/repository";
+import { createJob, deleteJob, getJob, requestReferenceExists, updateJobRemote } from "@/lib/repository";
 import { refreshJob, resumeStoryboard, submitJob } from "@/lib/video/provider";
 import { prepareJobInput } from "@/lib/video/prepare";
+import { collectLocalInputRefs, deleteLocalInput } from "@/lib/video/local-input";
 import { archiveJobOutput, deleteArchivedOutputs } from "@/lib/archive";
 import { describeError } from "@/lib/errors";
 
@@ -69,6 +70,14 @@ export async function DELETE(_: Request, ctx: Ctx) {
   const { id } = await ctx.params;
   const job = getJob(id);
   if (!job) return NextResponse.json({ error: "任务不存在" }, { status: 404 });
+
+  const localRefs = [...collectLocalInputRefs(job.request)];
   deleteArchivedOutputs(job.outputs);
-  return deleteJob(id) ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "任务删除失败" }, { status: 500 });
+  if (!deleteJob(id)) return NextResponse.json({ error: "任务删除失败" }, { status: 500 });
+
+  // Retry/child jobs can intentionally share the same local images. Remove a file only when
+  // no remaining task request references it.
+  const orphaned = localRefs.filter(ref => !requestReferenceExists(ref));
+  await Promise.allSettled(orphaned.map(deleteLocalInput));
+  return NextResponse.json({ ok: true });
 }
