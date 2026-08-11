@@ -163,6 +163,7 @@ export default function Studio() {
   const yikeReady = status?.yike?.configured === true;
   const providerMode = status?.providerMode || "auto";
   const directVideo = modelStudioConfigured && providerMode !== "yike";
+  const generationReady = status === null ? null : status?.generationReady === true;
 
   return (
     <div className="app-shell">
@@ -182,10 +183,10 @@ export default function Studio() {
           })}
         </nav>
         <div className="side-status">
-          <div className="status-row"><span className={`dot ${status?.generationReady ? "ok" : "bad"}`} /><span>{status?.generationReady ? "视频服务可用" : "视频服务需要配置"}</span></div>
-          <div className="muted mini">{status?.generationReady ? "可以直接开始创作；模型和线路由由系统处理。" : "在设置中填写 API 信息后即可开始生成。"}</div>
+          <div className="status-row"><span className={`dot ${generationReady === true ? "ok" : generationReady === false ? "bad" : ""}`} /><span>{generationReady === null ? "正在检查视频服务" : generationReady ? "视频服务可用" : "视频服务需要配置"}</span></div>
+          <div className="muted mini">{generationReady === null ? "确认服务状态后即可开始。" : generationReady ? "可以直接开始创作；模型和线路由由系统处理。" : "在设置中填写 API 信息后即可开始生成。"}</div>
           {activeShot && <div className="mini success-text">当前镜头：{activeShot.project.name} / {activeShot.shot.name}</div>}
-          <button className="link-button" onClick={()=>setTab("settings")}>{status?.generationReady ? "高级服务设置" : "去配置视频服务"}</button>
+          <button className="link-button" onClick={()=>setTab("settings")}>{generationReady ? "高级服务设置" : "去配置视频服务"}</button>
         </div>
       </aside>
 
@@ -207,7 +208,7 @@ export default function Studio() {
         {tab === "generate" && activeShot && <div className="notice"><Clapperboard size={16}/><span>当前生成目标：<strong>{activeShot.project.name} / {activeShot.shot.name}</strong>{activeShot.shot.brief ? ` · ${activeShot.shot.brief}` : ""}。新任务和批量版本会自动进入这个 Shot。</span><button className="link-button" onClick={() => setActiveShotId("")}>退出镜头上下文</button></div>}
 
         <section className="workspace">
-          {tab === "quick" && <QuickCreationWizard assets={assets} subjects={subjects} onCreated={quickCreated} onAdvanced={() => setTab("generate")}/>} 
+          {tab === "quick" && <QuickCreationWizard assets={assets} subjects={subjects} onCreated={quickCreated} onAdvanced={() => setTab("generate")} onSettings={() => setTab("settings")} generationReady={generationReady} directAvailable={directVideo}/>} 
           {tab === "generate" && <SimpleVideoGenerator assets={assets} subjects={subjects} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />}
           {tab === "projects" && <ProjectHome projects={projects} jobs={jobs} subjects={subjects} onChanged={loadAll} onCreateInShot={createInShot} />}
           {(["remake", "clone", "avatar", "voice", "storyboard", "translation"] as Tab[]).includes(tab) && (
