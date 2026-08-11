@@ -26,9 +26,14 @@ function ffprobePath() {
   return String(process.env.FFPROBE_PATH || "ffprobe").trim() || "ffprobe";
 }
 
+function ffprobeTimeout() {
+  const configured = Number(process.env.WANKE_FFPROBE_TIMEOUT_MS || 45_000);
+  return Number.isFinite(configured) ? Math.max(5000, configured) : 45_000;
+}
+
 export async function ffprobeAvailable() {
   try {
-    await execFileAsync(ffprobePath(), ["-version"], { timeout: 5000, maxBuffer: 256 * 1024 });
+    await execFileAsync(ffprobePath(), ["-version"], { timeout: 5000, maxBuffer: 256 * 1024, encoding: "utf8" });
     return true;
   } catch {
     return false;
@@ -44,8 +49,9 @@ export async function probeResultMedia(output: ResultMedia): Promise<MediaProbe>
     "-show_format",
     target.value,
   ], {
-    timeout: Math.max(5000, Number(process.env.WANKE_FFPROBE_TIMEOUT_MS || 45_000)),
+    timeout: ffprobeTimeout(),
     maxBuffer: 2 * 1024 * 1024,
+    encoding: "utf8",
   });
 
   const parsed = JSON.parse(stdout || "{}") as any;
@@ -75,6 +81,7 @@ export async function probeResultMedia(output: ResultMedia): Promise<MediaProbe>
 
 export function mediaProfileKey(probe: MediaProbe) {
   return [
+    probe.formatName,
     probe.videoCodec,
     `${probe.width}x${probe.height}`,
     probe.pixelFormat,
