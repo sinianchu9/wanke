@@ -122,17 +122,60 @@ function buildPayload(input: VideoInput, decision: RouteDecision) {
   };
 }
 
-function friendlyProviderMessage(codeValue: unknown, messageValue: unknown, status?: number) {
-  const code = String(codeValue || "");
+function diagnosticSuffix(code: string, status?: number, requestIdValue?: unknown) {
+  const requestId = String(requestIdValue || "").trim();
+  const parts: string[] = [];
+  if (code) parts.push(`Code: ${code}`);
+  if (status) parts.push(`HTTP: ${status}`);
+  if (requestId) parts.push(`RequestId: ${requestId}`);
+  return parts.length ? `（${parts.join("；")}）` : "";
+}
+
+function friendlyProviderMessage(codeValue: unknown, messageValue: unknown, status?: number, requestIdValue?: unknown) {
+  const code = String(codeValue || "").trim();
+  const normalizedCode = code.toLowerCase();
   const message = String(messageValue || "").trim();
   const haystack = `${code} ${message}`.toLowerCase();
-  if (status === 401 || haystack.includes("invalidapikey") || haystack.includes("invalid api key")) return "百炼 API Key 无效，或 Key 与新加坡 Endpoint 不属于同一地域。请到设置检查 API Key 和 Workspace。";
-  if (status === 403 || haystack.includes("accessdenied") || haystack.includes("permission")) return "当前百炼 Key 没有调用该视频模型的权限，请检查 Workspace、模型授权或账号状态。";
-  if (status === 429 || haystack.includes("thrott") || haystack.includes("rate limit")) return "百炼当前请求过多，任务没有重复提交。请稍后直接重试这条任务。";
-  if (haystack.includes("quota") || haystack.includes("arrear") || haystack.includes("balance")) return "百炼额度或账户余额不足，请检查模型额度与账户状态。";
-  if (haystack.includes("url") && (haystack.includes("invalid") || haystack.includes("download") || haystack.includes("access"))) return `参考素材无法被百炼访问。请确认是公网直链，或重新从素材库选择。${message ? ` 原因：${message}` : ""}`;
-  if (haystack.includes("invalidparameter") || haystack.includes("invalid parameter")) return `素材或画面参数不符合当前模型要求。${message ? ` 原因：${message}` : ""}`;
-  return message ? `百炼视频生成失败：${message}` : `百炼视频接口失败${status ? `（HTTP ${status}）` : ""}`;
+  const suffix = diagnosticSuffix(code, status, requestIdValue);
+  const withDiagnostics = (text: string) => `${text}${suffix}`;
+
+  if (status === 401 || haystack.includes("invalidapikey") || haystack.includes("invalid api key")) {
+    return withDiagnostics("百炼 API Key 无效，或 Key 与当前 Endpoint 不属于同一地域。请到设置检查 API Key、Workspace 和 Base URL。");
+  }
+  if (normalizedCode === "model.accessdenied") {
+    return withDiagnostics("百炼明确拒绝了当前模型调用。默认业务空间通常不受子空间模型授权限制；请重点检查该模型在当前地域/账号是否可用，以及 Key 与 Endpoint 是否属于同一地域。");
+  }
+  if (normalizedCode === "workspace.accessdenied") {
+    return withDiagnostics("当前 API Key 无权访问这个 Workspace。请确认 Key 与 Workspace ID 属于同一业务空间，并检查 Base URL 是否指向该 Workspace。");
+  }
+  if (normalizedCode === "endpoint.accessdenied") {
+    return withDiagnostics("当前 Workspace Endpoint 拒绝了这个模型。请检查模型是否已下线/迁移，以及 Base URL 与模型地域是否匹配。");
+  }
+  if (normalizedCode === "accessdenied.unpurchased") {
+    return withDiagnostics("当前账号尚未具备该百炼模型服务的付费调用资格。请检查百炼服务是否已正式开通、账号类型以及 Pay-As-You-Go 状态。");
+  }
+  if (normalizedCode === "allocationquota.freetieronly") {
+    return withDiagnostics("当前模型的免费额度已用尽，并且账号启用了“仅使用免费额度/额度耗尽即停”。请在百炼控制台关闭该限制或确认 Pay-As-You-Go 已可用。");
+  }
+  if (normalizedCode === "arrearage" || haystack.includes("arrear") || haystack.includes("balance")) {
+    return withDiagnostics("百炼账号余额或账务状态异常，当前请求被拒绝。请检查账户余额、欠费和付费状态。");
+  }
+  if (status === 403 || haystack.includes("accessdenied") || haystack.includes("permission")) {
+    return withDiagnostics(`百炼拒绝了本次调用。请根据上面的 Code 判断是模型、Workspace、Endpoint 还是账号资格问题。${message ? ` 原始信息：${message}` : ""}`);
+  }
+  if (status === 429 || haystack.includes("thrott") || haystack.includes("rate limit")) {
+    return withDiagnostics("百炼当前请求过多，任务没有重复提交。请稍后直接重试这条任务。");
+  }
+  if (haystack.includes("quota")) {
+    return withDiagnostics("百炼额度不足或当前额度策略阻止了调用，请检查模型额度和付费设置。");
+  }
+  if (haystack.includes("url") && (haystack.includes("invalid") || haystack.includes("download") || haystack.includes("access"))) {
+    return withDiagnostics(`参考素材无法被百炼访问。请确认是公网直链，或重新从素材库选择。${message ? ` 原因：${message}` : ""}`);
+  }
+  if (haystack.includes("invalidparameter") || haystack.includes("invalid parameter")) {
+    return withDiagnostics(`素材或画面参数不符合当前模型要求。${message ? ` 原因：${message}` : ""}`);
+  }
+  return withDiagnostics(message ? `百炼视频生成失败：${message}` : `百炼视频接口失败${status ? `（HTTP ${status}）` : ""}`);
 }
 
 async function requestJson(url: string, init: RequestInit) {
@@ -149,7 +192,9 @@ async function requestJson(url: string, init: RequestInit) {
     cache: "no-store",
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok || body?.code) throw new Error(friendlyProviderMessage(body?.code, body?.message, response.status));
+  if (!response.ok || body?.code) {
+    throw new Error(friendlyProviderMessage(body?.code, body?.message, response.status, body?.request_id));
+  }
   return body;
 }
 
@@ -247,7 +292,7 @@ export async function refreshModelStudioVideo(job: StoredJob) {
     status,
     provider: body,
     requestId: body?.request_id || job.requestId,
-    error: status === "failed" ? friendlyProviderMessage(output.code, output.message) : null,
+    error: status === "failed" ? friendlyProviderMessage(output.code, output.message, undefined, body?.request_id || job.requestId) : null,
     outputs: videoUrl ? [{ outputUrl: videoUrl, kind: "video" as const, label }] : job.outputs,
     details: { ...(job.details || {}), usage: body?.usage || null, taskStatus: output.task_status || null },
   };
