@@ -36,6 +36,9 @@ type UpdateInput = {
   clearYikeAccessKeySecret?: boolean;
 };
 
+const TOKEN_PLAN_BLOCK = "Token Plan / Coding Plan 专属 Key 不能直接用于 Wanke 应用后端。阿里云当前仅允许这类套餐在受支持的 AI 编程工具或 Agent 中交互式使用；Wanke 直连视频请使用 Pay-As-You-Go API Key。";
+const COMPATIBLE_URL_BLOCK = "这里需要百炼原生视频 API Root，不是 /compatible-mode/v1 或 /apps/anthropic。Wanke 会自动追加 /api/v1/services/aigc/video-generation/video-synthesis。";
+
 function storedValue(key: SettingKey) {
   const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value?: string } | undefined;
   return row?.value?.trim() || "";
@@ -69,23 +72,57 @@ function masked(value: string) {
   return `${value.slice(0, 4)}••••${value.slice(-4)}`;
 }
 
+function modelStudioEnvironmentApiKey() {
+  return process.env.DASHSCOPE_API_KEY?.trim() || process.env.ALIYUN_MODELSTUDIO_API_KEY?.trim() || "";
+}
+
+function modelStudioEnvironmentBaseUrl() {
+  return process.env.ALIYUN_MODELSTUDIO_BASE_URL?.trim() || "";
+}
+
+function modelStudioEffectiveValues() {
+  const apiKey = effective(storedValue("modelstudio_api_key"), modelStudioEnvironmentApiKey());
+  const workspaceId = effective(storedValue("modelstudio_workspace_id"), process.env.ALIYUN_MODELSTUDIO_WORKSPACE_ID);
+  const baseUrl = effective(storedValue("modelstudio_base_url"), modelStudioEnvironmentBaseUrl());
+  return { apiKey, workspaceId, baseUrl };
+}
+
+export function modelStudioDirectUseBlockReason(apiKeyValue: string, baseUrlValue: string) {
+  const key = apiKeyValue.trim().toLowerCase();
+  if (key.startsWith("sk-sp-")) return TOKEN_PLAN_BLOCK;
+
+  const baseUrl = baseUrlValue.trim();
+  if (!baseUrl) return "";
+  try {
+    const url = new URL(baseUrl);
+    const host = url.hostname.toLowerCase();
+    const pathname = url.pathname.toLowerCase().replace(/\/+$/, "");
+    if (host.startsWith("token-plan.") || host.startsWith("coding.") || host.includes("coding.dashscope")) return TOKEN_PLAN_BLOCK;
+    if (pathname.includes("/compatible-mode") || pathname.includes("/apps/anthropic")) return COMPATIBLE_URL_BLOCK;
+  } catch {
+    // URL shape is validated by the API route. Runtime config remains defensive.
+  }
+  return "";
+}
+
 export function getVideoProviderMode(): VideoProviderMode {
   const value = storedValue("video_provider_mode");
   return value === "modelstudio" || value === "yike" ? value : "auto";
 }
 
 export function getModelStudioRuntimeConfig() {
-  const apiKey = effective(
-    storedValue("modelstudio_api_key"),
-    process.env.DASHSCOPE_API_KEY?.trim() || process.env.ALIYUN_MODELSTUDIO_API_KEY?.trim(),
-  );
-  const workspaceId = effective(storedValue("modelstudio_workspace_id"), process.env.ALIYUN_MODELSTUDIO_WORKSPACE_ID);
-  const baseUrl = effective(storedValue("modelstudio_base_url"), process.env.ALIYUN_MODELSTUDIO_BASE_URL);
+  const values = modelStudioEffectiveValues();
+  const blockedReason = modelStudioDirectUseBlockReason(values.apiKey.value, values.baseUrl.value);
   return {
-    apiKey: apiKey.value,
-    workspaceId: workspaceId.value,
-    baseUrl: baseUrl.value,
-    sources: { apiKey: apiKey.source, workspaceId: workspaceId.source, baseUrl: baseUrl.source },
+    // Treat an unsupported plan as unavailable at runtime so Wanke never sends a
+    // custom-backend request with a Token Plan / Coding Plan credential.
+    apiKey: blockedReason ? "" : values.apiKey.value,
+    workspaceId: values.workspaceId.value,
+    baseUrl: values.baseUrl.value,
+    blockedReason,
+    credentialPresent: Boolean(values.apiKey.value),
+    apiKeyMasked: masked(values.apiKey.value),
+    sources: { apiKey: values.apiKey.source, workspaceId: values.workspaceId.source, baseUrl: values.baseUrl.source },
   };
 }
 
@@ -114,13 +151,14 @@ export function getPublicSettings() {
   return {
     videoProviderMode: getVideoProviderMode(),
     modelStudio: {
-      apiKeyConfigured: Boolean(modelStudio.apiKey),
-      apiKeyMasked: masked(modelStudio.apiKey),
+      apiKeyConfigured: modelStudio.credentialPresent,
+      apiKeyMasked: modelStudio.apiKeyMasked,
       apiKeySource: modelStudio.sources.apiKey,
       workspaceId: modelStudio.workspaceId,
       workspaceIdSource: modelStudio.sources.workspaceId,
       baseUrl: modelStudio.baseUrl,
       baseUrlSource: modelStudio.sources.baseUrl,
+      blockedReason: modelStudio.blockedReason,
     },
     yike: {
       accessKeyIdConfigured: Boolean(yike.accessKeyId),
@@ -138,6 +176,16 @@ export function getPublicSettings() {
 }
 
 export function updateAppSettings(input: UpdateInput) {
+  const current = modelStudioEffectiveValues();
+  const nextModelStudioApiKey = input.clearModelStudioApiKey
+    ? modelStudioEnvironmentApiKey()
+    : input.modelStudioApiKey?.trim() || current.apiKey.value;
+  const nextModelStudioBaseUrl = input.modelStudioBaseUrl !== undefined
+    ? input.modelStudioBaseUrl.trim() || modelStudioEnvironmentBaseUrl()
+    : current.baseUrl.value;
+  const blockReason = modelStudioDirectUseBlockReason(nextModelStudioApiKey, nextModelStudioBaseUrl);
+  if (blockReason) throw new Error(`${blockReason} 请清除 Token Plan/Coding Plan Key 或兼容模式 Base URL 后再保存。`);
+
   const transaction = db.transaction(() => {
     if (input.videoProviderMode) writeValue("video_provider_mode", input.videoProviderMode);
 

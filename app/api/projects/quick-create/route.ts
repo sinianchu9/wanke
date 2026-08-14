@@ -148,8 +148,11 @@ function assertQuickGenerationReady(usesLocalInput: boolean) {
   const modelStudioReady = Boolean(modelStudio.apiKey);
   const yikeReady = Boolean(yike.accessKeyId && yike.accessKeySecret);
 
+  if (mode !== "yike" && modelStudio.blockedReason) {
+    throw new Error(`当前百炼配置不能用于 Wanke 服务端直连：${modelStudio.blockedReason} 请先到设置清除或更换，作品还没有创建。`);
+  }
   if (mode === "modelstudio" && !modelStudioReady) {
-    throw new Error("视频服务还没有配置完成。请先到设置填写百炼 API Key，再开始创作。");
+    throw new Error("视频服务还没有配置完成。请先到设置填写百炼 Pay-As-You-Go API Key，再开始创作。");
   }
   if (mode === "yike" && !yikeReady) {
     throw new Error("视频服务还没有配置完成。请先到设置填写万镜一刻 AccessKey，再开始创作。");
