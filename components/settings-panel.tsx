@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, RefreshCw, Save, ShieldCheck } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RefreshCw, Save, ShieldCheck } from "lucide-react";
 
 type ProviderMode = "auto" | "modelstudio" | "yike";
 type Source = "ui" | "environment" | "default";
@@ -16,6 +16,7 @@ type SettingsData = {
     workspaceIdSource: Source;
     baseUrl: string;
     baseUrlSource: Source;
+    blockedReason: string;
   };
   yike: {
     accessKeyIdConfigured: boolean;
@@ -117,6 +118,8 @@ export default function SettingsPanel({ onChanged }: { onChanged: () => Promise<
 
   if (!settings) return <div className="empty-state"><RefreshCw size={28}/><strong>正在读取设置</strong><span>凭证只在服务端读取，不会返回完整密钥。</span></div>;
 
+  const typedModelStudioIssue = modelStudioInputIssue(modelStudioApiKey, modelStudioBaseUrl);
+
   return <div className="content-stack">
     <div className="hero-card compact">
       <div>
@@ -144,22 +147,30 @@ export default function SettingsPanel({ onChanged }: { onChanged: () => Promise<
 
     <div className="form-grid two">
       <section className="panel">
-        <div className="panel-title"><div><h3>百炼 Model Studio</h3><p>HappyHorse / Wan 基础视频生成，新加坡区域。</p></div></div>
-        <div className="form-stack">
+        <div className="panel-title"><div><h3>百炼 Model Studio</h3><p>Wanke 服务端直连使用 Pay-As-You-Go；HappyHorse / Wan 基础视频生成默认走新加坡区域。</p></div></div>
+        <div className="notice" style={{margin:"12px 0 0"}}>
+          <AlertTriangle size={16}/>
+          <span>Token Plan / Coding Plan 虽包含部分视频模型，但官方当前只允许在受支持的 AI 编程工具或 Agent 中交互式使用，不能作为自定义应用后端 API。这里不要填写 <code>sk-sp-...</code> 或 <code>token-plan.../compatible-mode/v1</code>。</span>
+        </div>
+        {settings.modelStudio.blockedReason && <div className="error-banner" style={{marginTop:12}}>当前百炼配置已停止用于新任务：{settings.modelStudio.blockedReason} 请清除对应 Key / Base URL 后保存。</div>}
+        <div className="form-stack" style={{marginTop:14}}>
           <div className="field">
-            <span className="field-label">API Key <small>{credentialHint(settings.modelStudio.apiKeyConfigured, settings.modelStudio.apiKeyMasked, settings.modelStudio.apiKeySource)}</small></span>
-            <input type="password" autoComplete="new-password" value={modelStudioApiKey} onChange={e=>{setModelStudioApiKey(e.target.value);setClearModelStudioApiKey(false)}} placeholder={settings.modelStudio.apiKeyConfigured ? "留空保持现有 API Key" : "填写百炼 API Key"}/>
+            <span className="field-label">Pay-As-You-Go API Key <small>{credentialHint(settings.modelStudio.apiKeyConfigured, settings.modelStudio.apiKeyMasked, settings.modelStudio.apiKeySource)}</small></span>
+            <input type="password" autoComplete="new-password" value={modelStudioApiKey} onChange={e=>{setModelStudioApiKey(e.target.value);setClearModelStudioApiKey(false)}} placeholder={settings.modelStudio.apiKeyConfigured ? "留空保持现有 API Key" : "填写按量付费 Key，例如 sk-ws-..."}/>
+            {modelStudioApiKey.trim().toLowerCase().startsWith("sk-sp-") && <span className="mini error-text">这是 Token Plan 专属 Key，Wanke 应用后端不会直接使用它。</span>}
             {settings.modelStudio.apiKeyConfigured && <button type="button" className="secondary" onClick={()=>setClearModelStudioApiKey(v=>!v)}>{clearModelStudioApiKey ? "取消清除" : "清除界面保存的 API Key"}</button>}
             {clearModelStudioApiKey && <span className="mini error-text">保存后会删除数据库中的 Key；如果服务器环境变量仍配置了 Key，会自动继续使用环境变量。</span>}
           </div>
           <div className="field">
             <span className="field-label">Workspace ID <small>{sourceHint(settings.modelStudio.workspaceIdSource)}</small></span>
-            <input value={workspaceId} onChange={e=>setWorkspaceId(e.target.value)} placeholder="例如：ws_xxx；推荐填写"/>
+            <input value={workspaceId} onChange={e=>setWorkspaceId(e.target.value)} placeholder="例如：ws_xxx；Pay-As-You-Go 推荐填写"/>
           </div>
           <div className="field">
-            <span className="field-label">Base URL <small>高级设置，可留空</small></span>
-            <input value={modelStudioBaseUrl} onChange={e=>setModelStudioBaseUrl(e.target.value)} placeholder="留空时根据 Workspace ID 自动生成新加坡地址"/>
+            <span className="field-label">原生视频 API Root <small>高级设置，可留空</small></span>
+            <input value={modelStudioBaseUrl} onChange={e=>setModelStudioBaseUrl(e.target.value)} placeholder="例如：https://ws-xxx.ap-southeast-1.maas.aliyuncs.com"/>
+            <span className="muted mini">不要填 <code>/compatible-mode/v1</code>。留空时根据 Workspace ID 自动生成新加坡原生 API 地址。</span>
           </div>
+          {typedModelStudioIssue && <div className="error-banner">{typedModelStudioIssue}</div>}
           <div className="muted mini">没有 Workspace ID 和 Base URL 时会使用新加坡公共地址 dashscope-intl.aliyuncs.com。</div>
         </div>
       </section>
@@ -222,4 +233,13 @@ function credentialHint(configured: boolean, masked: string, source: Source) {
 
 function modeLabel(mode: ProviderMode) {
   return mode === "modelstudio" ? "百炼" : mode === "yike" ? "万镜一刻" : "自动";
+}
+
+function modelStudioInputIssue(apiKey: string, baseUrl: string) {
+  if (apiKey.trim().toLowerCase().startsWith("sk-sp-")) return "检测到 Token Plan 专属 Key：Wanke 当前不会把它用于应用后端直连。";
+  const value = baseUrl.trim().toLowerCase();
+  if (!value) return "";
+  if (value.includes("token-plan.") || value.includes("coding.dashscope")) return "检测到 Token Plan / Coding Plan 地址：该套餐不支持 Wanke 这类自定义应用后端直连。";
+  if (value.includes("/compatible-mode/") || value.endsWith("/compatible-mode") || value.includes("/apps/anthropic")) return "检测到兼容模式地址：视频生成需要原生 API Root，不要填写 /compatible-mode/v1 或 /apps/anthropic。";
+  return "";
 }
