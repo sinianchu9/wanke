@@ -14,6 +14,12 @@ function hasInlineLocalImage(input: any) {
   return Array.isArray(input.medias) && input.medias.some((media: any) => typeof media?.url === "string" && media.url.startsWith("data:image/"));
 }
 
+function blockedModelStudioMessage(config: ReturnType<typeof getModelStudioRuntimeConfig>) {
+  return config.blockedReason
+    ? `当前百炼配置不能用于 Wanke 服务端直连：${config.blockedReason} 请到设置清除或更换后再生成。`
+    : "";
+}
+
 function withRecipeDetails(submitted: any, recipe: ReturnType<typeof getVideoRecipe>) {
   return {
     ...submitted,
@@ -46,8 +52,10 @@ export async function submitJob(kind: JobKind, rawInput: unknown) {
   if (kind === "video_extension") {
     const input = validateVideoExtensionInput(rawInput);
     const config = getModelStudioRuntimeConfig();
+    const blocked = blockedModelStudioMessage(config);
+    if (blocked) throw new Error(blocked);
     if (!config.apiKey) {
-      throw new Error("视频延长当前使用百炼 Wan 2.7 原生 continuation。请先在设置中配置百炼 API Key。");
+      throw new Error("视频延长当前使用百炼 Wan 2.7 原生 continuation。请先在设置中配置百炼 Pay-As-You-Go API Key。");
     }
     return submitModelStudioVideoExtension(input);
   }
@@ -55,8 +63,10 @@ export async function submitJob(kind: JobKind, rawInput: unknown) {
   if (kind === "video_editing") {
     const input = validateVideoEditingInput(rawInput);
     const config = getModelStudioRuntimeConfig();
+    const blocked = blockedModelStudioMessage(config);
+    if (blocked) throw new Error(blocked);
     if (!config.apiKey) {
-      throw new Error("视频编辑当前使用百炼 Wan 2.7 Video Editing。请先在设置中配置百炼 API Key。");
+      throw new Error("视频编辑当前使用百炼 Wan 2.7 Video Editing。请先在设置中配置百炼 Pay-As-You-Go API Key。");
     }
     return submitModelStudioVideoEditing(input);
   }
@@ -73,10 +83,15 @@ export async function submitJob(kind: JobKind, rawInput: unknown) {
     prompt: applyVideoRecipe(input.prompt, recipe.id),
   };
   const mode = getVideoProviderMode();
+  const modelStudioConfig = getModelStudioRuntimeConfig();
+  const blocked = blockedModelStudioMessage(modelStudioConfig);
+
+  // A configured-but-unsupported billing path is a configuration error, not a
+  // reason to silently spend through another provider in automatic mode.
+  if (blocked) throw new Error(blocked);
 
   if (mode === "modelstudio") {
-    const config = getModelStudioRuntimeConfig();
-    if (!config.apiKey) throw new Error("当前已强制使用百炼，但还没有配置百炼 API Key。请到设置填写后再生成。");
+    if (!modelStudioConfig.apiKey) throw new Error("当前已强制使用百炼，但还没有配置 Pay-As-You-Go API Key。请到设置填写后再生成。");
     if (!canUseModelStudio(executionInput)) {
       throw new Error("当前任务参数不能通过百炼直连提交。请检查参考素材是否有可访问 URL，或把视频引擎切回“自动”。");
     }
@@ -92,7 +107,7 @@ export async function submitJob(kind: JobKind, rawInput: unknown) {
   }
 
   if (hasInlineLocalImage(executionInput)) {
-    throw new Error("这条任务使用了本地图片直传，需要配置百炼 Model Studio API Key 后才能生成。请到设置中填写百炼 API Key。");
+    throw new Error("这条任务使用了本地图片直传，需要配置百炼 Model Studio Pay-As-You-Go API Key 后才能生成。请到设置中填写百炼 API Key。");
   }
 
   return submitThroughYike(kind, executionInput, "自动模式：百炼未配置或当前素材不适合直连，已自动使用万镜一刻兼容链路", recipe);
