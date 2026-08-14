@@ -83,11 +83,16 @@ export async function submitJob(kind: JobKind, rawInput: unknown) {
     prompt: applyVideoRecipe(input.prompt, recipe.id),
   };
   const mode = getVideoProviderMode();
+
+  if (mode === "yike") {
+    return submitThroughYike(kind, executionInput, "设置中已指定基础视频生成使用万镜一刻", recipe);
+  }
+
   const modelStudioConfig = getModelStudioRuntimeConfig();
   const blocked = blockedModelStudioMessage(modelStudioConfig);
 
-  // A configured-but-unsupported billing path is a configuration error, not a
-  // reason to silently spend through another provider in automatic mode.
+  // A configured-but-unsupported billing path is a configuration error in
+  // automatic/Model Studio modes, not a reason to silently spend via Yike.
   if (blocked) throw new Error(blocked);
 
   if (mode === "modelstudio") {
@@ -96,10 +101,6 @@ export async function submitJob(kind: JobKind, rawInput: unknown) {
       throw new Error("当前任务参数不能通过百炼直连提交。请检查参考素材是否有可访问 URL，或把视频引擎切回“自动”。");
     }
     return withRecipeDetails(await submitModelStudioVideo(executionInput), recipe);
-  }
-
-  if (mode === "yike") {
-    return submitThroughYike(kind, executionInput, "设置中已指定基础视频生成使用万镜一刻", recipe);
   }
 
   if (canUseModelStudio(executionInput)) {
