@@ -27,7 +27,7 @@ checks.push(["Node.js", Number(process.versions.node.split(".")[0]) >= 22, `v${p
 checks.push(["视频引擎模式", true, providerMode === "auto" ? "自动" : providerMode === "modelstudio" ? "百炼" : "万镜一刻"]);
 checks.push(["视频生成凭证", generationReady, generationReady
   ? providerMode === "yike" ? "万镜一刻已配置" : modelStudioReady ? "百炼 Model Studio 已配置" : "万镜一刻已配置"
-  : modelStudioBlockReason || (providerMode === "modelstudio" ? "当前选择百炼，但 API Key 未配置" : providerMode === "yike" ? "当前选择万镜一刻，但 AccessKey 未配置完整" : "缺少百炼 API Key / 万镜一刻 AccessKey"])]);
+  : modelStudioBlockReason || (providerMode === "modelstudio" ? "当前选择百炼，但 API Key 未配置" : providerMode === "yike" ? "当前选择万镜一刻，但 AccessKey 未配置完整" : "缺少百炼 API Key / 万镜一刻 AccessKey")]);
 checks.push(["百炼直连计费通道", !modelStudioBlockReason, modelStudioBlockReason || "未检测到 Token Plan/Coding Plan 或兼容模式地址"]);
 checks.push(["百炼 Model Studio", true, modelStudioReady ? "Pay-As-You-Go 直连配置已就绪；Key、Workspace 和模型权限在首次生成时校验" : modelStudioBlockReason ? "已阻止不适合应用后端直连的套餐配置" : "未配置或未启用"]);
 checks.push(["扩展工作流", true, yikeReady ? "已配置，复刻 / 数字人 / 故事板可用" : "未配置，不影响百炼直连基础视频生成"]);
