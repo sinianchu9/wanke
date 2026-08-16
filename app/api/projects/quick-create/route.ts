@@ -160,7 +160,7 @@ function assertQuickGenerationReady(usesLocalInput: boolean, providerMode: Video
   const modelStudioReady = Boolean(modelStudio.apiKey);
   const yikeReady = Boolean(yike.accessKeyId && yike.accessKeySecret);
 
-  if (providerMode !== "yike" && modelStudio.blockedReason) {
+  if (providerMode === "modelstudio" && modelStudio.blockedReason) {
     throw new Error(`当前百炼配置不能用于 Wanke 服务端直连：${modelStudio.blockedReason} 请先到设置清除或更换，作品还没有创建。`);
   }
   if (providerMode === "modelstudio" && !modelStudioReady) {
