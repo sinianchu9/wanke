@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   Box,
   ChevronDown,
+  GitBranch,
   Image as ImageIcon,
   Library,
   Plus,
@@ -19,11 +20,13 @@ import styles from "@/components/studio-shell.module.css";
 
 type CreationType = "product_ad" | "person_short" | "image_video";
 type Platform = "douyin" | "xiaohongshu" | "youtube" | "landscape";
+type ProviderMode = "auto" | "modelstudio" | "yike";
 
 type Props = {
   assets: StoredAsset[];
   subjects: PublicSubjectCard[];
   generationReady: boolean | null;
+  defaultProviderMode: ProviderMode;
   onCreated: (projectId: string) => Promise<void> | void;
   onOpenAdvanced: () => void;
   onOpenQuick: () => void;
@@ -45,6 +48,12 @@ const promptExamples: Record<CreationType, string> = {
   image_video: "例如：主体保持不变，加入轻微风吹效果，镜头缓慢推近，整体自然真实。",
 };
 
+const providerLabels: Record<ProviderMode, string> = {
+  auto: "自动路由",
+  modelstudio: "强制百炼",
+  yike: "强制万镜",
+};
+
 const toolShortcuts = [
   { id: "remake" as const, label: "高级复刻" },
   { id: "clone" as const, label: "快速复刻" },
@@ -58,6 +67,7 @@ export default function ChatCreationHome({
   assets,
   subjects,
   generationReady,
+  defaultProviderMode,
   onCreated,
   onOpenAdvanced,
   onOpenQuick,
@@ -70,11 +80,13 @@ export default function ChatCreationHome({
   const [prompt, setPrompt] = useState("");
   const [platform, setPlatform] = useState<Platform>("douyin");
   const [duration, setDuration] = useState<5 | 10 | 15 | 30>(10);
+  const [providerMode, setProviderMode] = useState<ProviderMode>(defaultProviderMode);
   const [subjectId, setSubjectId] = useState("");
   const [imageAssetId, setImageAssetId] = useState("");
   const [referenceUrl, setReferenceUrl] = useState("");
   const [plusOpen, setPlusOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [providerOpen, setProviderOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -123,7 +135,7 @@ export default function ChatCreationHome({
   async function create() {
     if (busy) return;
     if (generationReady !== true) {
-      setError(generationReady === null ? "正在检查视频服务，请稍后再试。" : "视频服务还没有配置完成，请先完成设置。 ");
+      setError(generationReady === null ? "正在检查视频服务，请稍后再试。" : "视频服务还没有配置完成，请先完成设置。");
       return;
     }
     if (!prompt.trim()) {
@@ -148,6 +160,7 @@ export default function ChatCreationHome({
           goal: prompt.trim(),
           platform,
           totalDuration: duration,
+          providerMode,
           subjectId: type === "image_video" ? null : (subjectId || null),
           imageAssetId: imageAssetId || null,
           referenceUrl: referenceUrl.trim(),
@@ -164,6 +177,12 @@ export default function ChatCreationHome({
     } finally {
       setBusy(false);
     }
+  }
+
+  function closePopovers() {
+    setPlusOpen(false);
+    setOptionsOpen(false);
+    setProviderOpen(false);
   }
 
   return (
@@ -215,41 +234,34 @@ export default function ChatCreationHome({
         <div className={styles.composerToolbar}>
           <div className={styles.composerToolsLeft}>
             <div className={styles.popoverAnchor}>
-              <button className={styles.roundButton} onClick={() => { setPlusOpen(value => !value); setOptionsOpen(false); }} aria-label="添加参考素材">
+              <button className={styles.roundButton} onClick={() => { const next = !plusOpen; closePopovers(); setPlusOpen(next); }} aria-label="添加参考素材">
                 <Plus size={19} />
               </button>
               {plusOpen && (
                 <div className={`${styles.popover} ${styles.referencePopover}`}>
                   <div className={styles.popoverTitle}>添加参考</div>
-
                   {type !== "image_video" && (
                     <>
                       <div className={styles.popoverLabel}>{type === "product_ad" ? "产品主体" : "人物主体"}</div>
                       {compatibleSubjects.length ? (
                         <div className={styles.referenceList}>
                           {compatibleSubjects.slice(0, 6).map(subject => (
-                            <button key={subject.id} onClick={() => chooseSubject(subject.id)}>
-                              <UserRound size={15} /><span>{subject.name}</span>
-                            </button>
+                            <button key={subject.id} onClick={() => chooseSubject(subject.id)}><UserRound size={15} /><span>{subject.name}</span></button>
                           ))}
                         </div>
                       ) : <div className={styles.popoverEmpty}>还没有可用主体</div>}
                       <button className={styles.popoverLink} onClick={onOpenSubjects}><UserRound size={15} />打开主体库</button>
                     </>
                   )}
-
                   <div className={styles.popoverLabel}>图片素材</div>
                   {images.length ? (
                     <div className={styles.referenceList}>
                       {images.slice(0, 6).map(asset => (
-                        <button key={asset.id} onClick={() => chooseImage(asset.id)}>
-                          <ImageIcon size={15} /><span>{asset.name}</span>
-                        </button>
+                        <button key={asset.id} onClick={() => chooseImage(asset.id)}><ImageIcon size={15} /><span>{asset.name}</span></button>
                       ))}
                     </div>
                   ) : <div className={styles.popoverEmpty}>素材库还没有图片</div>}
                   <button className={styles.popoverLink} onClick={onOpenAssets}><Library size={15} />打开素材库 / 上传素材</button>
-
                   <div className={styles.popoverLabel}>图片直链</div>
                   <input
                     className={styles.urlInput}
@@ -263,7 +275,7 @@ export default function ChatCreationHome({
             </div>
 
             <div className={styles.popoverAnchor}>
-              <button className={styles.optionButton} onClick={() => { setOptionsOpen(value => !value); setPlusOpen(false); }}>
+              <button className={styles.optionButton} onClick={() => { const next = !optionsOpen; closePopovers(); setOptionsOpen(next); }}>
                 <Settings2 size={15} />
                 {platform === "landscape" ? "横屏" : platform === "youtube" ? "YouTube" : platform === "xiaohongshu" ? "小红书" : "抖音"} · {duration} 秒
                 <ChevronDown size={14} />
@@ -273,9 +285,7 @@ export default function ChatCreationHome({
                   <div className={styles.popoverTitle}>输出偏好</div>
                   <div className={styles.popoverLabel}>平台 / 画幅</div>
                   <div className={styles.choiceGrid}>
-                    {([[
-                      "douyin", "抖音竖屏"
-                    ], ["xiaohongshu", "小红书"], ["youtube", "YouTube"], ["landscape", "横屏"]] as Array<[Platform, string]>).map(([id, label]) => (
+                    {([["douyin", "抖音竖屏"], ["xiaohongshu", "小红书"], ["youtube", "YouTube"], ["landscape", "横屏"]] as Array<[Platform, string]>).map(([id, label]) => (
                       <button key={id} className={platform === id ? styles.choiceActive : ""} onClick={() => setPlatform(id)}>{label}</button>
                     ))}
                   </div>
@@ -290,9 +300,33 @@ export default function ChatCreationHome({
             </div>
           </div>
 
-          <button className={styles.sendButton} disabled={busy} onClick={create} title={ready ? "开始创作" : "完善描述与参考后开始"}>
-            {busy ? <span className={styles.sendBusy}>···</span> : <Send size={18} />}
-          </button>
+          <div className={styles.composerToolsRight}>
+            <div className={styles.popoverAnchor}>
+              <button className={styles.providerButton} onClick={() => { const next = !providerOpen; closePopovers(); setProviderOpen(next); }}>
+                <GitBranch size={15} />
+                <span>{providerLabels[providerMode]}</span>
+                <ChevronDown size={14} />
+              </button>
+              {providerOpen && (
+                <div className={`${styles.popover} ${styles.providerPopover}`}>
+                  <div className={styles.popoverTitle}>本次生成线路</div>
+                  <button className={`${styles.providerChoice} ${providerMode === "auto" ? styles.providerChoiceActive : ""}`} onClick={() => { setProviderMode("auto"); setProviderOpen(false); }}>
+                    <b>自动路由</b><small>优先百炼，不适配时按现有规则回退万镜一刻</small>
+                  </button>
+                  <button className={`${styles.providerChoice} ${providerMode === "modelstudio" ? styles.providerChoiceActive : ""}`} onClick={() => { setProviderMode("modelstudio"); setProviderOpen(false); }}>
+                    <b>强制百炼</b><small>只走百炼；不满足条件时直接提示，不静默回退</small>
+                  </button>
+                  <button className={`${styles.providerChoice} ${providerMode === "yike" ? styles.providerChoiceActive : ""}`} onClick={() => { setProviderMode("yike"); setProviderOpen(false); }}>
+                    <b>强制万镜一刻</b><small>本次基础视频固定使用万镜一刻兼容链路</small>
+                  </button>
+                  <div className={styles.popoverFootnote}>只影响本次创作，不修改全局默认设置。</div>
+                </div>
+              )}
+            </div>
+            <button className={styles.sendButton} disabled={busy} onClick={create} title={ready ? "开始创作" : "完善描述与参考后开始"}>
+              {busy ? <span className={styles.sendBusy}>···</span> : <Send size={18} />}
+            </button>
+          </div>
         </div>
       </div>
 
