@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { StoredJob } from "@/lib/types";
 import { createJob, deleteJob, getJob, requestReferenceExists, updateJobRemote } from "@/lib/repository";
-import { refreshJob, resumeStoryboard, submitJob } from "@/lib/video/provider";
+import { refreshJob, resumeStoryboard, submitJob, type VideoProviderMode } from "@/lib/video/provider";
 import { prepareJobInput } from "@/lib/video/prepare";
 import { collectLocalInputRefs, deleteLocalInput } from "@/lib/video/local-input";
 import { archiveJobOutput, deleteArchivedOutputs } from "@/lib/archive";
@@ -127,24 +127,37 @@ export async function DELETE(_: Request, ctx: Ctx) {
 
 async function submitChild(parent: StoredJob, request: Record<string, unknown>, title: string, relationDetails: Record<string, unknown>) {
   const child = createJob({ kind: parent.kind, title, request, parentJobId: parent.id });
+  const inheritedProviderMode = providerModeFromJob(parent);
   try {
     const preparedInput = await prepareJobInput(parent.kind, request);
-    const submitted = await submitJob(parent.kind, preparedInput);
+    const submitted = await submitJob(parent.kind, preparedInput, inheritedProviderMode ? { videoProviderMode: inheritedProviderMode } : undefined);
     return updateJobRemote(child.id, {
       providerJobId: submitted.providerJobId,
       status: submitted.initialStatus,
       provider: submitted.provider,
       requestId: submitted.requestId,
       error: null,
-      details: { ...(submitted.details || {}), ...relationDetails },
+      details: {
+        ...(submitted.details || {}),
+        ...relationDetails,
+        ...(inheritedProviderMode ? { requestedProviderMode: inheritedProviderMode } : {}),
+      },
     })!;
   } catch (error) {
     return updateJobRemote(child.id, {
       status: "failed",
       error: describeError(error),
-      details: relationDetails,
+      details: {
+        ...relationDetails,
+        ...(inheritedProviderMode ? { requestedProviderMode: inheritedProviderMode } : {}),
+      },
     })!;
   }
+}
+
+function providerModeFromJob(job: StoredJob): VideoProviderMode | undefined {
+  const mode = job.details?.requestedProviderMode;
+  return mode === "auto" || mode === "modelstudio" || mode === "yike" ? mode : undefined;
 }
 
 function requireSuccessfulVideoJob(job: StoredJob) {
