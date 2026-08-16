@@ -64,7 +64,7 @@ export default function ContinueCreation({ job, onCreated }: { job: StoredJob; o
       <div className="muted mini"><strong>演示：</strong>先生成“女孩走进咖啡店” → 选中满意结果 → 输入“保持人物一致，改成她从咖啡店走出并回头” → 创建新的“继续创作”子任务。</div>
       {error && <div className="error-banner">{error}</div>}
       <div className="stage-run" style={{margin:"4px 0 0",borderRadius:10}}>
-        <span className="muted mini">新任务继续使用当前 Recipe；Provider 仍由系统设置和参考视频能力自动决定。</span>
+        <span className="muted mini">沿用原任务的线路策略与当前 Recipe；原任务为自动路由时继续自动判断，原任务为强制百炼/万镜一刻时继续保持该线路。</span>
         <button className="primary" disabled={busy || !prompt.trim()} onClick={submit}><Send size={15}/>{busy ? "正在提交…" : "继续创作"}</button>
       </div>
     </div>
