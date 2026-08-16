@@ -12,6 +12,7 @@ import {
   Languages,
   Library,
   ListVideo,
+  LoaderCircle,
   Menu,
   Mic2,
   PanelLeftClose,
@@ -79,6 +80,9 @@ export default function Studio() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(true);
+  const [activeJobsOpen, setActiveJobsOpen] = useState(true);
+  const [focusedProjectId, setFocusedProjectId] = useState("");
+  const [focusedJobId, setFocusedJobId] = useState("");
   const [jobs, setJobs] = useState<StoredJob[]>([]);
   const [assets, setAssets] = useState<StoredAsset[]>([]);
   const [subjects, setSubjects] = useState<PublicSubjectCard[]>([]);
@@ -153,6 +157,17 @@ export default function Studio() {
     [projects],
   );
 
+  const sidebarActiveJobs = useMemo(
+    () => jobs.filter(job => ["queued", "running", "unknown"].includes(job.status) && job.details?.pollable !== false).slice(0, 5),
+    [jobs],
+  );
+
+  const focusedJobs = useMemo(() => {
+    if (!focusedJobId || !jobs.some(job => job.id === focusedJobId)) return jobs;
+    const selected = jobs.find(job => job.id === focusedJobId)!;
+    return [selected, ...jobs.filter(job => job.id !== focusedJobId)];
+  }, [jobs, focusedJobId]);
+
   const activeShot = useMemo(() => {
     for (const project of projects) {
       const shot = project.shots.find(item => item.id === activeShotId);
@@ -175,6 +190,7 @@ export default function Studio() {
       if (!res.ok) throw new Error(data.error || "任务提交失败");
       setNotice(shotId && activeShot ? `已提交到「${activeShot.project.name} / ${activeShot.shot.name}」：${data.job.title}` : `已提交：${data.job.title}`);
       await loadAll();
+      setFocusedJobId(data.job.id || "");
       setTab("jobs");
       return data.job;
     } catch (e) {
@@ -204,6 +220,7 @@ export default function Studio() {
         : `已创建并提交 ${summary.total} 个独立版本${location}。`
       );
       await loadAll();
+      setFocusedJobId(data.jobs?.[0]?.id || "");
       setTab("jobs");
       return data.jobs;
     } catch (e) {
@@ -215,10 +232,32 @@ export default function Studio() {
     }
   }
 
+  function closeSidebarOnMobile() {
+    if (window.matchMedia("(max-width: 720px)").matches) setSidebarOpen(false);
+  }
+
   function navigate(next: Tab) {
+    if (next !== "projects") setFocusedProjectId("");
+    if (next !== "jobs") setFocusedJobId("");
     setTab(next);
     setNotice("");
-    if (window.matchMedia("(max-width: 720px)").matches) setSidebarOpen(false);
+    closeSidebarOnMobile();
+  }
+
+  function openProject(projectId: string) {
+    setFocusedProjectId(projectId);
+    setFocusedJobId("");
+    setTab("projects");
+    setNotice("");
+    closeSidebarOnMobile();
+  }
+
+  function openJob(jobId: string) {
+    setFocusedJobId(jobId);
+    setFocusedProjectId("");
+    setTab("jobs");
+    setNotice("");
+    closeSidebarOnMobile();
   }
 
   function createInShot(shotId: string) {
@@ -227,8 +266,9 @@ export default function Studio() {
     setTab("generate");
   }
 
-  async function quickCreated(_projectId: string) {
+  async function quickCreated(projectId: string) {
     await loadAll();
+    setFocusedProjectId(projectId);
     setNotice("作品已建立，镜头正在生成。可以在“我的作品”里直接看进度。");
     setTab("projects");
   }
@@ -266,6 +306,17 @@ export default function Studio() {
             })}
           </div>
 
+          {sidebarActiveJobs.length > 0 && <div className={styles.navGroup}>
+            <button className={styles.groupToggle} onClick={() => setActiveJobsOpen(value => !value)}>
+              <span>正在生成</span>{activeJobsOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </button>
+            {activeJobsOpen && sidebarActiveJobs.map(job => (
+              <button key={job.id} className={styles.recentItem} onClick={() => openJob(job.id)} title={job.title}>
+                <LoaderCircle className={styles.spin} size={13} /><span>{job.title}</span>
+              </button>
+            ))}
+          </div>}
+
           <div className={styles.navGroup}>
             <button className={styles.groupToggle} onClick={() => setToolsOpen(value => !value)}>
               <span>创作工具</span>{toolsOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -285,7 +336,7 @@ export default function Studio() {
               <span>最近作品</span>{recentOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
             </button>
             {recentOpen && (recentProjects.length ? recentProjects.map(project => (
-              <button key={project.id} className={styles.recentItem} onClick={() => navigate("projects")} title={project.name}>
+              <button key={project.id} className={styles.recentItem} onClick={() => openProject(project.id)} title={project.name}>
                 <Clapperboard size={13} /><span>{project.name}</span>
               </button>
             )) : <div className={styles.groupLabel}>还没有作品</div>)}
@@ -351,13 +402,13 @@ export default function Studio() {
             <div className={styles.contentInner}>
               {tab === "quick" && <QuickCreationWizard assets={assets} subjects={subjects} onCreated={quickCreated} onAdvanced={() => navigate("generate")} onSettings={() => navigate("settings")} onAssetsChanged={loadAll} generationReady={generationReady} directAvailable={directVideo} extendedUploadAvailable={yikeReady} />}
               {tab === "generate" && <SimpleVideoGenerator assets={assets} subjects={subjects} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />}
-              {tab === "projects" && <ProjectHome projects={projects} jobs={jobs} subjects={subjects} onChanged={loadAll} onCreateInShot={createInShot} />}
+              {tab === "projects" && <ProjectHome projects={projects} jobs={jobs} subjects={subjects} onChanged={loadAll} onCreateInShot={createInShot} focusProjectId={focusedProjectId} />}
               {(["remake", "clone", "avatar", "voice", "storyboard", "translation"] as Tab[]).includes(tab) && (
                 <CreatorForms mode={tab as any} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />
               )}
               {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={yikeReady} />}
               {tab === "subjects" && <SubjectLibrary subjects={subjects} assets={assets} onChanged={loadAll} />}
-              {tab === "jobs" && <JobCenter jobs={jobs} modelStudioAvailable={modelStudioConfigured} onChanged={loadAll} onGoAssets={() => navigate("assets")} />}
+              {tab === "jobs" && <JobCenter key={focusedJobId || "job-center"} jobs={focusedJobs} modelStudioAvailable={modelStudioConfigured} onChanged={loadAll} onGoAssets={() => navigate("assets")} />}
               {tab === "settings" && <SettingsPanel onChanged={loadAll} />}
             </div>
           )}
