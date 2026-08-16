@@ -58,12 +58,15 @@ export async function GET(request: Request) {
 
   try {
     const result = await testConnection();
+    const yikeError = !result.ok && "error" in result
+      ? result.error || "万镜一刻核心 API 连接失败"
+      : undefined;
     return NextResponse.json({
       ...summary,
       connected: result.ok,
       modelStudioVerified: false,
       ...result,
-      ...(result.ok ? {} : { yikeError: result.core?.error || "万镜一刻核心 API 连接失败" }),
+      ...(yikeError ? { yikeError } : {}),
     });
   } catch (error) {
     return NextResponse.json({
