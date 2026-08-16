@@ -5,54 +5,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: read
-
 jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ui/chatgpt-studio
-      - name: Repair legacy form helper typing
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('components/forms.tsx')
-          text = path.read_text()
-          start = text.index('function Field(')
-          end = text.index('\nfunction isIbbLandingPage', start)
-          helpers = '''function Field({label,hint,children}:any){return <label className="field"><span className="field-label">{label}{hint&&<small>{hint}</small>}</span>{children}</label>}
-          function SelectField({label,value,onChange,options,suffix}:{label:string;value:string;onChange:(value:string)=>void;options:Array<string|[string,string]>;suffix?:string}){const normalized=options.map(o=>Array.isArray(o)?o:[o,o]);return <Field label={label}><div className="select-wrap"><select value={value} onChange={e=>onChange(e.target.value)}>{normalized.map(([v,l])=><option key={v} value={v}>{l}{suffix?` ${suffix}`:""}</option>)}</select></div></Field>}
-          function Segment({value,onChange,options}:{value:string|number;onChange:(value:string)=>void;options:Array<[string,string]>}){return <div className="segment">{options.map(([v,l])=><button type="button" key={v} className={String(value)===String(v)?"active":""} onClick={()=>onChange(v)}>{l}</button>)}</div>}
-          function Toggle({label,checked,onChange}:{label:string;checked:boolean;onChange:(value:boolean)=>void}){return <label className="toggle"><input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)}/><span className="switch"/><b>{label}</b></label>}
-          function Expert({value,onChange,example}:{value:string;onChange:(value:string)=>void;example:string}){return <Field label="专家 JSON 覆盖" hint="用于实验官方新字段；普通使用保持为空。"><textarea className="code-input" value={value} onChange={e=>onChange(e.target.value)} placeholder={example}/></Field>}
-          function LanguageSelect({value,onChange}:{value:string[];onChange:(value:string[])=>void}){return <Field label="输出语言"><div className="chip-row">{[["CN","中文"],["EN","英文"],["YUE","粤语"]].map(([id,label])=><button type="button" className={`chip ${value.includes(id)?"selected":""}`} key={id} onClick={()=>onChange(value.includes(id)?(value.length>1?value.filter(x=>x!==id):value):[...value,id])}>{label}</button>)}</div></Field>}
-
-          function mediaIdFor(a:StoredAsset, surface:"core"|"studio"="core"){const p:any=a.provider||{};const key=surface==="studio"?"studioMediaId":"coreMediaId";return Object.prototype.hasOwnProperty.call(p,key)?(p[key]||""):a.providerMediaId}
-          function AssetSelect({assets,type,mode,value,onChange}:{assets:StoredAsset[];type:string;mode:string;value:string;onChange:(value:string)=>void}){const surface=mode==="studioMediaId"?"studio":"core";const wantsId=mode==="studioMediaId"||mode==="coreMediaId";const filtered=assets.filter(a=>a.mediaType===type&&(!wantsId||mediaIdFor(a,surface)));return <select value={value} onChange={e=>onChange(e.target.value)}><option value="">— 从素材库选择 —</option>{filtered.map(a=><option key={a.id} value={wantsId?mediaIdFor(a,surface)!:a.sourceUrl}>{a.name}</option>)}</select>}
-          function AssetMulti({assets,value,onChange}:{assets:StoredAsset[];value:string[];onChange:(value:string[])=>void}){const available=assets.map(a=>({a,id:mediaIdFor(a,"studio")})).filter(x=>x.id&&["image","video","audio"].includes(x.a.mediaType));return <div className="asset-chips">{available.length?available.map(({a,id})=><button type="button" key={a.id} className={value.includes(id!)?"selected":""} onClick={()=>onChange(value.includes(id!)?value.filter(x=>x!==id):[...value,id!])}>{a.mediaType==='video'?'🎬':a.mediaType==='audio'?'🎵':'🖼️'} {a.name}</button>):<span className="empty-inline">素材库暂无可用于营销工作流的 MediaId</span>}</div>}
-          '''
-          text = text[:start] + helpers + text[end:]
-          text = text.replace(
-              'function ReferenceEditor({value,onChange,assets,hint,imageOnly}:any){',
-              'function ReferenceEditor({value,onChange,assets,hint,imageOnly}:{value:Array<{type:string;url:string;mediaId?:string}>;onChange:(value:Array<{type:string;url:string;mediaId?:string}>)=>void;assets:StoredAsset[];hint:string;imageOnly:boolean}){',
-              1,
-          )
-          path.write_text(text)
-          PY
-      - name: Commit legacy form typing repair
-        run: |
-          if ! git diff --quiet -- components/forms.tsx; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add components/forms.tsx
-            git commit -m "fix: type legacy form helper callbacks"
-            git push origin HEAD:ui/chatgpt-studio
-          fi
       - uses: actions/setup-node@v4
         with:
           node-version: 24
