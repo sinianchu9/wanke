@@ -77,6 +77,7 @@ const labels: Record<Tab, string> = {
 
 export default function Studio() {
   const [tab, setTab] = useState<Tab>("home");
+  const [homeSession, setHomeSession] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(true);
@@ -244,6 +245,16 @@ export default function Studio() {
     closeSidebarOnMobile();
   }
 
+  function newCreation() {
+    setFocusedProjectId("");
+    setFocusedJobId("");
+    setActiveShotId("");
+    setNotice("");
+    setHomeSession(value => value + 1);
+    setTab("home");
+    closeSidebarOnMobile();
+  }
+
   function openProject(projectId: string) {
     setFocusedProjectId(projectId);
     setFocusedJobId("");
@@ -278,6 +289,7 @@ export default function Studio() {
   const providerMode = (status?.providerMode || "auto") as ProviderMode;
   const directVideo = modelStudioConfigured && providerMode !== "yike";
   const generationReady = status === null ? null : status?.generationReady === true;
+  const chatGenerationReady = status === null ? null : (modelStudioConfigured || yikeReady);
 
   return (
     <div className={styles.shell}>
@@ -291,7 +303,7 @@ export default function Studio() {
           </button>
         </div>
 
-        <button className={styles.newButton} onClick={() => navigate("home")}><Plus size={16} />新建创作</button>
+        <button className={styles.newButton} onClick={newCreation}><Plus size={16} />新建创作</button>
 
         <div className={styles.sidebarScroll}>
           <div className={styles.navGroup}>
@@ -347,7 +359,7 @@ export default function Studio() {
           <button className={styles.serviceButton} onClick={() => navigate("settings")}>
             <span className={`${styles.statusDot} ${generationReady === true ? styles.statusDotReady : generationReady === false ? styles.statusDotBad : ""}`} />
             <span className={styles.serviceButtonText}>
-              <strong>{generationReady === null ? "正在检查视频服务" : generationReady ? "视频服务可用" : "需要配置视频服务"}</strong>
+              <strong>{generationReady === null ? "正在检查视频服务" : generationReady ? "默认线路可用" : "默认线路需要配置"}</strong>
               <small>{providerMode === "auto" ? "默认：自动路由" : providerMode === "modelstudio" ? "默认：强制百炼" : "默认：强制万镜一刻"}</small>
             </span>
             <SettingsIcon size={14} />
@@ -383,9 +395,10 @@ export default function Studio() {
         <section className={`${styles.content} ${tab === "home" ? styles.homeContent : ""}`}>
           {tab === "home" ? (
             <ChatCreationHome
+              key={homeSession}
               assets={assets}
               subjects={subjects}
-              generationReady={generationReady}
+              generationReady={chatGenerationReady}
               defaultProviderMode={providerMode}
               modelStudioAvailable={modelStudioConfigured}
               yikeAvailable={yikeReady}
