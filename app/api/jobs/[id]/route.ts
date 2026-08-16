@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import type { StoredJob } from "@/lib/types";
 import { createJob, deleteJob, getJob, requestReferenceExists, updateJobRemote } from "@/lib/repository";
-import { refreshJob, resumeStoryboard, submitJob } from "@/lib/video/provider";
+import { assignJobToShot } from "@/lib/projects";
+import { db } from "@/lib/db";
+import { refreshJob, resumeStoryboard, submitJob, type VideoProviderMode } from "@/lib/video/provider";
 import { prepareJobInput } from "@/lib/video/prepare";
 import { collectLocalInputRefs, deleteLocalInput } from "@/lib/video/local-input";
 import { archiveJobOutput, deleteArchivedOutputs } from "@/lib/archive";
@@ -40,7 +42,7 @@ export async function POST(request: Request, ctx: Ctx) {
       const child = await submitChild(job, retryRequest, `${job.title} · 重试`, {
         creationAction: "retry",
         sourceJobId: job.id,
-      });
+      }, true);
       return NextResponse.json({ job: child }, { status: 201 });
     }
 
@@ -50,7 +52,7 @@ export async function POST(request: Request, ctx: Ctx) {
       const child = await submitChild(job, similarRequest, `${job.title} · 类似版本`, {
         creationAction: "similar_variant",
         sourceJobId: job.id,
-      });
+      }, true);
       return NextResponse.json({ job: child }, { status: 201 });
     }
 
@@ -125,26 +127,50 @@ export async function DELETE(_: Request, ctx: Ctx) {
   return NextResponse.json({ ok: true });
 }
 
-async function submitChild(parent: StoredJob, request: Record<string, unknown>, title: string, relationDetails: Record<string, unknown>) {
+async function submitChild(
+  parent: StoredJob,
+  request: Record<string, unknown>,
+  title: string,
+  relationDetails: Record<string, unknown>,
+  attachToParentShot = false,
+) {
   const child = createJob({ kind: parent.kind, title, request, parentJobId: parent.id });
+  if (attachToParentShot) {
+    const relation = db.prepare("SELECT shot_id FROM shot_jobs WHERE job_id = ? LIMIT 1").get(parent.id) as { shot_id?: string } | undefined;
+    if (relation?.shot_id) assignJobToShot(relation.shot_id, child.id);
+  }
+
+  const inheritedProviderMode = providerModeFromJob(parent);
   try {
     const preparedInput = await prepareJobInput(parent.kind, request);
-    const submitted = await submitJob(parent.kind, preparedInput);
+    const submitted = await submitJob(parent.kind, preparedInput, inheritedProviderMode ? { videoProviderMode: inheritedProviderMode } : undefined);
     return updateJobRemote(child.id, {
       providerJobId: submitted.providerJobId,
       status: submitted.initialStatus,
       provider: submitted.provider,
       requestId: submitted.requestId,
       error: null,
-      details: { ...(submitted.details || {}), ...relationDetails },
+      details: {
+        ...(submitted.details || {}),
+        ...relationDetails,
+        ...(inheritedProviderMode ? { requestedProviderMode: inheritedProviderMode } : {}),
+      },
     })!;
   } catch (error) {
     return updateJobRemote(child.id, {
       status: "failed",
       error: describeError(error),
-      details: relationDetails,
+      details: {
+        ...relationDetails,
+        ...(inheritedProviderMode ? { requestedProviderMode: inheritedProviderMode } : {}),
+      },
     })!;
   }
+}
+
+function providerModeFromJob(job: StoredJob): VideoProviderMode | undefined {
+  const mode = job.details?.requestedProviderMode;
+  return mode === "auto" || mode === "modelstudio" || mode === "yike" ? mode : undefined;
 }
 
 function requireSuccessfulVideoJob(job: StoredJob) {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createProject, createShot, assignJobToShot, setProjectSubjects } from "@/lib/projects";
 import { createJob, updateJobRemote } from "@/lib/repository";
-import { submitJob } from "@/lib/video/provider";
+import { submitJob, type VideoProviderMode } from "@/lib/video/provider";
 import { prepareJobInput } from "@/lib/video/prepare";
 import { canUseModelStudio } from "@/lib/video/modelstudio";
 import { buildQuickCreationPlan } from "@/lib/video/quick-create";
@@ -20,6 +20,7 @@ const schema = z.object({
   goal: z.string().trim().min(1).max(1200),
   platform: z.enum(["douyin", "xiaohongshu", "youtube", "landscape"]),
   totalDuration: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(30)]),
+  providerMode: z.enum(["auto", "modelstudio", "yike"]).optional(),
   subjectId: z.string().min(1).nullable().optional(),
   imageAssetId: z.string().min(1).nullable().optional(),
   referenceUrl: z.string().trim().max(2048).optional().default(""),
@@ -46,9 +47,10 @@ const schema = z.object({
 export async function POST(request: Request) {
   try {
     const input = schema.parse(await request.json());
-    assertQuickGenerationReady(Boolean(input.localInputRef));
-    const plan = buildQuickCreationPlan(input);
-    await preflightQuickPlan(plan);
+    const effectiveProviderMode = input.providerMode ?? getVideoProviderMode();
+    assertQuickGenerationReady(Boolean(input.localInputRef), effectiveProviderMode);
+    const plan = buildQuickCreationPlan({ ...input, name: input.name || inferredProjectName(input.goal, input.type) });
+    await preflightQuickPlan(plan, effectiveProviderMode);
 
     const project = createProject({ name: plan.projectName, description: plan.projectDescription });
     if (input.subjectId) setProjectSubjects(project.id, [input.subjectId]);
@@ -67,20 +69,31 @@ export async function POST(request: Request) {
       assignJobToShot(shot.id, job.id);
       try {
         const prepared = await prepareJobInput("video_generation", jobInput);
-        const submitted = await submitJob("video_generation", prepared);
+        const submitted = await submitJob("video_generation", prepared, { videoProviderMode: effectiveProviderMode });
         job = updateJobRemote(job.id, {
           providerJobId: submitted.providerJobId,
           status: submitted.initialStatus,
           provider: submitted.provider,
           requestId: submitted.requestId,
           error: null,
-          details: { ...(submitted.details || {}), creationAction: "quick_creation", quickProjectId: project.id, quickShotId: shot.id },
+          details: {
+            ...(submitted.details || {}),
+            creationAction: "quick_creation",
+            quickProjectId: project.id,
+            quickShotId: shot.id,
+            requestedProviderMode: effectiveProviderMode,
+          },
         })!;
       } catch (error) {
         job = updateJobRemote(job.id, {
           status: "failed",
           error: describeError(error),
-          details: { creationAction: "quick_creation", quickProjectId: project.id, quickShotId: shot.id },
+          details: {
+            creationAction: "quick_creation",
+            quickProjectId: project.id,
+            quickShotId: shot.id,
+            requestedProviderMode: effectiveProviderMode,
+          },
         })!;
       }
       results.push({ shotId: shot.id, shotName: shot.name, jobId: job.id, status: job.status, error: job.error });
@@ -91,6 +104,7 @@ export async function POST(request: Request) {
       projectId: project.id,
       projectName: project.name,
       summary: plan.summary,
+      providerMode: effectiveProviderMode,
       shots: results,
       submitted,
       failed: results.length - submitted,
@@ -122,45 +136,50 @@ function buildJobInput(shotPlan: ReturnType<typeof buildQuickCreationPlan>["shot
   };
 }
 
-async function preflightQuickPlan(plan: ReturnType<typeof buildQuickCreationPlan>) {
+async function preflightQuickPlan(plan: ReturnType<typeof buildQuickCreationPlan>, providerMode: VideoProviderMode) {
   const first = plan.shots[0];
   if (!first) throw new Error("没有生成出可执行的镜头计划");
   const prepared = await prepareJobInput("video_generation", buildJobInput(first));
   validateJobInput("video_generation", prepared);
 
-  const mode = getVideoProviderMode();
   const yike = getYikeRuntimeConfig();
   const yikeReady = Boolean(yike.accessKeyId && yike.accessKeySecret);
   const modelStudioCompatible = canUseModelStudio(prepared as any);
 
-  if (mode === "modelstudio" && !modelStudioCompatible) {
-    throw new Error("当前图片无法通过已选择的视频服务读取。请换一张公网图片、重新选择素材，或把视频引擎切回自动模式后再试。作品还没有创建，不会留下失败任务。");
+  if (providerMode === "modelstudio" && !modelStudioCompatible) {
+    throw new Error("当前图片无法通过强制百炼线路读取。请换一张公网图片、重新选择素材，或把本次生成线路切回自动路由。作品还没有创建，不会留下失败任务。");
   }
-  if (mode === "auto" && !modelStudioCompatible && !yikeReady) {
-    throw new Error("当前图片与已配置的视频服务不兼容。请换一张公网图片，或在设置中补充兼容的视频服务后再试。作品还没有创建，不会留下失败任务。");
+  if (providerMode === "auto" && !modelStudioCompatible && !yikeReady) {
+    throw new Error("当前图片与已配置的视频服务不兼容。请换一张公网图片，或在设置中补充万镜一刻后再试。作品还没有创建，不会留下失败任务。");
   }
 }
 
-function assertQuickGenerationReady(usesLocalInput: boolean) {
-  const mode = getVideoProviderMode();
+function assertQuickGenerationReady(usesLocalInput: boolean, providerMode: VideoProviderMode) {
   const modelStudio = getModelStudioRuntimeConfig();
   const yike = getYikeRuntimeConfig();
   const modelStudioReady = Boolean(modelStudio.apiKey);
   const yikeReady = Boolean(yike.accessKeyId && yike.accessKeySecret);
 
-  if (mode !== "yike" && modelStudio.blockedReason) {
+  if (providerMode === "modelstudio" && modelStudio.blockedReason) {
     throw new Error(`当前百炼配置不能用于 Wanke 服务端直连：${modelStudio.blockedReason} 请先到设置清除或更换，作品还没有创建。`);
   }
-  if (mode === "modelstudio" && !modelStudioReady) {
-    throw new Error("视频服务还没有配置完成。请先到设置填写百炼 Pay-As-You-Go API Key，再开始创作。");
+  if (providerMode === "modelstudio" && !modelStudioReady) {
+    throw new Error("本次已强制使用百炼，但百炼 Pay-As-You-Go API Key 尚未配置。请先到设置完成配置。");
   }
-  if (mode === "yike" && !yikeReady) {
-    throw new Error("视频服务还没有配置完成。请先到设置填写万镜一刻 AccessKey，再开始创作。");
+  if (providerMode === "yike" && !yikeReady) {
+    throw new Error("本次已强制使用万镜一刻，但 AccessKey 尚未配置。请先到设置完成配置。");
   }
-  if (mode === "auto" && !modelStudioReady && !yikeReady) {
+  if (providerMode === "auto" && !modelStudioReady && !yikeReady) {
     throw new Error("还没有可用的视频生成服务。请先到设置完成一次 API 配置，再开始创作。");
   }
-  if (usesLocalInput && (!modelStudioReady || mode === "yike")) {
-    throw new Error("当前视频服务暂不支持直接读取本机图片。请改用素材库图片或公网图片链接，或者在设置中启用百炼/自动模式。");
+  if (usesLocalInput && (!modelStudioReady || providerMode === "yike")) {
+    throw new Error("当前线路暂不支持直接读取本机图片。请改用素材库图片或公网图片链接，或者选择百炼/自动路由。");
   }
+}
+
+function inferredProjectName(goal: string, type: z.infer<typeof schema>["type"]) {
+  const compact = goal.replace(/\s+/g, " ").trim();
+  const firstClause = compact.split(/[。！？!?；;\n]/)[0]?.replace(/^[“”"']+|[“”"']+$/g, "").trim() || "";
+  if (firstClause) return firstClause.length > 26 ? `${firstClause.slice(0, 26)}…` : firstClause;
+  return type === "product_ad" ? "产品广告" : type === "person_short" ? "人物短视频" : "图片变视频";
 }

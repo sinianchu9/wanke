@@ -1,10 +1,33 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Braces, Clapperboard, CopyCheck, Film, FolderKanban, Languages, Library, ListVideo, Mic2, RefreshCw, ScanFace, Settings as SettingsIcon, Sparkles, UserRound, WandSparkles } from "lucide-react";
+import {
+  Braces,
+  ChevronDown,
+  ChevronRight,
+  Clapperboard,
+  CopyCheck,
+  Film,
+  FolderKanban,
+  Languages,
+  Library,
+  ListVideo,
+  LoaderCircle,
+  Menu,
+  Mic2,
+  PanelLeftClose,
+  Plus,
+  RefreshCw,
+  ScanFace,
+  Settings as SettingsIcon,
+  Sparkles,
+  UserRound,
+  WandSparkles,
+} from "lucide-react";
 import CreatorForms from "@/components/forms";
 import SimpleVideoGenerator from "@/components/simple-video-generator";
 import QuickCreationWizard from "@/components/quick-creation-wizard";
+import ChatCreationHome from "@/components/chat-creation-home";
 import AssetLibrary from "@/components/asset-library";
 import JobCenter from "@/components/job-center";
 import ProjectHome from "@/components/project-home";
@@ -12,27 +35,58 @@ import SettingsPanel from "@/components/settings-panel";
 import SubjectLibrary, { type PublicSubjectCard } from "@/components/subject-library";
 import type { ProductionProject } from "@/lib/project-types";
 import type { StoredAsset, StoredJob } from "@/lib/types";
+import styles from "@/components/studio-shell.module.css";
 
-type Tab = "quick" | "generate" | "projects" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "subjects" | "jobs" | "settings";
+type Tab = "home" | "quick" | "generate" | "projects" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "subjects" | "jobs" | "settings";
+type ProviderMode = "auto" | "modelstudio" | "yike";
+type QuickCreateResult = { submitted?: number; failed?: number; projectName?: string };
 
-const tabs: { id: Tab; label: string; icon: any; desc: string }[] = [
-  { id: "quick", label: "快速创作", icon: WandSparkles, desc: "一句话开始做视频" },
-  { id: "projects", label: "我的作品", icon: FolderKanban, desc: "看进度、选结果、出成片" },
-  { id: "generate", label: "高级创作", icon: Sparkles, desc: "生成方式、Recipe 与参考素材" },
-  { id: "remake", label: "高级复刻", icon: Braces, desc: "拆解 → 脚本 → 独立渲染" },
-  { id: "clone", label: "快速复刻", icon: CopyCheck, desc: "一键变体，替换人物/商品" },
-  { id: "avatar", label: "数字人口播", icon: ScanFace, desc: "讲解 / 固定机位数字人" },
-  { id: "voice", label: "旁白成片", icon: Mic2, desc: "素材 + 文案 + 配音包装" },
-  { id: "storyboard", label: "故事板", icon: Clapperboard, desc: "长文本拆镜、生成、续跑" },
-  { id: "translation", label: "视频翻译", icon: Languages, desc: "字幕 / 语音多语言翻译" },
-  { id: "assets", label: "素材库", icon: Library, desc: "统一管理图片、视频和音频" },
-  { id: "subjects", label: "主体库", icon: UserRound, desc: "复用人物和产品身份" },
-  { id: "jobs", label: "任务中心", icon: ListVideo, desc: "续查、对比、重试与回炉" },
-  { id: "settings", label: "设置", icon: SettingsIcon, desc: "API、空间 ID 与视频引擎" },
+const CHAT_DRAFT_KEY = "wanke:chat-creation-draft:v1";
+
+const primaryNav = [
+  { id: "projects" as const, label: "我的作品", icon: FolderKanban },
+  { id: "jobs" as const, label: "任务中心", icon: ListVideo },
+  { id: "assets" as const, label: "素材库", icon: Library },
+  { id: "subjects" as const, label: "主体库", icon: UserRound },
 ];
 
+const creationTools = [
+  { id: "quick" as const, label: "快速向导", desc: "分步开始创作", icon: WandSparkles },
+  { id: "generate" as const, label: "高级创作", desc: "Recipe / 批量版本", icon: Sparkles },
+  { id: "remake" as const, label: "高级复刻", desc: "拆解与独立渲染", icon: Braces },
+  { id: "clone" as const, label: "快速复刻", desc: "一键替换人物 / 产品", icon: CopyCheck },
+  { id: "avatar" as const, label: "数字人口播", desc: "讲解与固定机位", icon: ScanFace },
+  { id: "voice" as const, label: "旁白成片", desc: "素材 + 文案 + 配音", icon: Mic2 },
+  { id: "storyboard" as const, label: "故事板", desc: "长文本拆镜", icon: Clapperboard },
+  { id: "translation" as const, label: "视频翻译", desc: "字幕 / 语音多语言", icon: Languages },
+];
+
+const labels: Record<Tab, string> = {
+  home: "新建创作",
+  quick: "快速向导",
+  generate: "高级创作",
+  projects: "我的作品",
+  remake: "高级复刻",
+  clone: "快速复刻",
+  avatar: "数字人口播",
+  voice: "旁白成片",
+  storyboard: "故事板",
+  translation: "视频翻译",
+  assets: "素材库",
+  subjects: "主体库",
+  jobs: "任务中心",
+  settings: "设置",
+};
+
 export default function Studio() {
-  const [tab, setTab] = useState<Tab>("quick");
+  const [tab, setTab] = useState<Tab>("home");
+  const [homeSession, setHomeSession] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(true);
+  const [activeJobsOpen, setActiveJobsOpen] = useState(true);
+  const [focusedProjectId, setFocusedProjectId] = useState("");
+  const [focusedJobId, setFocusedJobId] = useState("");
   const [jobs, setJobs] = useState<StoredJob[]>([]);
   const [assets, setAssets] = useState<StoredAsset[]>([]);
   const [subjects, setSubjects] = useState<PublicSubjectCard[]>([]);
@@ -57,7 +111,13 @@ export default function Studio() {
     setStatus(s);
   }, []);
 
-  useEffect(() => { loadAll().catch(e => setNotice(e.message)); }, [loadAll]);
+  useEffect(() => {
+    loadAll().catch(e => setNotice(e instanceof Error ? e.message : String(e)));
+  }, [loadAll]);
+
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 720px)").matches) setSidebarOpen(false);
+  }, []);
 
   useEffect(() => {
     if (!activeShotId) return;
@@ -80,8 +140,11 @@ export default function Studio() {
         ]);
         setJobs(mergeJobs(jobData.jobs || [], projectData.jobs || []));
         setProjects(projectData.projects || []);
-      } catch { /* keep UI usable while network recovers */ }
-      finally { inFlight = false; }
+      } catch {
+        // Keep the UI usable while the network or provider recovers.
+      } finally {
+        inFlight = false;
+      }
     };
     const timer = window.setInterval(tick, 6000);
     return () => window.clearInterval(timer);
@@ -90,9 +153,24 @@ export default function Studio() {
   const stats = useMemo(() => ({
     active: jobs.filter(j => ["queued", "running", "unknown"].includes(j.status) && j.details?.pollable !== false).length,
     success: jobs.filter(j => j.status === "succeeded").length,
-    failed: jobs.filter(j => j.status === "failed").length,
     assets: assets.length,
   }), [jobs, assets]);
+
+  const recentProjects = useMemo(
+    () => [...projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8),
+    [projects],
+  );
+
+  const sidebarActiveJobs = useMemo(
+    () => jobs.filter(job => ["queued", "running", "unknown"].includes(job.status) && job.details?.pollable !== false).slice(0, 5),
+    [jobs],
+  );
+
+  const focusedJobs = useMemo(() => {
+    if (!focusedJobId || !jobs.some(job => job.id === focusedJobId)) return jobs;
+    const selected = jobs.find(job => job.id === focusedJobId)!;
+    return [selected, ...jobs.filter(job => job.id !== focusedJobId)];
+  }, [jobs, focusedJobId]);
 
   const activeShot = useMemo(() => {
     for (const project of projects) {
@@ -116,13 +194,16 @@ export default function Studio() {
       if (!res.ok) throw new Error(data.error || "任务提交失败");
       setNotice(shotId && activeShot ? `已提交到「${activeShot.project.name} / ${activeShot.shot.name}」：${data.job.title}` : `已提交：${data.job.title}`);
       await loadAll();
+      setFocusedJobId(data.job.id || "");
       setTab("jobs");
       return data.job;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setNotice(message);
       throw e;
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function submitBatch(input: Record<string, unknown>, count: number, title?: string) {
@@ -143,13 +224,55 @@ export default function Studio() {
         : `已创建并提交 ${summary.total} 个独立版本${location}。`
       );
       await loadAll();
+      setFocusedJobId(data.jobs?.[0]?.id || "");
       setTab("jobs");
       return data.jobs;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setNotice(message);
       throw e;
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function closeSidebarOnMobile() {
+    if (window.matchMedia("(max-width: 720px)").matches) setSidebarOpen(false);
+  }
+
+  function navigate(next: Tab) {
+    if (next !== "projects") setFocusedProjectId("");
+    if (next !== "jobs") setFocusedJobId("");
+    setTab(next);
+    setNotice("");
+    closeSidebarOnMobile();
+  }
+
+  function newCreation() {
+    window.sessionStorage.removeItem(CHAT_DRAFT_KEY);
+    setFocusedProjectId("");
+    setFocusedJobId("");
+    setActiveShotId("");
+    setNotice("");
+    setHomeSession(value => value + 1);
+    setTab("home");
+    closeSidebarOnMobile();
+  }
+
+  function openProject(projectId: string) {
+    setFocusedProjectId(projectId);
+    setFocusedJobId("");
+    setTab("projects");
+    setNotice("");
+    closeSidebarOnMobile();
+  }
+
+  function openJob(jobId: string) {
+    setFocusedJobId(jobId);
+    setFocusedProjectId("");
+    setTab("jobs");
+    setNotice("");
+    closeSidebarOnMobile();
   }
 
   function createInShot(shotId: string) {
@@ -158,71 +281,162 @@ export default function Studio() {
     setTab("generate");
   }
 
-  async function quickCreated(_projectId: string) {
+  async function quickCreated(projectId: string, result?: QuickCreateResult) {
     await loadAll();
-    setNotice("作品已建立，镜头正在生成。你可以在“我的作品”里直接看进度。");
+    setFocusedProjectId(projectId);
+    const submitted = Number(result?.submitted || 0);
+    const failed = Number(result?.failed || 0);
+    if (result && failed > 0 && submitted === 0) {
+      setNotice(`作品已建立，但 ${failed} 个镜头都没有成功提交。已定位到作品，请查看具体原因并逐镜头重试。`);
+    } else if (result && failed > 0) {
+      setNotice(`作品已建立：${submitted} 个镜头已提交，${failed} 个需要处理。可以在当前作品里直接查看和重试。`);
+    } else {
+      setNotice("作品已建立，镜头正在生成。可以在“我的作品”里直接看进度。");
+    }
     setTab("projects");
   }
 
   const modelStudioConfigured = status?.modelStudio?.configured === true;
   const yikeReady = status?.yike?.configured === true;
-  const providerMode = status?.providerMode || "auto";
+  const providerMode = (status?.providerMode || "auto") as ProviderMode;
   const directVideo = modelStudioConfigured && providerMode !== "yike";
   const generationReady = status === null ? null : status?.generationReady === true;
+  const chatGenerationReady = status === null ? null : (modelStudioConfigured || yikeReady);
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark"><Film size={22} /></div>
-          <div><strong>Wanke</strong><span>Video Studio</span></div>
+    <div className={styles.shell}>
+      {sidebarOpen && <button className={styles.mobileOverlay} aria-label="关闭侧栏" onClick={() => setSidebarOpen(false)} />}
+
+      <aside className={`${styles.sidebar} ${sidebarOpen ? "" : styles.sidebarClosed}`}>
+        <div className={styles.sidebarHeader}>
+          <button className={styles.brandButton} onClick={() => navigate("home")}>
+            <span className={styles.brandMark}><Film size={17} /></span>
+            <span className={styles.brandText}><strong>Wanke</strong><small>AI Video Studio</small></span>
+          </button>
         </div>
-        <div className="nav-section-label">视频工作台</div>
-        <nav className="nav-list">
-          {tabs.map(item => {
-            const Icon = item.icon;
-            return <button key={item.id} className={`nav-item ${tab === item.id ? "active" : ""}`} onClick={() => setTab(item.id)}>
-              <Icon size={18} /><span><b>{item.label}</b><small>{item.desc}</small></span>
-              {item.id === "jobs" && stats.active > 0 && <em>{stats.active}</em>}
-            </button>;
-          })}
-        </nav>
-        <div className="side-status">
-          <div className="status-row"><span className={`dot ${generationReady === true ? "ok" : generationReady === false ? "bad" : ""}`} /><span>{generationReady === null ? "正在检查视频服务" : generationReady ? "视频服务可用" : "视频服务需要配置"}</span></div>
-          <div className="muted mini">{generationReady === null ? "确认服务状态后即可开始。" : generationReady ? "可以直接开始创作；模型和线路由由系统处理。" : "在设置中填写 API 信息后即可开始生成。"}</div>
-          {activeShot && <div className="mini success-text">当前镜头：{activeShot.project.name} / {activeShot.shot.name}</div>}
-          <button className="link-button" onClick={()=>setTab("settings")}>{generationReady ? "高级服务设置" : "去配置视频服务"}</button>
+
+        <button className={styles.newButton} onClick={newCreation}><Plus size={16} />新建创作</button>
+
+        <div className={styles.sidebarScroll}>
+          <div className={styles.navGroup}>
+            {primaryNav.map(item => {
+              const Icon = item.icon;
+              return (
+                <button key={item.id} className={`${styles.navItem} ${tab === item.id ? styles.navItemActive : ""}`} onClick={() => navigate(item.id)}>
+                  <Icon size={16} /><span>{item.label}</span>
+                  {item.id === "jobs" && stats.active > 0 && <em className={styles.navBadge}>{stats.active}</em>}
+                </button>
+              );
+            })}
+          </div>
+
+          {sidebarActiveJobs.length > 0 && <div className={styles.navGroup}>
+            <button className={styles.groupToggle} onClick={() => setActiveJobsOpen(value => !value)}>
+              <span>正在生成</span>{activeJobsOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </button>
+            {activeJobsOpen && sidebarActiveJobs.map(job => (
+              <button key={job.id} className={styles.recentItem} onClick={() => openJob(job.id)} title={job.title}>
+                <LoaderCircle className={styles.spin} size={13} /><span>{job.title}</span>
+              </button>
+            ))}
+          </div>}
+
+          <div className={styles.navGroup}>
+            <button className={styles.groupToggle} onClick={() => setToolsOpen(value => !value)}>
+              <span>创作工具</span>{toolsOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </button>
+            {toolsOpen && creationTools.map(item => {
+              const Icon = item.icon;
+              return (
+                <button key={item.id} className={`${styles.navItem} ${tab === item.id ? styles.navItemActive : ""}`} onClick={() => navigate(item.id)} title={item.desc}>
+                  <Icon size={15} /><span>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className={styles.navGroup}>
+            <button className={styles.groupToggle} onClick={() => setRecentOpen(value => !value)}>
+              <span>最近作品</span>{recentOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </button>
+            {recentOpen && (recentProjects.length ? recentProjects.map(project => (
+              <button key={project.id} className={styles.recentItem} onClick={() => openProject(project.id)} title={project.name}>
+                <Clapperboard size={13} /><span>{project.name}</span>
+              </button>
+            )) : <div className={styles.groupLabel}>还没有作品</div>)}
+          </div>
+        </div>
+
+        <div className={styles.sidebarFooter}>
+          <button className={styles.serviceButton} onClick={() => navigate("settings")}>
+            <span className={`${styles.statusDot} ${generationReady === true ? styles.statusDotReady : generationReady === false ? styles.statusDotBad : ""}`} />
+            <span className={styles.serviceButtonText}>
+              <strong>{generationReady === null ? "正在检查视频服务" : generationReady ? "默认线路可用" : "默认线路需要配置"}</strong>
+              <small>{providerMode === "auto" ? "默认：自动路由" : providerMode === "modelstudio" ? "默认：强制百炼" : "默认：强制万镜一刻"}</small>
+            </span>
+            <SettingsIcon size={14} />
+          </button>
         </div>
       </aside>
 
-      <main className="main">
-        <header className="topbar">
-          <div>
-            <div className="eyebrow">AI VIDEO CREATION</div>
-            <h1>{tabs.find(t => t.id === tab)?.label}</h1>
+      <main className={styles.main}>
+        <header className={styles.topbar}>
+          <button className={styles.iconButton} title={sidebarOpen ? "收起侧栏" : "展开侧栏"} onClick={() => setSidebarOpen(value => !value)}>
+            {sidebarOpen ? <PanelLeftClose size={18} /> : <Menu size={18} />}
+          </button>
+          <div className={styles.topbarTitle}><span>{labels[tab]}</span></div>
+          <div className={styles.topbarSpacer} />
+          <div className={styles.topbarStats}>
+            <span className={styles.statPill}><b>{stats.active}</b>处理中</span>
+            <span className={styles.statPill}><b>{stats.success}</b>已完成</span>
+            <span className={styles.statPill}><b>{stats.assets}</b>素材</span>
           </div>
-          <div className="top-stats">
-            <Stat value={stats.active} label="处理中" />
-            <Stat value={stats.success} label="已完成" />
-            <Stat value={stats.assets} label="素材" />
-            <button className="icon-button" title="刷新" onClick={() => loadAll()}><RefreshCw size={17} /></button>
-          </div>
+          <button className={styles.iconButton} title="刷新" onClick={() => loadAll()}><RefreshCw size={16} /></button>
+          <button className={styles.iconButton} title="设置" onClick={() => navigate("settings")}><SettingsIcon size={16} /></button>
         </header>
 
-        {notice && <div className="notice"><WandSparkles size={16} />{notice}</div>}
-        {tab === "generate" && activeShot && <div className="notice"><Clapperboard size={16}/><span>当前生成目标：<strong>{activeShot.project.name} / {activeShot.shot.name}</strong>{activeShot.shot.brief ? ` · ${activeShot.shot.brief}` : ""}。新任务和批量版本会自动进入这个 Shot。</span><button className="link-button" onClick={() => setActiveShotId("")}>退出镜头上下文</button></div>}
+        {notice && <div className={styles.notice}><WandSparkles size={15} />{notice}</div>}
+        {tab === "generate" && activeShot && (
+          <div className={styles.notice}>
+            <Clapperboard size={15} />
+            <span>当前目标：<strong>{activeShot.project.name} / {activeShot.shot.name}</strong>{activeShot.shot.brief ? ` · ${activeShot.shot.brief}` : ""}</span>
+            <button className="link-button" onClick={() => setActiveShotId("")}>退出镜头上下文</button>
+          </div>
+        )}
 
-        <section className="workspace">
-          {tab === "quick" && <QuickCreationWizard assets={assets} subjects={subjects} onCreated={quickCreated} onAdvanced={() => setTab("generate")} onSettings={() => setTab("settings")} onAssetsChanged={loadAll} generationReady={generationReady} directAvailable={directVideo} extendedUploadAvailable={yikeReady}/>} 
-          {tab === "generate" && <SimpleVideoGenerator assets={assets} subjects={subjects} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />}
-          {tab === "projects" && <ProjectHome projects={projects} jobs={jobs} subjects={subjects} onChanged={loadAll} onCreateInShot={createInShot} />}
-          {(["remake", "clone", "avatar", "voice", "storyboard", "translation"] as Tab[]).includes(tab) && (
-            <CreatorForms mode={tab as any} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />
+        <section className={`${styles.content} ${tab === "home" ? styles.homeContent : ""}`}>
+          {tab === "home" ? (
+            <ChatCreationHome
+              key={homeSession}
+              assets={assets}
+              subjects={subjects}
+              generationReady={chatGenerationReady}
+              defaultProviderMode={providerMode}
+              modelStudioAvailable={modelStudioConfigured}
+              yikeAvailable={yikeReady}
+              onAssetsChanged={loadAll}
+              onCreated={quickCreated}
+              onOpenAdvanced={() => navigate("generate")}
+              onOpenQuick={() => navigate("quick")}
+              onOpenAssets={() => navigate("assets")}
+              onOpenSubjects={() => navigate("subjects")}
+              onOpenSettings={() => navigate("settings")}
+              onOpenTool={tool => navigate(tool)}
+            />
+          ) : (
+            <div className={styles.contentInner}>
+              {tab === "quick" && <QuickCreationWizard assets={assets} subjects={subjects} onCreated={quickCreated} onAdvanced={() => navigate("generate")} onSettings={() => navigate("settings")} onAssetsChanged={loadAll} generationReady={generationReady} directAvailable={directVideo} extendedUploadAvailable={yikeReady} />}
+              {tab === "generate" && <SimpleVideoGenerator assets={assets} subjects={subjects} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />}
+              {tab === "projects" && <ProjectHome projects={projects} jobs={jobs} subjects={subjects} onChanged={loadAll} onCreateInShot={createInShot} focusProjectId={focusedProjectId} />}
+              {(["remake", "clone", "avatar", "voice", "storyboard", "translation"] as Tab[]).includes(tab) && (
+                <CreatorForms mode={tab as any} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />
+              )}
+              {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={yikeReady} />}
+              {tab === "subjects" && <SubjectLibrary subjects={subjects} assets={assets} onChanged={loadAll} />}
+              {tab === "jobs" && <JobCenter key={focusedJobId || "job-center"} jobs={focusedJobs} modelStudioAvailable={modelStudioConfigured} onChanged={loadAll} onGoAssets={() => navigate("assets")} />}
+              {tab === "settings" && <SettingsPanel onChanged={loadAll} />}
+            </div>
           )}
-          {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={yikeReady} />}
-          {tab === "subjects" && <SubjectLibrary subjects={subjects} assets={assets} onChanged={loadAll} />}
-          {tab === "jobs" && <JobCenter jobs={jobs} modelStudioAvailable={modelStudioConfigured} onChanged={loadAll} onGoAssets={() => setTab("assets")} />}
-          {tab === "settings" && <SettingsPanel onChanged={loadAll} />}
         </section>
       </main>
     </div>
@@ -233,8 +447,4 @@ function mergeJobs(...groups: StoredJob[][]) {
   const map = new Map<string, StoredJob>();
   for (const job of groups.flat()) map.set(job.id, job);
   return [...map.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-function Stat({ value, label }: { value: number; label: string }) {
-  return <div className="stat"><strong>{value}</strong><span>{label}</span></div>;
 }
