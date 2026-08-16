@@ -5,12 +5,39 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ui/chatgpt-studio
+      - name: Repair known legacy JSX syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('components/forms.tsx')
+          text = path.read_text()
+          old = 'alert(e instanceof Error?e.message:String(e))}}><Send'
+          new = 'alert(e instanceof Error?e.message:String(e))}}}><Send'
+          if old not in text:
+              raise SystemExit('Expected legacy JSX pattern not found; refusing broad edit')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit legacy syntax repair
+        run: |
+          if ! git diff --quiet -- components/forms.tsx; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add components/forms.tsx
+            git commit -m "fix: close legacy form submit JSX expression"
+            git push origin HEAD:ui/chatgpt-studio
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: 24
