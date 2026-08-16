@@ -1,6 +1,5 @@
 "use client";
 
-import OSS from "ali-oss";
 import { useEffect, useMemo, useState } from "react";
 import {
   Box,
@@ -25,6 +24,25 @@ type CreationType = "product_ad" | "person_short" | "image_video";
 type Platform = "douyin" | "xiaohongshu" | "youtube" | "landscape";
 type ProviderMode = "auto" | "modelstudio" | "yike";
 type LocalInput = { ref: string; name: string; size: number };
+type QuickCreateResult = {
+  projectId: string;
+  projectName?: string;
+  submitted?: number;
+  failed?: number;
+  providerMode?: ProviderMode;
+};
+type DraftState = {
+  restored: boolean;
+  type: CreationType;
+  prompt: string;
+  platform: Platform;
+  duration: 5 | 10 | 15 | 30;
+  providerMode: ProviderMode;
+  subjectId: string;
+  imageAssetId: string;
+  referenceUrl: string;
+  localInput: LocalInput | null;
+};
 
 type Props = {
   assets: StoredAsset[];
@@ -34,7 +52,7 @@ type Props = {
   modelStudioAvailable: boolean;
   yikeAvailable: boolean;
   onAssetsChanged: () => Promise<void> | void;
-  onCreated: (projectId: string) => Promise<void> | void;
+  onCreated: (projectId: string, result?: QuickCreateResult) => Promise<void> | void;
   onOpenAdvanced: () => void;
   onOpenQuick: () => void;
   onOpenAssets: () => void;
@@ -42,6 +60,8 @@ type Props = {
   onOpenSettings: () => void;
   onOpenTool: (tool: "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation") => void;
 };
+
+const CHAT_DRAFT_KEY = "wanke:chat-creation-draft:v1";
 
 const creationTypes: Array<{ id: CreationType; label: string; hint: string; icon: typeof Box }> = [
   { id: "product_ad", label: "产品广告", hint: "产品 + 卖点", icon: Box },
@@ -86,15 +106,17 @@ export default function ChatCreationHome({
   onOpenSettings,
   onOpenTool,
 }: Props) {
-  const [type, setType] = useState<CreationType>("product_ad");
-  const [prompt, setPrompt] = useState("");
-  const [platform, setPlatform] = useState<Platform>("douyin");
-  const [duration, setDuration] = useState<5 | 10 | 15 | 30>(10);
-  const [providerMode, setProviderMode] = useState<ProviderMode>(defaultProviderMode);
-  const [subjectId, setSubjectId] = useState("");
-  const [imageAssetId, setImageAssetId] = useState("");
-  const [referenceUrl, setReferenceUrl] = useState("");
-  const [localInput, setLocalInput] = useState<LocalInput | null>(null);
+  const [draftSeed] = useState(() => readDraft(defaultProviderMode));
+  const [type, setType] = useState<CreationType>(draftSeed.type);
+  const [prompt, setPrompt] = useState(draftSeed.prompt);
+  const [platform, setPlatform] = useState<Platform>(draftSeed.platform);
+  const [duration, setDuration] = useState<5 | 10 | 15 | 30>(draftSeed.duration);
+  const [providerMode, setProviderMode] = useState<ProviderMode>(draftSeed.providerMode);
+  const [providerTouched, setProviderTouched] = useState(draftSeed.restored);
+  const [subjectId, setSubjectId] = useState(draftSeed.subjectId);
+  const [imageAssetId, setImageAssetId] = useState(draftSeed.imageAssetId);
+  const [referenceUrl, setReferenceUrl] = useState(draftSeed.referenceUrl);
+  const [localInput, setLocalInput] = useState<LocalInput | null>(draftSeed.localInput);
   const [localUploading, setLocalUploading] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -103,12 +125,37 @@ export default function ChatCreationHome({
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setProviderMode(defaultProviderMode);
-  }, [defaultProviderMode]);
+    if (!providerTouched && !draftSeed.restored) setProviderMode(defaultProviderMode);
+  }, [defaultProviderMode, draftSeed.restored, providerTouched]);
 
-  useEffect(() => () => {
-    if (localInput) discardLocalImage(localInput.ref);
-  }, [localInput]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const draft = {
+      type,
+      prompt,
+      platform,
+      duration,
+      providerMode,
+      subjectId,
+      imageAssetId,
+      referenceUrl,
+      localInput,
+    };
+    const meaningful = Boolean(
+      prompt.trim() || subjectId || imageAssetId || referenceUrl.trim() || localInput ||
+      type !== "product_ad" || platform !== "douyin" || duration !== 10 || providerMode !== defaultProviderMode,
+    );
+    if (meaningful) window.sessionStorage.setItem(CHAT_DRAFT_KEY, JSON.stringify(draft));
+    else window.sessionStorage.removeItem(CHAT_DRAFT_KEY);
+  }, [type, prompt, platform, duration, providerMode, subjectId, imageAssetId, referenceUrl, localInput, defaultProviderMode]);
+
+  useEffect(() => {
+    if (subjectId && subjects.length > 0 && !subjects.some(subject => subject.id === subjectId)) setSubjectId("");
+  }, [subjects, subjectId]);
+
+  useEffect(() => {
+    if (imageAssetId && assets.length > 0 && !assets.some(asset => asset.id === imageAssetId)) setImageAssetId("");
+  }, [assets, imageAssetId]);
 
   const images = useMemo(() => assets.filter(asset => asset.mediaType === "image"), [assets]);
   const compatibleSubjects = useMemo(
@@ -260,6 +307,7 @@ export default function ChatCreationHome({
       throw new Error("图片上传凭证不完整，请检查视频服务设置。");
     }
 
+    const { default: OSS } = await import("ali-oss");
     const client = new OSS({
       endpoint: address.Endpoint,
       bucket: address.Bucket,
@@ -332,9 +380,10 @@ export default function ChatCreationHome({
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "创建视频失败");
+      window.sessionStorage.removeItem(CHAT_DRAFT_KEY);
       setPrompt("");
       clearReference();
-      await onCreated(body.projectId);
+      await onCreated(body.projectId, body as QuickCreateResult);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -350,6 +399,7 @@ export default function ChatCreationHome({
 
   function selectProvider(next: ProviderMode) {
     if (interactionLocked) return;
+    setProviderTouched(true);
     setProviderMode(next);
     setProviderOpen(false);
     setError("");
@@ -542,6 +592,49 @@ export default function ChatCreationHome({
       </div>
     </div>
   );
+}
+
+function readDraft(defaultProviderMode: ProviderMode): DraftState {
+  const fallback: DraftState = {
+    restored: false,
+    type: "product_ad",
+    prompt: "",
+    platform: "douyin",
+    duration: 10,
+    providerMode: defaultProviderMode,
+    subjectId: "",
+    imageAssetId: "",
+    referenceUrl: "",
+    localInput: null,
+  };
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.sessionStorage.getItem(CHAT_DRAFT_KEY);
+    if (!raw) return fallback;
+    const value = JSON.parse(raw) as Partial<DraftState>;
+    const type = value.type === "product_ad" || value.type === "person_short" || value.type === "image_video" ? value.type : fallback.type;
+    const platform = value.platform === "douyin" || value.platform === "xiaohongshu" || value.platform === "youtube" || value.platform === "landscape" ? value.platform : fallback.platform;
+    const duration = value.duration === 5 || value.duration === 10 || value.duration === 15 || value.duration === 30 ? value.duration : fallback.duration;
+    const providerMode = value.providerMode === "auto" || value.providerMode === "modelstudio" || value.providerMode === "yike" ? value.providerMode : defaultProviderMode;
+    const localInput = value.localInput && typeof value.localInput.ref === "string" && value.localInput.ref.startsWith("wanke-input://")
+      ? { ref: value.localInput.ref, name: String(value.localInput.name || "本地图片"), size: Number(value.localInput.size || 0) }
+      : null;
+    return {
+      restored: true,
+      type,
+      prompt: String(value.prompt || ""),
+      platform,
+      duration,
+      providerMode,
+      subjectId: String(value.subjectId || ""),
+      imageAssetId: String(value.imageAssetId || ""),
+      referenceUrl: String(value.referenceUrl || ""),
+      localInput,
+    };
+  } catch {
+    window.sessionStorage.removeItem(CHAT_DRAFT_KEY);
+    return fallback;
+  }
 }
 
 function discardLocalImage(ref: string) {
