@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeft,
   Braces,
   ChevronDown,
   ChevronRight,
@@ -23,6 +24,7 @@ import {
   Sparkles,
   UserRound,
   WandSparkles,
+  X,
 } from "lucide-react";
 import CreatorForms from "@/components/forms";
 import SimpleVideoGenerator from "@/components/simple-video-generator";
@@ -36,8 +38,10 @@ import SubjectLibrary, { type PublicSubjectCard } from "@/components/subject-lib
 import type { ProductionProject } from "@/lib/project-types";
 import type { StoredAsset, StoredJob } from "@/lib/types";
 import styles from "@/components/studio-shell.module.css";
+import workflowStyles from "@/components/workflow-surface.module.css";
 
 type Tab = "home" | "quick" | "generate" | "projects" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "subjects" | "jobs" | "settings";
+type WorkflowTab = "quick" | "generate" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation";
 type ProviderMode = "auto" | "modelstudio" | "yike";
 type QuickCreateResult = { submitted?: number; failed?: number; projectName?: string };
 
@@ -77,6 +81,21 @@ const labels: Record<Tab, string> = {
   jobs: "任务中心",
   settings: "设置",
 };
+
+const workflowMeta: Record<WorkflowTab, { description: string }> = {
+  quick: { description: "分步选择素材和目标，适合第一次使用或希望按步骤完成创作。" },
+  generate: { description: "集中控制生成方式、Recipe、参考素材与批量版本，适合精细创作。" },
+  remake: { description: "把原视频拆解、改写和渲染串成可检查、可回退的专业复刻流程。" },
+  clone: { description: "以已有视频为骨架，快速替换产品、人物或素材，生成同结构新版本。" },
+  avatar: { description: "创建知识讲解或固定机位数字人口播，统一配置人物、声音与画面素材。" },
+  voice: { description: "将文案、素材和配音组合为完整旁白视频，并处理标题、字幕和封面。" },
+  storyboard: { description: "面向长文本拆解故事板、生成镜头并合成，适合更长、更结构化的视频任务。" },
+  translation: { description: "完成视频字幕、语音和画面文字的多语言处理，并保留原视频结构。" },
+};
+
+function isWorkflowTab(tab: Tab): tab is WorkflowTab {
+  return ["quick", "generate", "remake", "clone", "avatar", "voice", "storyboard", "translation"].includes(tab);
+}
 
 export default function Studio() {
   const [tab, setTab] = useState<Tab>("home");
@@ -302,6 +321,26 @@ export default function Studio() {
   const directVideo = modelStudioConfigured && providerMode !== "yike";
   const generationReady = status === null ? null : status?.generationReady === true;
   const chatGenerationReady = status === null ? null : (modelStudioConfigured || yikeReady);
+  const activeWorkflow = isWorkflowTab(tab) ? tab : null;
+
+  useEffect(() => {
+    if (!activeWorkflow) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") navigate("home");
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [activeWorkflow]);
+
+  function renderWorkflow(workflow: WorkflowTab) {
+    if (workflow === "quick") {
+      return <QuickCreationWizard assets={assets} subjects={subjects} onCreated={quickCreated} onAdvanced={() => navigate("generate")} onSettings={() => navigate("settings")} onAssetsChanged={loadAll} generationReady={generationReady} directAvailable={directVideo} extendedUploadAvailable={yikeReady} />;
+    }
+    if (workflow === "generate") {
+      return <SimpleVideoGenerator assets={assets} subjects={subjects} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />;
+    }
+    return <CreatorForms mode={workflow} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />;
+  }
 
   return (
     <div className={styles.shell}>
@@ -423,14 +462,29 @@ export default function Studio() {
               onOpenSettings={() => navigate("settings")}
               onOpenTool={tool => navigate(tool)}
             />
+          ) : activeWorkflow ? (
+            <div className={workflowStyles.viewport}>
+              <div className={workflowStyles.navBar}>
+                <button className={workflowStyles.backButton} onClick={() => navigate("home")} title="返回新建创作">
+                  <ArrowLeft size={15} /><span>返回创作</span>
+                </button>
+                <span className={workflowStyles.navDivider} />
+                <div className={workflowStyles.navText}>
+                  <strong>{labels[activeWorkflow]}</strong>
+                  <small>{workflowMeta[activeWorkflow].description}</small>
+                </div>
+                <span className={workflowStyles.navSpacer} />
+                <button className={workflowStyles.closeButton} onClick={() => navigate("home")} aria-label="关闭当前工作流" title="关闭（Esc）">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className={workflowStyles.surface} data-workflow={activeWorkflow}>
+                {renderWorkflow(activeWorkflow)}
+              </div>
+            </div>
           ) : (
             <div className={styles.contentInner}>
-              {tab === "quick" && <QuickCreationWizard assets={assets} subjects={subjects} onCreated={quickCreated} onAdvanced={() => navigate("generate")} onSettings={() => navigate("settings")} onAssetsChanged={loadAll} generationReady={generationReady} directAvailable={directVideo} extendedUploadAvailable={yikeReady} />}
-              {tab === "generate" && <SimpleVideoGenerator assets={assets} subjects={subjects} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />}
               {tab === "projects" && <ProjectHome projects={projects} jobs={jobs} subjects={subjects} onChanged={loadAll} onCreateInShot={createInShot} focusProjectId={focusedProjectId} />}
-              {(["remake", "clone", "avatar", "voice", "storyboard", "translation"] as Tab[]).includes(tab) && (
-                <CreatorForms mode={tab as any} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />
-              )}
               {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={yikeReady} />}
               {tab === "subjects" && <SubjectLibrary subjects={subjects} assets={assets} onChanged={loadAll} />}
               {tab === "jobs" && <JobCenter key={focusedJobId || "job-center"} jobs={focusedJobs} modelStudioAvailable={modelStudioConfigured} onChanged={loadAll} onGoAssets={() => navigate("assets")} />}
