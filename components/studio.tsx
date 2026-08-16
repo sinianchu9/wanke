@@ -321,25 +321,25 @@ export default function Studio() {
   const directVideo = modelStudioConfigured && providerMode !== "yike";
   const generationReady = status === null ? null : status?.generationReady === true;
   const chatGenerationReady = status === null ? null : (modelStudioConfigured || yikeReady);
-  const workflowOpen = isWorkflowTab(tab);
+  const activeWorkflow = isWorkflowTab(tab) ? tab : null;
 
   useEffect(() => {
-    if (!workflowOpen) return;
+    if (!activeWorkflow) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") navigate("home");
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [workflowOpen, tab]);
+  }, [activeWorkflow]);
 
-  function renderWorkflow() {
-    if (tab === "quick") {
+  function renderWorkflow(workflow: WorkflowTab) {
+    if (workflow === "quick") {
       return <QuickCreationWizard assets={assets} subjects={subjects} onCreated={quickCreated} onAdvanced={() => navigate("generate")} onSettings={() => navigate("settings")} onAssetsChanged={loadAll} generationReady={generationReady} directAvailable={directVideo} extendedUploadAvailable={yikeReady} />;
     }
-    if (tab === "generate") {
+    if (workflow === "generate") {
       return <SimpleVideoGenerator assets={assets} subjects={subjects} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />;
     }
-    return <CreatorForms mode={tab} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />;
+    return <CreatorForms mode={workflow} assets={assets} jobs={jobs} onSubmit={submit} submitting={loading} />;
   }
 
   return (
@@ -462,7 +462,7 @@ export default function Studio() {
               onOpenSettings={() => navigate("settings")}
               onOpenTool={tool => navigate(tool)}
             />
-          ) : workflowOpen ? (
+          ) : activeWorkflow ? (
             <div className={workflowStyles.viewport}>
               <div className={workflowStyles.navBar}>
                 <button className={workflowStyles.backButton} onClick={() => navigate("home")} title="返回新建创作">
@@ -470,16 +470,16 @@ export default function Studio() {
                 </button>
                 <span className={workflowStyles.navDivider} />
                 <div className={workflowStyles.navText}>
-                  <strong>{labels[tab]}</strong>
-                  <small>{workflowMeta[tab].description}</small>
+                  <strong>{labels[activeWorkflow]}</strong>
+                  <small>{workflowMeta[activeWorkflow].description}</small>
                 </div>
                 <span className={workflowStyles.navSpacer} />
                 <button className={workflowStyles.closeButton} onClick={() => navigate("home")} aria-label="关闭当前工作流" title="关闭（Esc）">
                   <X size={16} />
                 </button>
               </div>
-              <div className={workflowStyles.surface} data-workflow={tab}>
-                {renderWorkflow()}
+              <div className={workflowStyles.surface} data-workflow={activeWorkflow}>
+                {renderWorkflow(activeWorkflow)}
               </div>
             </div>
           ) : (
