@@ -1,0 +1,453 @@
+.viewport {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.navBar {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  min-height: 62px;
+  margin: -18px -28px 2px;
+  padding: 10px 28px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(250, 250, 250, .94);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid #ececef;
+}
+
+.backButton,
+.closeButton {
+  border: 1px solid #dedee2;
+  background: #fff;
+  color: #333338;
+  cursor: pointer;
+  transition: background .14s ease, border-color .14s ease, transform .14s ease;
+}
+
+.backButton:hover,
+.closeButton:hover {
+  background: #f3f3f4;
+  border-color: #cfcfd4;
+}
+
+.backButton:active,
+.closeButton:active {
+  transform: scale(.98);
+}
+
+.backButton {
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.closeButton {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.navDivider {
+  width: 1px;
+  height: 24px;
+  background: #e2e2e5;
+}
+
+.navText {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.navText strong {
+  color: #202123;
+  font-size: 12px;
+}
+
+.navText small {
+  max-width: 720px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #85858a;
+  font-size: 9px;
+}
+
+.navSpacer { flex: 1; }
+
+.surface {
+  color-scheme: light;
+  color: #202123;
+  --bg: #fafafa;
+  --panel: #fff;
+  --panel2: #f7f7f8;
+  --line: #e5e5e8;
+  --text: #202123;
+  --muted: #77777d;
+  --accent: #202123;
+  --accent2: #000;
+  --danger: #c73d51;
+  --warn: #a26716;
+  --blue: #3c6eaa;
+  --radius: 15px;
+}
+
+.surface :global(.content-stack) {
+  gap: 14px;
+}
+
+.surface :global(.creator-layout) {
+  grid-template-columns: minmax(0, 1fr) 250px;
+  gap: 14px;
+}
+
+.surface :global(.creator-card),
+.surface :global(.panel),
+.surface :global(.hero-card),
+.surface :global(.tips-card),
+.surface :global(.job-list-panel),
+.surface :global(.job-detail-panel) {
+  background: #fff;
+  border-color: #e3e3e7;
+  color: #202123;
+  box-shadow: none;
+}
+
+.surface :global(.creator-card) {
+  padding: 22px;
+}
+
+.surface :global(.hero-card) {
+  padding: 20px;
+  border-radius: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+}
+
+.surface :global(.hero-card h2),
+.surface :global(.section-head h2),
+.surface :global(.panel-head h2),
+.surface :global(.detail-head h2) {
+  color: #202123;
+}
+
+.surface :global(.hero-card h2),
+.surface :global(.section-head h2) {
+  font-size: 21px;
+  letter-spacing: -.025em;
+}
+
+.surface :global(.hero-card p),
+.surface :global(.section-head p),
+.surface :global(.tips-card p),
+.surface :global(.muted) {
+  color: #7a7a80;
+}
+
+.surface :global(.eyebrow) {
+  color: #97979d;
+  letter-spacing: 1.35px;
+}
+
+.surface :global(.field-label) {
+  color: #3a3a3f;
+}
+
+.surface :global(.field-label small) {
+  color: #909096;
+}
+
+.surface :global(.field input),
+.surface :global(.field textarea),
+.surface :global(.field select),
+.surface :global(.register-row input),
+.surface :global(.register-row select),
+.surface :global(.recipe select),
+.surface :global(.inline-actions select),
+.surface :global(.reference-row input),
+.surface :global(.reference-row select) {
+  border-color: #dedee3;
+  background: #fff;
+  color: #202123;
+}
+
+.surface :global(.field input::placeholder),
+.surface :global(.field textarea::placeholder),
+.surface :global(.reference-row input::placeholder) {
+  color: #a4a4aa;
+}
+
+.surface :global(.field input:focus),
+.surface :global(.field textarea:focus),
+.surface :global(.field select:focus),
+.surface :global(.register-row input:focus) {
+  border-color: #a8a8ae;
+  box-shadow: 0 0 0 3px rgba(32, 33, 35, .07);
+}
+
+.surface :global(.secondary),
+.surface :global(.icon-button) {
+  border-color: #dedee2;
+  background: #fff;
+  color: #3b3b40;
+}
+
+.surface :global(.secondary:hover),
+.surface :global(.icon-button:hover) {
+  background: #f4f4f5;
+}
+
+.surface :global(.primary) {
+  border-color: #202123;
+  background: #202123;
+  color: #fff;
+}
+
+.surface :global(.primary:hover) {
+  border-color: #000;
+  background: #000;
+}
+
+.surface :global(.segment) {
+  border-color: #e0e0e4;
+  background: #f4f4f5;
+}
+
+.surface :global(.segment button) {
+  color: #77777d;
+}
+
+.surface :global(.segment button.active) {
+  background: #fff;
+  color: #202123;
+  box-shadow: 0 0 0 1px #d4d4d8, 0 1px 3px rgba(0, 0, 0, .04);
+}
+
+.surface :global(.toggle .switch) {
+  background: #d7d7dc;
+}
+
+.surface :global(.toggle .switch:after) {
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .18);
+}
+
+.surface :global(.toggle input:checked + .switch) {
+  background: #202123;
+}
+
+.surface :global(.toggle input:checked + .switch:after) {
+  background: #fff;
+}
+
+.surface :global(.toggle b) {
+  color: #4a4a4f;
+}
+
+.surface :global(.toggle-row),
+.surface :global(.advanced),
+.surface :global(.runbar) {
+  border-color: #e4e4e8;
+  background: #f8f8f9;
+}
+
+.surface :global(.advanced summary) {
+  color: #55555b;
+}
+
+.surface :global(.advanced[open] summary) {
+  border-bottom-color: #e4e4e8;
+}
+
+.surface :global(.chip),
+.surface :global(.asset-chips button) {
+  border-color: #dedee2;
+  background: #fff;
+  color: #66666c;
+}
+
+.surface :global(.chip:hover),
+.surface :global(.asset-chips button:hover) {
+  background: #f5f5f6;
+}
+
+.surface :global(.chip.selected),
+.surface :global(.asset-chips button.selected) {
+  border-color: #99999f;
+  background: #efeff1;
+  color: #202123;
+}
+
+.surface :global(.asset-chips button:disabled),
+.surface :global(.segment button:disabled) {
+  opacity: .42;
+}
+
+.surface :global(.link-button) {
+  color: #56565c;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.surface :global(.tips-card) {
+  top: 14px;
+  padding: 16px;
+  color: #55555b;
+}
+
+.surface :global(.tips-card svg) {
+  color: #67676d;
+}
+
+.surface :global(.tips-card h3) {
+  color: #303035;
+}
+
+.surface :global(.notice) {
+  margin: 0;
+  border-color: #dedee2;
+  background: #f7f7f8;
+  color: #55555b;
+}
+
+.surface :global(.error-banner) {
+  border-color: #edc5cb;
+  background: #fff5f6;
+  color: #a12d40;
+}
+
+.surface :global(.error-banner.warning) {
+  border-color: #ead9b6;
+  background: #fffaf0;
+  color: #8b611c;
+}
+
+.surface :global(.success-text) {
+  color: #16724f;
+}
+
+.surface :global(.error-text) {
+  color: #b12f43;
+}
+
+.surface :global(.pipeline-flow) {
+  color: #77777d;
+}
+
+.surface :global(.pipeline-flow span) {
+  border-color: #dedee2;
+  background: #f7f7f8;
+  color: #4b4b50;
+}
+
+.surface :global(.pipeline-step em) {
+  background: #202123;
+  color: #fff;
+}
+
+.surface :global(.stage-run) {
+  border-top-color: #ececef;
+}
+
+.surface :global(.recipe) {
+  align-items: flex-start;
+}
+
+.surface :global(.recipe select) {
+  min-width: 120px;
+}
+
+.surface :global(.empty-inline),
+.surface :global(.char-count) {
+  color: #929298;
+}
+
+.surface :global(.reference-row) {
+  align-items: center;
+}
+
+.surface :global(.reference-list) {
+  gap: 7px;
+}
+
+.surface :global(.upload-box) {
+  border-color: #d6d6da;
+  background: #fafafa;
+  color: #4d4d53;
+}
+
+.surface :global(.upload-box span) {
+  color: #8b8b91;
+}
+
+.surface :global(.progress) {
+  background: #e8e8eb;
+}
+
+.surface :global(.progress i) {
+  background: #202123;
+}
+
+.surface :global(.panel .panel) {
+  background: #fafafa;
+}
+
+.surface :global(.mini) {
+  color: #85858b;
+}
+
+.surface :global(button:focus-visible),
+.surface :global(input:focus-visible),
+.surface :global(textarea:focus-visible),
+.surface :global(select:focus-visible),
+.backButton:focus-visible,
+.closeButton:focus-visible {
+  outline: 2px solid #202123;
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .navText small { display: none; }
+  .surface :global(.creator-layout) { grid-template-columns: 1fr; }
+  .surface :global(.tips-card) { position: static; }
+  .surface :global(.hero-card) { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .navBar {
+    margin: -18px -16px 2px;
+    padding: 9px 16px;
+  }
+  .backButton span { display: none; }
+  .backButton { width: 34px; padding: 0; justify-content: center; }
+  .navDivider { display: none; }
+  .navText small { display: none; }
+  .surface :global(.creator-card) { padding: 16px; }
+  .surface :global(.hero-card),
+  .surface :global(.panel) { padding: 15px; }
+  .surface :global(.form-grid.two),
+  .surface :global(.form-grid.four) { grid-template-columns: 1fr; }
+  .surface :global(.runbar) {
+    margin: 22px -16px -16px;
+    padding: 14px 16px;
+    gap: 12px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .surface :global(.runbar .primary) { width: 100%; }
+}
