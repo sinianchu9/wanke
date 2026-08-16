@@ -98,9 +98,8 @@ export async function submitJob(kind: JobKind, rawInput: unknown, options: Submi
   const modelStudioConfig = getModelStudioRuntimeConfig();
   const blocked = blockedModelStudioMessage(modelStudioConfig);
 
-  if (blocked) throw new Error(blocked);
-
   if (mode === "modelstudio") {
+    if (blocked) throw new Error(blocked);
     if (!modelStudioConfig.apiKey) throw new Error("当前已强制使用百炼，但还没有配置 Pay-As-You-Go API Key。请到设置填写后再生成。");
     if (!canUseModelStudio(executionInput)) {
       throw new Error("当前任务参数不能通过百炼直连提交。请检查参考素材是否有可访问 URL，或把本次生成线路切回“自动路由”。");
@@ -108,15 +107,19 @@ export async function submitJob(kind: JobKind, rawInput: unknown, options: Submi
     return withRecipeDetails(await submitModelStudioVideo(executionInput), recipe);
   }
 
-  if (canUseModelStudio(executionInput)) {
+  if (!blocked && canUseModelStudio(executionInput)) {
     return withRecipeDetails(await submitModelStudioVideo(executionInput), recipe);
   }
 
   if (hasInlineLocalImage(executionInput)) {
+    if (blocked) throw new Error(`${blocked} 这条任务使用本机图片直传，无法改走万镜一刻；请修正百炼配置或改用素材库/公网图片。`);
     throw new Error("这条任务使用了本地图片直传，需要配置百炼 Model Studio Pay-As-You-Go API Key 后才能生成。请到设置中填写百炼 API Key。");
   }
 
-  return submitThroughYike(kind, executionInput, "自动路由：百炼未配置或当前素材不适合直连，已自动使用万镜一刻兼容链路", recipe);
+  const fallbackReason = blocked
+    ? "自动路由：百炼当前配置不适合服务端直连，已自动使用万镜一刻兼容链路"
+    : "自动路由：百炼未配置或当前素材不适合直连，已自动使用万镜一刻兼容链路";
+  return submitThroughYike(kind, executionInput, fallbackReason, recipe);
 }
 
 export async function refreshJob(job: StoredJob) {
