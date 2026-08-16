@@ -103,7 +103,13 @@ export default function Studio() {
     setStatus(s);
   }, []);
 
-  useEffect(() => { loadAll().catch(e => setNotice(e.message)); }, [loadAll]);
+  useEffect(() => {
+    loadAll().catch(e => setNotice(e instanceof Error ? e.message : String(e)));
+  }, [loadAll]);
+
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 720px)").matches) setSidebarOpen(false);
+  }, []);
 
   useEffect(() => {
     if (!activeShotId) return;
@@ -212,6 +218,7 @@ export default function Studio() {
   function navigate(next: Tab) {
     setTab(next);
     setNotice("");
+    if (window.matchMedia("(max-width: 720px)").matches) setSidebarOpen(false);
   }
 
   function createInShot(shotId: string) {
@@ -329,6 +336,9 @@ export default function Studio() {
               subjects={subjects}
               generationReady={generationReady}
               defaultProviderMode={providerMode}
+              modelStudioAvailable={modelStudioConfigured}
+              yikeAvailable={yikeReady}
+              onAssetsChanged={loadAll}
               onCreated={quickCreated}
               onOpenAdvanced={() => navigate("generate")}
               onOpenQuick={() => navigate("quick")}
