@@ -39,6 +39,9 @@ import styles from "@/components/studio-shell.module.css";
 
 type Tab = "home" | "quick" | "generate" | "projects" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "subjects" | "jobs" | "settings";
 type ProviderMode = "auto" | "modelstudio" | "yike";
+type QuickCreateResult = { submitted?: number; failed?: number; projectName?: string };
+
+const CHAT_DRAFT_KEY = "wanke:chat-creation-draft:v1";
 
 const primaryNav = [
   { id: "projects" as const, label: "我的作品", icon: FolderKanban },
@@ -246,6 +249,7 @@ export default function Studio() {
   }
 
   function newCreation() {
+    window.sessionStorage.removeItem(CHAT_DRAFT_KEY);
     setFocusedProjectId("");
     setFocusedJobId("");
     setActiveShotId("");
@@ -277,10 +281,18 @@ export default function Studio() {
     setTab("generate");
   }
 
-  async function quickCreated(projectId: string) {
+  async function quickCreated(projectId: string, result?: QuickCreateResult) {
     await loadAll();
     setFocusedProjectId(projectId);
-    setNotice("作品已建立，镜头正在生成。可以在“我的作品”里直接看进度。");
+    const submitted = Number(result?.submitted || 0);
+    const failed = Number(result?.failed || 0);
+    if (result && failed > 0 && submitted === 0) {
+      setNotice(`作品已建立，但 ${failed} 个镜头都没有成功提交。已定位到作品，请查看具体原因并逐镜头重试。`);
+    } else if (result && failed > 0) {
+      setNotice(`作品已建立：${submitted} 个镜头已提交，${failed} 个需要处理。可以在当前作品里直接查看和重试。`);
+    } else {
+      setNotice("作品已建立，镜头正在生成。可以在“我的作品”里直接看进度。");
+    }
     setTab("projects");
   }
 
