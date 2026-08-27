@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
-  type: z.enum(["product_ad", "person_short", "image_video"]),
+  type: z.enum(["text_video", "product_ad", "person_short", "image_video"]),
   name: z.string().max(120).default(""),
   goal: z.string().trim().min(1).max(1200),
   platform: z.enum(["douyin", "xiaohongshu", "youtube", "landscape"]),
@@ -27,6 +27,10 @@ const schema = z.object({
   localInputRef: z.string().trim().max(240).optional().default(""),
 }).superRefine((value, ctx) => {
   const directCount = [value.imageAssetId, value.referenceUrl, value.localInputRef].filter(Boolean).length;
+  if (value.type === "text_video") {
+    if (value.subjectId || directCount > 0) ctx.addIssue({ code: "custom", message: "纯文字生成不需要主体、图片或链接，请清除参考素材后直接描述视频" });
+    return;
+  }
   if (directCount > 1) {
     ctx.addIssue({ code: "custom", message: "一次快速创作只能使用一种直接图片来源，请保留素材库图片、本地图片或公网链接中的一种" });
     return;
@@ -181,5 +185,5 @@ function inferredProjectName(goal: string, type: z.infer<typeof schema>["type"])
   const compact = goal.replace(/\s+/g, " ").trim();
   const firstClause = compact.split(/[。！？!?；;\n]/)[0]?.replace(/^[“”"']+|[“”"']+$/g, "").trim() || "";
   if (firstClause) return firstClause.length > 26 ? `${firstClause.slice(0, 26)}…` : firstClause;
-  return type === "product_ad" ? "产品广告" : type === "person_short" ? "人物短视频" : "图片变视频";
+  return type === "text_video" ? "文字生成视频" : type === "product_ad" ? "产品广告" : type === "person_short" ? "人物短视频" : "图片变视频";
 }

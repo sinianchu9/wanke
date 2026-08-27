@@ -3,7 +3,7 @@ import { getAsset } from "@/lib/repository";
 import { getSubjectCard } from "@/lib/subjects";
 import { isLocalInputRef } from "@/lib/video/local-input";
 
-export type QuickCreationType = "product_ad" | "person_short" | "image_video";
+export type QuickCreationType = "text_video" | "product_ad" | "person_short" | "image_video";
 export type QuickPlatform = "douyin" | "xiaohongshu" | "youtube" | "landscape";
 
 export type QuickCreationInput = {
@@ -22,8 +22,8 @@ export type QuickShotPlan = {
   name: string;
   brief: string;
   prompt: string;
-  jobType: "image_to_video" | "reference_to_video";
-  recipeId: "product_ad" | "character_consistency" | "social_short";
+  jobType: "text_to_video" | "image_to_video" | "reference_to_video";
+  recipeId: "general" | "product_ad" | "character_consistency" | "social_short";
   duration: 5 | 10;
   aspectRatio: "9:16" | "16:9";
   medias: Array<{ type: "image"; url: string; mediaId: string }>;
@@ -33,7 +33,7 @@ export type QuickShotPlan = {
 type ResolvedReference = {
   medias: Array<{ type: "image"; url: string; mediaId: string }>;
   subjectCardIds: string[];
-  source: "subject" | "asset" | "url" | "local";
+  source: "none" | "subject" | "asset" | "url" | "local";
 };
 
 export function buildQuickCreationPlan(input: QuickCreationInput) {
@@ -53,8 +53,8 @@ export function buildQuickCreationPlan(input: QuickCreationInput) {
     name: `Shot ${String(index + 1).padStart(2, "0")} · ${blueprint.name}`,
     brief: blueprint.brief,
     prompt: buildPrompt(input.type, cleanGoal, blueprint.prompt),
-    jobType: input.type === "image_video" ? "image_to_video" : "reference_to_video",
-    recipeId: input.type === "product_ad" ? "product_ad" : input.type === "person_short" ? "character_consistency" : "social_short",
+    jobType: input.type === "text_video" ? "text_to_video" : input.type === "image_video" ? "image_to_video" : "reference_to_video",
+    recipeId: input.type === "text_video" ? "general" : input.type === "product_ad" ? "product_ad" : input.type === "person_short" ? "character_consistency" : "social_short",
     duration: shotDurations[index],
     aspectRatio,
     medias: reference.medias,
@@ -71,6 +71,13 @@ export function buildQuickCreationPlan(input: QuickCreationInput) {
 }
 
 function resolveReference(input: QuickCreationInput): ResolvedReference {
+  if (input.type === "text_video") {
+    if (input.subjectId || input.imageAssetId || input.referenceUrl || input.localInputRef) {
+      throw new Error("纯文字生成不使用参考素材，请清除主体、图片或链接后再试");
+    }
+    return { medias: [], subjectCardIds: [], source: "none" };
+  }
+
   if (input.subjectId) {
     if (input.type === "image_video") throw new Error("图片变视频不使用人物或产品主体，请直接选择一张图片");
     const card = getSubjectCard(input.subjectId);
@@ -130,6 +137,12 @@ function mediaFromAsset(asset: NonNullable<ReturnType<typeof getAsset>>) {
 
 function blueprintsFor(type: QuickCreationType, count: number) {
   const sets = {
+    text_video: [
+      { name: "建立画面", brief: "从文字直接建立主体、环境和氛围", prompt: "根据用户描述直接建立清晰主体、环境、时间、光线与整体视觉风格，不依赖任何参考素材" },
+      { name: "推进动作", brief: "让主体完成主要动作", prompt: "延续前一镜头的主体和场景，让主要动作自然推进，镜头运动保持单一明确" },
+      { name: "丰富层次", brief: "增加环境或镜头层次", prompt: "在不改变核心主体和场景设定的前提下，通过景别、环境动态或视角变化增加画面层次" },
+      { name: "自然收尾", brief: "形成完整且稳定的结尾", prompt: "让动作自然结束并形成清晰稳定的收尾画面，保持整体风格和主体设定连续" },
+    ],
     product_ad: [
       { name: "开场吸引", brief: "第一秒建立产品和氛围", prompt: "开场立即让产品成为视觉主体，用简洁有冲击力的构图建立高级感" },
       { name: "产品展示", brief: "稳定展示外观和材质", prompt: "清楚展示产品外观、结构、颜色和材质，镜头缓慢移动，避免产品变形" },
@@ -153,20 +166,22 @@ function blueprintsFor(type: QuickCreationType, count: number) {
 }
 
 function buildPrompt(type: QuickCreationType, goal: string, shotInstruction: string) {
-  const identity = type === "product_ad"
-    ? "产品结构、颜色、材质、标志保持稳定"
-    : type === "person_short"
-      ? "人物脸部、发型、年龄感、体型和主要服装保持一致"
-      : "保持输入图片中的主体外观、结构和画面关系";
+  const identity = type === "text_video"
+    ? "严格围绕文字描述建立主体、环境和视觉关系，不依赖任何参考素材"
+    : type === "product_ad"
+      ? "产品结构、颜色、材质、标志保持稳定"
+      : type === "person_short"
+        ? "人物脸部、发型、年龄感、体型和主要服装保持一致"
+        : "保持输入图片中的主体外观、结构和画面关系";
   return `${goal}。本镜头：${shotInstruction}。${identity}。动作自然连续，画面不要出现无意义突变。`;
 }
 
 function defaultName(type: QuickCreationType) {
-  return type === "product_ad" ? "产品广告" : type === "person_short" ? "人物短视频" : "图片变视频";
+  return type === "text_video" ? "文字生成视频" : type === "product_ad" ? "产品广告" : type === "person_short" ? "人物短视频" : "图片变视频";
 }
 
 function quickTypeLabel(type: QuickCreationType) {
-  return type === "product_ad" ? "产品广告" : type === "person_short" ? "人物短视频" : "图片变视频";
+  return type === "text_video" ? "文字生成视频" : type === "product_ad" ? "产品广告" : type === "person_short" ? "人物短视频" : "图片变视频";
 }
 
 function platformLabel(platform: QuickPlatform) {
