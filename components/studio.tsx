@@ -99,6 +99,7 @@ function isWorkflowTab(tab: Tab): tab is WorkflowTab {
 
 export default function Studio() {
   const [tab, setTab] = useState<Tab>("home");
+  const [previousTab, setPreviousTab] = useState<Tab>("home");
   const [homeSession, setHomeSession] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -259,12 +260,19 @@ export default function Studio() {
     if (window.matchMedia("(max-width: 720px)").matches) setSidebarOpen(false);
   }
 
-  function navigate(next: Tab) {
+  function navigate(next: Tab, remember = true) {
+    if (next !== tab && remember) setPreviousTab(tab);
     if (next !== "projects") setFocusedProjectId("");
     if (next !== "jobs") setFocusedJobId("");
     setTab(next);
     setNotice("");
     closeSidebarOnMobile();
+  }
+
+  function goBack() {
+    const target = previousTab === tab ? "home" : previousTab;
+    navigate(target, false);
+    setPreviousTab("home");
   }
 
   function newCreation() {
@@ -274,6 +282,7 @@ export default function Studio() {
     setActiveShotId("");
     setNotice("");
     setHomeSession(value => value + 1);
+    setPreviousTab("home");
     setTab("home");
     closeSidebarOnMobile();
   }
@@ -281,23 +290,18 @@ export default function Studio() {
   function openProject(projectId: string) {
     setFocusedProjectId(projectId);
     setFocusedJobId("");
-    setTab("projects");
-    setNotice("");
-    closeSidebarOnMobile();
+    navigate("projects");
   }
 
   function openJob(jobId: string) {
     setFocusedJobId(jobId);
     setFocusedProjectId("");
-    setTab("jobs");
-    setNotice("");
-    closeSidebarOnMobile();
+    navigate("jobs");
   }
 
   function createInShot(shotId: string) {
     setActiveShotId(shotId);
-    setNotice("");
-    setTab("generate");
+    navigate("generate");
   }
 
   async function quickCreated(projectId: string, result?: QuickCreateResult) {
@@ -423,6 +427,11 @@ export default function Studio() {
           <button className={styles.iconButton} title={sidebarOpen ? "收起侧栏" : "展开侧栏"} onClick={() => setSidebarOpen(value => !value)}>
             {sidebarOpen ? <PanelLeftClose size={18} /> : <Menu size={18} />}
           </button>
+          {tab !== "home" && !activeWorkflow && (
+            <button className={styles.topbarBackButton} onClick={goBack} title="返回上一页">
+              <ArrowLeft size={15} /><span>返回</span>
+            </button>
+          )}
           <div className={styles.topbarTitle}><span>{labels[tab]}</span></div>
           <div className={styles.topbarSpacer} />
           <div className={styles.topbarStats}>
@@ -465,8 +474,8 @@ export default function Studio() {
           ) : activeWorkflow ? (
             <div className={workflowStyles.viewport}>
               <div className={workflowStyles.navBar}>
-                <button className={workflowStyles.backButton} onClick={() => navigate("home")} title="返回新建创作">
-                  <ArrowLeft size={15} /><span>返回创作</span>
+                <button className={workflowStyles.backButton} onClick={goBack} title="返回上一页">
+                  <ArrowLeft size={15} /><span>返回上一页</span>
                 </button>
                 <span className={workflowStyles.navDivider} />
                 <div className={workflowStyles.navText}>

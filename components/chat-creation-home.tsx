@@ -15,12 +15,13 @@ import {
   Upload,
   UserRound,
   WandSparkles,
+  X,
 } from "lucide-react";
 import type { PublicSubjectCard } from "@/components/subject-library";
 import type { StoredAsset } from "@/lib/types";
 import styles from "@/components/studio-shell.module.css";
 
-type CreationType = "product_ad" | "person_short" | "image_video";
+type CreationType = "text_video" | "product_ad" | "person_short" | "image_video";
 type Platform = "douyin" | "xiaohongshu" | "youtube" | "landscape";
 type ProviderMode = "auto" | "modelstudio" | "yike";
 type LocalInput = { ref: string; name: string; size: number };
@@ -64,12 +65,14 @@ type Props = {
 const CHAT_DRAFT_KEY = "wanke:chat-creation-draft:v1";
 
 const creationTypes: Array<{ id: CreationType; label: string; hint: string; icon: typeof Box }> = [
+  { id: "text_video", label: "文字生视频", hint: "只写描述，无需素材", icon: Sparkles },
   { id: "product_ad", label: "产品广告", hint: "产品 + 卖点", icon: Box },
   { id: "person_short", label: "人物短片", hint: "人物 + 动作", icon: UserRound },
   { id: "image_video", label: "图片动起来", hint: "图片 + 运动描述", icon: ImageIcon },
 ];
 
 const promptExamples: Record<CreationType, string> = {
+  text_video: "例如：东京雨夜，一辆黑色跑车穿过霓虹街道，低机位跟拍，电影感光影，镜头自然推进。",
   product_ad: "例如：为这款智能手环做一条 10 秒竖屏广告，突出循环震动提醒，画面简洁、有科技感。",
   person_short: "例如：让这个女孩走进咖啡店，在门口回头看镜头，动作自然，镜头轻微跟随。",
   image_video: "例如：主体保持不变，加入轻微风吹效果，镜头缓慢推近，整体自然真实。",
@@ -123,6 +126,19 @@ export default function ChatCreationHome({
   const [providerOpen, setProviderOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const popoverOpen = plusOpen || optionsOpen || providerOpen;
+
+  useEffect(() => {
+    if (!popoverOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setPlusOpen(false);
+      setOptionsOpen(false);
+      setProviderOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [popoverOpen]);
 
   useEffect(() => {
     if (!providerTouched && !draftSeed.restored) setProviderMode(defaultProviderMode);
@@ -164,9 +180,11 @@ export default function ChatCreationHome({
   );
   const selectedSubject = subjects.find(subject => subject.id === subjectId) || null;
   const selectedImage = images.find(asset => asset.id === imageAssetId) || null;
-  const hasReference = type === "image_video"
-    ? Boolean(localInput || imageAssetId || referenceUrl.trim())
-    : Boolean(subjectId || localInput || imageAssetId || referenceUrl.trim());
+  const hasReference = type === "text_video"
+    ? true
+    : type === "image_video"
+      ? Boolean(localInput || imageAssetId || referenceUrl.trim())
+      : Boolean(subjectId || localInput || imageAssetId || referenceUrl.trim());
   const providerReady = providerMode === "modelstudio"
     ? modelStudioAvailable
     : providerMode === "yike"
@@ -179,7 +197,7 @@ export default function ChatCreationHome({
     : providerMode === "yike"
       ? yikeAvailable
       : modelStudioAvailable || yikeAvailable;
-  const referenceLabel = selectedSubject?.name || selectedImage?.name || localInput?.name || (referenceUrl.trim() ? "图片链接" : imageAssetId ? "已上传图片" : "");
+  const referenceLabel = type === "text_video" ? "" : (selectedSubject?.name || selectedImage?.name || localInput?.name || (referenceUrl.trim() ? "图片链接" : imageAssetId ? "已上传图片" : ""));
 
   function clearLocal() {
     if (localInput) discardLocalImage(localInput.ref);
@@ -188,6 +206,7 @@ export default function ChatCreationHome({
 
   function chooseType(next: CreationType) {
     if (interactionLocked) return;
+    closePopovers();
     clearLocal();
     setType(next);
     setSubjectId("");
@@ -372,10 +391,10 @@ export default function ChatCreationHome({
           platform,
           totalDuration: duration,
           providerMode,
-          subjectId: type === "image_video" ? null : (subjectId || null),
-          imageAssetId: imageAssetId || null,
-          referenceUrl: referenceUrl.trim(),
-          localInputRef: localInput?.ref || "",
+          subjectId: type === "text_video" || type === "image_video" ? null : (subjectId || null),
+          imageAssetId: type === "text_video" ? null : (imageAssetId || null),
+          referenceUrl: type === "text_video" ? "" : referenceUrl.trim(),
+          localInputRef: type === "text_video" ? "" : (localInput?.ref || ""),
         }),
       });
       const body = await response.json();
@@ -414,7 +433,7 @@ export default function ChatCreationHome({
       <div className={styles.homeIntro}>
         <div className={styles.homeMark}><Sparkles size={22} /></div>
         <h1>今天想做什么视频？</h1>
-        <p>描述结果，不必先理解模型和任务参数。添加主体或参考图片，Wanke 会自动建立作品、规划镜头并提交生成。</p>
+        <p>描述结果，不必先理解模型和任务参数。可以直接用文字生成视频，也可以添加主体或参考图片；Wanke 会自动建立作品、规划镜头并提交生成。</p>
       </div>
 
       <div className={styles.modeRow}>
@@ -435,6 +454,10 @@ export default function ChatCreationHome({
         onDragOver={event => event.preventDefault()}
         onDrop={event => {
           event.preventDefault();
+          if (type === "text_video") {
+            setError("纯文字生成不需要素材，直接描述你想生成的画面即可。");
+            return;
+          }
           chooseLocal(event.dataTransfer.files?.[0]);
         }}
       >
@@ -463,15 +486,20 @@ export default function ChatCreationHome({
           rows={4}
         />
 
+        {popoverOpen && <button className={styles.popoverBackdrop} aria-label="关闭当前选项" onClick={closePopovers} />}
+
         <div className={styles.composerToolbar}>
           <div className={styles.composerToolsLeft}>
-            <div className={styles.popoverAnchor}>
+            {type !== "text_video" && <div className={styles.popoverAnchor}>
               <button disabled={interactionLocked} className={styles.roundButton} onClick={() => { const next = !plusOpen; closePopovers(); setPlusOpen(next); }} aria-label="添加参考素材">
                 {localUploading ? <LoaderCircle className={styles.spin} size={18} /> : <Plus size={19} />}
               </button>
               {plusOpen && (
                 <div className={`${styles.popover} ${styles.referencePopover}`}>
-                  <div className={styles.popoverTitle}>添加参考</div>
+                  <div className={styles.popoverHeader}>
+                    <div className={styles.popoverTitle}>添加参考</div>
+                    <button className={styles.popoverClose} onClick={closePopovers} aria-label="关闭添加参考"><X size={15} /></button>
+                  </div>
 
                   <div className={styles.popoverLabel}>本机图片</div>
                   {canChooseComputerImage ? (
@@ -484,7 +512,7 @@ export default function ChatCreationHome({
                     <button className={styles.popoverLink} onClick={onOpenSettings}><Settings2 size={15} />当前线路未配置，先去设置</button>
                   )}
 
-                  {type !== "image_video" && (
+                  {(type === "product_ad" || type === "person_short") && (
                     <>
                       <div className={styles.popoverLabel}>{type === "product_ad" ? "产品主体" : "人物主体"}</div>
                       {compatibleSubjects.length ? (
@@ -518,7 +546,7 @@ export default function ChatCreationHome({
                   {referenceUrl.trim() && <button className={styles.popoverPrimary} onClick={() => setPlusOpen(false)}>使用这个链接</button>}
                 </div>
               )}
-            </div>
+            </div>}
 
             <div className={styles.popoverAnchor}>
               <button disabled={interactionLocked} className={styles.optionButton} onClick={() => { const next = !optionsOpen; closePopovers(); setOptionsOpen(next); }}>
@@ -528,7 +556,10 @@ export default function ChatCreationHome({
               </button>
               {optionsOpen && (
                 <div className={`${styles.popover} ${styles.optionsPopover}`}>
-                  <div className={styles.popoverTitle}>输出偏好</div>
+                  <div className={styles.popoverHeader}>
+                    <div className={styles.popoverTitle}>输出偏好</div>
+                    <button className={styles.popoverClose} onClick={closePopovers} aria-label="关闭输出偏好"><X size={15} /></button>
+                  </div>
                   <div className={styles.popoverLabel}>平台 / 画幅</div>
                   <div className={styles.choiceGrid}>
                     {([["douyin", "抖音竖屏"], ["xiaohongshu", "小红书"], ["youtube", "YouTube"], ["landscape", "横屏"]] as Array<[Platform, string]>).map(([id, label]) => (
@@ -555,7 +586,10 @@ export default function ChatCreationHome({
               </button>
               {providerOpen && (
                 <div className={`${styles.popover} ${styles.providerPopover}`}>
-                  <div className={styles.popoverTitle}>本次生成线路</div>
+                  <div className={styles.popoverHeader}>
+                    <div className={styles.popoverTitle}>本次生成线路</div>
+                    <button className={styles.popoverClose} onClick={closePopovers} aria-label="关闭生成线路"><X size={15} /></button>
+                  </div>
                   <button className={`${styles.providerChoice} ${providerMode === "auto" ? styles.providerChoiceActive : ""}`} onClick={() => selectProvider("auto")}>
                     <b>自动路由</b><small>优先百炼；不适配时按兼容规则使用万镜一刻 · {modelStudioAvailable || yikeAvailable ? "可用" : "未配置"}</small>
                   </button>
@@ -569,7 +603,7 @@ export default function ChatCreationHome({
                 </div>
               )}
             </div>
-            <button className={styles.sendButton} disabled={interactionLocked} onClick={create} title={ready ? "开始创作" : "完善描述、参考和线路后开始"}>
+            <button className={styles.sendButton} disabled={interactionLocked} onClick={create} title={ready ? "开始创作" : type === "text_video" ? "写下视频描述并确认生成线路后开始" : "完善描述、参考和线路后开始"}>
               {busy ? <LoaderCircle className={styles.spin} size={17} /> : <Send size={18} />}
             </button>
           </div>
@@ -580,7 +614,7 @@ export default function ChatCreationHome({
       {generationReady === false && (
         <button className={styles.serviceWarning} onClick={onOpenSettings}>视频服务未配置，点击完成一次设置后即可直接创作。</button>
       )}
-      <div className={styles.composerHint}>Enter 开始创作 · Shift + Enter 换行 · 图片也可以直接拖进输入框</div>
+      <div className={styles.composerHint}>{type === "text_video" ? "纯文字生成：无需素材，直接描述主体、环境、动作和镜头 · Enter 开始创作" : "Enter 开始创作 · Shift + Enter 换行 · 图片也可以直接拖进输入框"}</div>
 
       <div className={styles.homeDivider}><span>更多创作方式</span></div>
       <div className={styles.homeActions}>
@@ -612,7 +646,7 @@ function readDraft(defaultProviderMode: ProviderMode): DraftState {
     const raw = window.sessionStorage.getItem(CHAT_DRAFT_KEY);
     if (!raw) return fallback;
     const value = JSON.parse(raw) as Partial<DraftState>;
-    const type = value.type === "product_ad" || value.type === "person_short" || value.type === "image_video" ? value.type : fallback.type;
+    const type = value.type === "text_video" || value.type === "product_ad" || value.type === "person_short" || value.type === "image_video" ? value.type : fallback.type;
     const platform = value.platform === "douyin" || value.platform === "xiaohongshu" || value.platform === "youtube" || value.platform === "landscape" ? value.platform : fallback.platform;
     const duration = value.duration === 5 || value.duration === 10 || value.duration === 15 || value.duration === 30 ? value.duration : fallback.duration;
     const providerMode = value.providerMode === "auto" || value.providerMode === "modelstudio" || value.providerMode === "yike" ? value.providerMode : defaultProviderMode;

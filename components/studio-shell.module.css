@@ -159,6 +159,21 @@
   z-index: 20;
 }
 .topbarTitle { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 650; }
+.topbarBackButton {
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #5f5f65;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.topbarBackButton:hover { background: #f1f1f2; color: #222; }
 .topbarSpacer { flex: 1; }
 .iconButton {
   width: 34px;
@@ -313,6 +328,14 @@
 .providerButton { font-weight: 650; }
 
 .popoverAnchor { position: relative; }
+.popoverBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
 .popover {
   position: absolute;
   bottom: 43px;
@@ -329,7 +352,20 @@
 .referencePopover,
 .optionsPopover { left: 0; }
 .providerPopover { right: 0; width: 320px; }
-.popoverTitle { padding: 4px 5px 8px; font-size: 11px; font-weight: 750; }
+.popoverHeader { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+.popoverTitle { flex: 1; padding: 4px 5px 8px; font-size: 11px; font-weight: 750; }
+.popoverClose {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #77777d;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.popoverClose:hover { background: #f1f1f2; color: #222; }
 .popoverLabel { padding: 8px 5px 4px; font-size: 9px; font-weight: 700; color: #8c8c91; }
 .popoverEmpty,
 .popoverFootnote { padding: 5px; font-size: 9px; color: #999; }
