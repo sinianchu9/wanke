@@ -15,6 +15,7 @@ import {
   Upload,
   UserRound,
   WandSparkles,
+  X,
 } from "lucide-react";
 import type { PublicSubjectCard } from "@/components/subject-library";
 import type { StoredAsset } from "@/lib/types";
@@ -123,6 +124,19 @@ export default function ChatCreationHome({
   const [providerOpen, setProviderOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const popoverOpen = plusOpen || optionsOpen || providerOpen;
+
+  useEffect(() => {
+    if (!popoverOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setPlusOpen(false);
+      setOptionsOpen(false);
+      setProviderOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [popoverOpen]);
 
   useEffect(() => {
     if (!providerTouched && !draftSeed.restored) setProviderMode(defaultProviderMode);
@@ -463,6 +477,8 @@ export default function ChatCreationHome({
           rows={4}
         />
 
+        {popoverOpen && <button className={styles.popoverBackdrop} aria-label="关闭当前选项" onClick={closePopovers} />}
+
         <div className={styles.composerToolbar}>
           <div className={styles.composerToolsLeft}>
             <div className={styles.popoverAnchor}>
@@ -471,7 +487,10 @@ export default function ChatCreationHome({
               </button>
               {plusOpen && (
                 <div className={`${styles.popover} ${styles.referencePopover}`}>
-                  <div className={styles.popoverTitle}>添加参考</div>
+                  <div className={styles.popoverHeader}>
+                    <div className={styles.popoverTitle}>添加参考</div>
+                    <button className={styles.popoverClose} onClick={closePopovers} aria-label="关闭添加参考"><X size={15} /></button>
+                  </div>
 
                   <div className={styles.popoverLabel}>本机图片</div>
                   {canChooseComputerImage ? (
@@ -528,7 +547,10 @@ export default function ChatCreationHome({
               </button>
               {optionsOpen && (
                 <div className={`${styles.popover} ${styles.optionsPopover}`}>
-                  <div className={styles.popoverTitle}>输出偏好</div>
+                  <div className={styles.popoverHeader}>
+                    <div className={styles.popoverTitle}>输出偏好</div>
+                    <button className={styles.popoverClose} onClick={closePopovers} aria-label="关闭输出偏好"><X size={15} /></button>
+                  </div>
                   <div className={styles.popoverLabel}>平台 / 画幅</div>
                   <div className={styles.choiceGrid}>
                     {([["douyin", "抖音竖屏"], ["xiaohongshu", "小红书"], ["youtube", "YouTube"], ["landscape", "横屏"]] as Array<[Platform, string]>).map(([id, label]) => (
@@ -555,7 +577,10 @@ export default function ChatCreationHome({
               </button>
               {providerOpen && (
                 <div className={`${styles.popover} ${styles.providerPopover}`}>
-                  <div className={styles.popoverTitle}>本次生成线路</div>
+                  <div className={styles.popoverHeader}>
+                    <div className={styles.popoverTitle}>本次生成线路</div>
+                    <button className={styles.popoverClose} onClick={closePopovers} aria-label="关闭生成线路"><X size={15} /></button>
+                  </div>
                   <button className={`${styles.providerChoice} ${providerMode === "auto" ? styles.providerChoiceActive : ""}`} onClick={() => selectProvider("auto")}>
                     <b>自动路由</b><small>优先百炼；不适配时按兼容规则使用万镜一刻 · {modelStudioAvailable || yikeAvailable ? "可用" : "未配置"}</small>
                   </button>
