@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { StoredJob } from "@/lib/types";
-import { createJob, deleteJob, getJob, requestReferenceExists, updateJobRemote } from "@/lib/repository";
+import { createJob, deleteJob, getJob, getJobForUser, requestReferenceExists, updateJobRemote } from "@/lib/repository";
 import { assignJobToShot } from "@/lib/projects";
 import { db } from "@/lib/db";
 import { refreshJob, resumeStoryboard, submitJob, type VideoProviderMode } from "@/lib/video/provider";
@@ -8,21 +8,36 @@ import { prepareJobInput } from "@/lib/video/prepare";
 import { collectLocalInputRefs, deleteLocalInput } from "@/lib/video/local-input";
 import { archiveJobOutput, deleteArchivedOutputs } from "@/lib/archive";
 import { describeError } from "@/lib/errors";
+import { errorResponse, requireUser, type SessionUser } from "@/lib/auth";
+import { refundQuota, reserveQuota } from "@/lib/membership";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_: Request, ctx: Ctx) {
-  const { id } = await ctx.params;
-  const job = getJob(id);
-  return job ? NextResponse.json({ job }) : NextResponse.json({ error: "任务不存在" }, { status: 404 });
+export async function GET(request: Request, ctx: Ctx) {
+  try {
+    const user = requireUser(request);
+    const { id } = await ctx.params;
+    const job = getJobForUser(id, user.id, user.role === "admin");
+    return job ? NextResponse.json({ job }) : NextResponse.json({ error: "任务不存在" }, { status: 404 });
+  } catch (error) {
+    const handled = errorResponse(error);
+    return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request, ctx: Ctx) {
+  let user: SessionUser;
+  try {
+    user = requireUser(request);
+  } catch (error) {
+    const handled = errorResponse(error);
+    return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
+  }
   const { id } = await ctx.params;
-  const job = getJob(id);
+  const job = getJobForUser(id, user.id, user.role === "admin");
   if (!job) return NextResponse.json({ error: "任务不存在" }, { status: 404 });
   try {
     const body = await request.json().catch(() => ({}));
@@ -39,21 +54,23 @@ export async function POST(request: Request, ctx: Ctx) {
         return NextResponse.json({ error: "重试只用于失败任务。成功结果请使用“再来一个类似版本”或“继续创作”。" }, { status: 400 });
       }
       const retryRequest = withoutBatchMembership(job.request);
-      const child = await submitChild(job, retryRequest, `${job.title} · 重试`, {
+      const child = await submitChildWithQuota(user, job, retryRequest, `${job.title} · 重试`, {
         creationAction: "retry",
         sourceJobId: job.id,
       }, true);
-      return NextResponse.json({ job: child }, { status: 201 });
+      if ("error" in child) return child.error;
+      return NextResponse.json({ job: child.job }, { status: 201 });
     }
 
     if (action === "similar") {
       requireSuccessfulVideoJob(job);
       const similarRequest = withoutBatchMembership(job.request);
-      const child = await submitChild(job, similarRequest, `${job.title} · 类似版本`, {
+      const child = await submitChildWithQuota(user, job, similarRequest, `${job.title} · 类似版本`, {
         creationAction: "similar_variant",
         sourceJobId: job.id,
       }, true);
-      return NextResponse.json({ job: child }, { status: 201 });
+      if ("error" in child) return child.error;
+      return NextResponse.json({ job: child.job }, { status: 201 });
     }
 
     if (action === "continue") {
@@ -82,13 +99,14 @@ export async function POST(request: Request, ctx: Ctx) {
         n: 1,
         _sourceSubjectCardIds: Array.isArray(sourceSubjectCardIds) ? sourceSubjectCardIds : [],
       };
-      const child = await submitChild(job, continueRequest, `${job.title} · 继续创作`, {
+      const child = await submitChildWithQuota(user, job, continueRequest, `${job.title} · 继续创作`, {
         creationAction: "continue_from_result",
         sourceJobId: job.id,
         sourceOutputIndex: outputIndex,
         sourceOutputUrl: sourceUrl,
       });
-      return NextResponse.json({ job: child }, { status: 201 });
+      if ("error" in child) return child.error;
+      return NextResponse.json({ job: child.job }, { status: 201 });
     }
 
     if (action === "resume") {
@@ -109,32 +127,61 @@ export async function POST(request: Request, ctx: Ctx) {
 
     return NextResponse.json({ error: "未知操作" }, { status: 400 });
   } catch (error) {
+    const handled = errorResponse(error);
+    if (handled) return handled;
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
 }
 
-export async function DELETE(_: Request, ctx: Ctx) {
-  const { id } = await ctx.params;
-  const job = getJob(id);
-  if (!job) return NextResponse.json({ error: "任务不存在" }, { status: 404 });
+export async function DELETE(request: Request, ctx: Ctx) {
+  try {
+    const user = requireUser(request);
+    const { id } = await ctx.params;
+    const job = getJobForUser(id, user.id, user.role === "admin");
+    if (!job) return NextResponse.json({ error: "任务不存在" }, { status: 404 });
 
-  const localRefs = [...collectLocalInputRefs(job.request)];
-  deleteArchivedOutputs(job.outputs);
-  if (!deleteJob(id)) return NextResponse.json({ error: "任务删除失败" }, { status: 500 });
+    const localRefs = [...collectLocalInputRefs(job.request)];
+    deleteArchivedOutputs(job.outputs);
+    if (!deleteJob(id)) return NextResponse.json({ error: "任务删除失败" }, { status: 500 });
 
-  const orphaned = localRefs.filter(ref => !requestReferenceExists(ref));
-  await Promise.allSettled(orphaned.map(deleteLocalInput));
-  return NextResponse.json({ ok: true });
+    const orphaned = localRefs.filter(ref => !requestReferenceExists(ref));
+    await Promise.allSettled(orphaned.map(deleteLocalInput));
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    const handled = errorResponse(error);
+    return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
+  }
+}
+
+/** Reserve one quota unit, submit the child job, and refund when submission fails synchronously. */
+async function submitChildWithQuota(
+  user: SessionUser,
+  parent: StoredJob,
+  requestPayload: Record<string, unknown>,
+  title: string,
+  relationDetails: Record<string, unknown>,
+  attachToParentShot = false,
+): Promise<{ job: StoredJob } | { error: NextResponse }> {
+  try {
+    reserveQuota(user.id, 1);
+  } catch (error) {
+    const handled = errorResponse(error);
+    return { error: handled || NextResponse.json({ error: "服务器错误" }, { status: 500 }) };
+  }
+  const child = await submitChild(user, parent, requestPayload, title, relationDetails, attachToParentShot);
+  if (child.status === "failed") refundQuota(user.id, 1);
+  return { job: child };
 }
 
 async function submitChild(
+  user: SessionUser,
   parent: StoredJob,
-  request: Record<string, unknown>,
+  requestPayload: Record<string, unknown>,
   title: string,
   relationDetails: Record<string, unknown>,
   attachToParentShot = false,
 ) {
-  const child = createJob({ kind: parent.kind, title, request, parentJobId: parent.id });
+  const child = createJob({ kind: parent.kind, title, request: requestPayload, parentJobId: parent.id, userId: user.id });
   if (attachToParentShot) {
     const relation = db.prepare("SELECT shot_id FROM shot_jobs WHERE job_id = ? LIMIT 1").get(parent.id) as { shot_id?: string } | undefined;
     if (relation?.shot_id) assignJobToShot(relation.shot_id, child.id);
@@ -142,7 +189,7 @@ async function submitChild(
 
   const inheritedProviderMode = providerModeFromJob(parent);
   try {
-    const preparedInput = await prepareJobInput(parent.kind, request);
+    const preparedInput = await prepareJobInput(parent.kind, requestPayload);
     const submitted = await submitJob(parent.kind, preparedInput, inheritedProviderMode ? { videoProviderMode: inheritedProviderMode } : undefined);
     return updateJobRemote(child.id, {
       providerJobId: submitted.providerJobId,

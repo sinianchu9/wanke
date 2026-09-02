@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createUploadCredential } from "@/lib/yike/provider";
 import { describeError } from "@/lib/errors";
+import { errorResponse, requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -9,10 +10,13 @@ const schema = z.object({ fileExt: z.string().min(1).max(12), fileType: z.string
 
 export async function POST(request: Request) {
   try {
+    requireUser(request);
     const input = schema.parse(await request.json());
     const credential = await createUploadCredential(input.fileExt, input.fileType);
     return NextResponse.json(credential);
   } catch (error) {
+    const handled = errorResponse(error);
+    if (handled) return handled;
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
 }

@@ -1,8 +1,34 @@
-# Wanke Video Studio
+# Wanke · AI 视频生产平台（商业级 SaaS）
 
-个人自用的 **AI 视频生产工作站**。目标不是复刻任一云厂商控制台，而是把视频生产真正整理成一个连续工作流：素材进入 → 生成/拆解/复刻/口播/故事板 → 异步任务 → 结果比较 → 失败回炉 → 本地归档。
+面向创作者与小团队的 **AI 视频生产 SaaS**：注册/登录 → 选择或升级套餐 → 在 Studio 中生成/复刻/口播/故事板 → 任务中心跟踪 → 结果进入「我的作品」→ 管理素材与配额 → 管理员在后台运营用户、套餐、任务与系统健康。
 
-**刻意不做**：注册登录、会员、支付、套餐、团队、多租户、运营后台。复杂度全部留给视频本身。
+三类角色：
+
+- **访客**：可看产品介绍与套餐说明（`/`），不可消耗配额；
+- **会员**：按套餐使用生成能力、作品库、素材库、任务中心（`/studio`、`/account`）；
+- **管理员**：用户/套餐/任务/作品/审计运营后台（`/admin`）。
+
+视频引擎（`lib/video`、`lib/yike`、任务轮询、本地归档）保持独立；账号、权限、配额、作品与后台全部叠加在边界层。完整数据模型、权限矩阵、配额扣减策略与 API 一览见 [`docs/SAAS.md`](docs/SAAS.md)。
+
+## SaaS 快速上手
+
+```bash
+cp .env.example .env.local   # 填入 AUTH_SECRET 与 ADMIN_EMAIL
+npm install && npm run build && npm start
+```
+
+1. 打开 `/register` 注册；使用 `ADMIN_EMAIL` 注册的账号自动成为管理员。
+2. 新用户默认 free 套餐（每月 10 条生成额度），可在「会员中心」模拟升级（演示期不接真实支付）。
+3. 提交生成任务前校验登录 + 会员状态 + 配额；提交成功计 1 条，远端同步拒绝自动退回。
+4. 成功的任务结果可在任务中心一键「保存到作品」，进入作品库长期管理。
+5. 管理员在 `/admin` 管理用户套餐/启停、监管全站任务与作品，所有关键写操作写入审计日志。
+
+端到端验收剧本（需要本地服务运行在 3100 端口、一次性数据库）：
+
+```bash
+ADMIN_EMAIL=admin@wanke.test WANKE_DB_PATH=./data/e2e.db node_modules/.bin/next start -p 3100 &
+node scripts/saas-e2e.mjs
+```
 
 ## Phase 1：视频生成优先
 
@@ -141,6 +167,13 @@ data/inputs/
 cp .env.example .env.local
 ```
 
+SaaS 必填项：
+
+```env
+AUTH_SECRET=          # openssl rand -hex 32；会话 token 哈希盐，轮换会使所有会话失效
+ADMIN_EMAIL=          # 该邮箱注册的账号自动成为管理员（种子管理员）
+```
+
 基础视频生成推荐配置：
 
 ```env
@@ -185,18 +218,12 @@ SQLite、本地输入和结果归档都位于 `./data`，Docker Compose 已挂�
 
 ## 验证状态
 
-当前 Phase 1 已完成代码级 Bug 审查和官方 API 参数核对。由于仓库当前没有 PR GitHub Actions workflow，且本执行环境无法从 `github.com` 拉取分支，本轮不能把 `typecheck/build` 标记成已通过。
-
-合并前应在实际运行环境执行：
-
-```bash
-npm install
-npm run typecheck
-npm run build
-npm run doctor
-```
-
-然后使用实际新加坡百炼 Key 对四种生成入口完成最小 smoke test。真实 Key 只放 `.env.local`，不要提交或分享。
+- `npm run typecheck` 与 `npm run build` 已通过。
+- SaaS 验收剧本 `scripts/saas-e2e.mjs` 覆盖：注册/登录/限流、未登录拦截、
+  配额预扣与回滚、超额 402、套餐切换、跨用户隔离（404 不泄露）、作品库、
+  管理员后台与审计日志（34 项断言）。
+- 真实付费生成需使用实际新加坡百炼 Key 对四种生成入口完成最小 smoke test；
+  真实 Key 只放 `.env.local`，不要提交或分享。
 
 ## 安全
 

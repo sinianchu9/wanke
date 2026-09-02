@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createAsset, deleteAsset, getAsset, listAssets } from "@/lib/repository";
+import { createAsset, deleteAsset, getAssetForUser, listAssetsForUser } from "@/lib/repository";
 import { detachAssetFromSubjectCards } from "@/lib/subjects";
 import { deleteAssetCloud, registerAsset } from "@/lib/yike/provider";
 import { getYikeRuntimeConfig } from "@/lib/settings";
 import { describeError } from "@/lib/errors";
+import { errorResponse, requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,11 +25,12 @@ function yikeConfigured() {
   return Boolean(config.accessKeyId && config.accessKeySecret);
 }
 
-function createUrlOnlyAsset(input: z.infer<typeof schema>, registration: string, extensionRegistrationError?: string) {
+function createUrlOnlyAsset(userId: string, input: z.infer<typeof schema>, registration: string, extensionRegistrationError?: string) {
   return createAsset({
     name: input.name,
     mediaType: input.mediaType,
     sourceUrl: input.sourceUrl,
+    userId,
     provider: {
       storage: "external-url",
       registration,
@@ -37,37 +39,59 @@ function createUrlOnlyAsset(input: z.infer<typeof schema>, registration: string,
   });
 }
 
-export async function GET() {
-  return NextResponse.json({ assets: listAssets() });
+export async function GET(request: Request) {
+  try {
+    const user = requireUser(request);
+    return NextResponse.json({ assets: listAssetsForUser(user.id) });
+  } catch (error) {
+    const handled = errorResponse(error);
+    return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
+  let user;
+  try {
+    user = requireUser(request);
+  } catch (error) {
+    const handled = errorResponse(error);
+    return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
+  }
   try {
     const input = schema.parse(await request.json());
     if (input.trackOnly || !yikeConfigured()) {
-      const asset = createUrlOnlyAsset(input, input.trackOnly ? "track-only" : "provider-neutral");
+      const asset = createUrlOnlyAsset(user.id, input, input.trackOnly ? "track-only" : "provider-neutral");
       return NextResponse.json({ asset }, { status: 201 });
     }
 
     try {
       const registered = await registerAsset({ inputURL: input.sourceUrl, mediaType: input.mediaType, title: input.name });
-      const asset = createAsset({ providerMediaId: registered.mediaId, name: input.name, mediaType: input.mediaType, sourceUrl: input.sourceUrl, provider: registered.provider });
+      const asset = createAsset({ providerMediaId: registered.mediaId, name: input.name, mediaType: input.mediaType, sourceUrl: input.sourceUrl, provider: registered.provider, userId: user.id });
       return NextResponse.json({ asset }, { status: 201 });
     } catch (error) {
       const extensionError = describeError(error);
-      const asset = createUrlOnlyAsset(input, "provider-neutral", extensionError);
+      const asset = createUrlOnlyAsset(user.id, input, "provider-neutral", extensionError);
       return NextResponse.json({ asset, warning: "素材已保存，可用于基础视频生成；扩展工作流登记暂未成功。" }, { status: 201 });
     }
   } catch (error) {
+    const handled = errorResponse(error);
+    if (handled) return handled;
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
 }
 
 export async function DELETE(request: Request) {
+  let user;
+  try {
+    user = requireUser(request);
+  } catch (error) {
+    const handled = errorResponse(error);
+    return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
+  }
   const url = new URL(request.url);
   const id = url.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "缺少 id" }, { status: 400 });
-  const asset = getAsset(id);
+  const asset = getAssetForUser(id, user.id, user.role === "admin");
   if (!asset) return NextResponse.json({ error: "素材不存在" }, { status: 404 });
   try {
     if (url.searchParams.get("cloud") === "1" && (asset.providerMediaId || asset.provider)) await deleteAssetCloud(asset.provider, asset.providerMediaId);

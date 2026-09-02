@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { deleteLocalInputIfUnused, isLocalInputRef, saveLocalImage } from "@/lib/video/local-input";
 import { describeError } from "@/lib/errors";
+import { errorResponse, requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ const MAX_REQUEST_BYTES = 11 * 1024 * 1024;
 
 export async function POST(request: Request) {
   try {
+    requireUser(request);
     const contentLength = Number(request.headers.get("content-length") || 0);
     if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
       return NextResponse.json({ error: "图片过大，请使用 10MB 以内的 JPG、PNG 或 WEBP" }, { status: 413 });
@@ -19,17 +21,22 @@ export async function POST(request: Request) {
     const input = await saveLocalImage(value);
     return NextResponse.json({ input }, { status: 201 });
   } catch (error) {
+    const handled = errorResponse(error);
+    if (handled) return handled;
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
 }
 
 export async function DELETE(request: Request) {
   try {
+    requireUser(request);
     const ref = new URL(request.url).searchParams.get("ref") || "";
     if (!isLocalInputRef(ref)) return NextResponse.json({ error: "本地图片引用无效" }, { status: 400 });
     const deleted = await deleteLocalInputIfUnused(ref);
     return NextResponse.json({ ok: true, deleted });
   } catch (error) {
+    const handled = errorResponse(error);
+    if (handled) return handled;
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
 }

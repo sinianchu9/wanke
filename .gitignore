@@ -7,3 +7,7 @@ node_modules
 data/
 .DS_Store
 npm-debug.log*
+
+# local deployment material
+*.key
+Text.txt

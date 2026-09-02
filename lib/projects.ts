@@ -19,6 +19,32 @@ function rowToShot(row: any, jobIds: string[]): ProjectShot {
 
 export function listProjects(): ProductionProject[] {
   const projectRows = db.prepare("SELECT * FROM projects ORDER BY updated_at DESC, created_at DESC").all() as any[];
+  return assembleProjects(projectRows);
+}
+
+export function listProjectsForUser(userId: string): ProductionProject[] {
+  const projectRows = db.prepare("SELECT * FROM projects WHERE user_id = ? ORDER BY updated_at DESC, created_at DESC").all(userId) as any[];
+  return assembleProjects(projectRows);
+}
+
+export function getProjectRow(id: string) {
+  return db.prepare("SELECT * FROM projects WHERE id=?").get(id) as any | undefined;
+}
+
+/** Ownership check used by every route that touches a project or anything inside it. */
+export function projectOwnedBy(projectId: string, userId: string, isAdmin = false): boolean {
+  const row = getProjectRow(projectId);
+  if (!row) return false;
+  return isAdmin || row.user_id === userId;
+}
+
+export function shotOwnedBy(shotId: string, userId: string, isAdmin = false): boolean {
+  const shot = getShot(shotId);
+  if (!shot) return false;
+  return projectOwnedBy(shot.project_id, userId, isAdmin);
+}
+
+function assembleProjects(projectRows: any[]): ProductionProject[] {
   const shotRows = db.prepare("SELECT * FROM shots ORDER BY project_id, position ASC, created_at ASC").all() as any[];
   const jobRows = db.prepare("SELECT shot_id, job_id FROM shot_jobs ORDER BY created_at ASC").all() as any[];
   const subjectRows = db.prepare("SELECT project_id, subject_id FROM project_subjects ORDER BY created_at ASC").all() as any[];
@@ -59,11 +85,11 @@ export function getShot(id: string) {
   return db.prepare("SELECT * FROM shots WHERE id=?").get(id) as any | undefined;
 }
 
-export function createProject(input: { name: string; description?: string }) {
+export function createProject(input: { name: string; description?: string; userId?: string | null }) {
   const now = new Date().toISOString();
   const id = randomUUID();
-  db.prepare("INSERT INTO projects (id,name,description,created_at,updated_at) VALUES (?,?,?,?,?)")
-    .run(id, input.name.trim(), input.description?.trim() || "", now, now);
+  db.prepare("INSERT INTO projects (id,name,description,user_id,created_at,updated_at) VALUES (?,?,?,?,?,?)")
+    .run(id, input.name.trim(), input.description?.trim() || "", input.userId || null, now, now);
   return listProjects().find(project => project.id === id)!;
 }
 

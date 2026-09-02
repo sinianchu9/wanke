@@ -5,6 +5,8 @@ import { listProjects, selectShotJob } from "@/lib/projects";
 import { getJob, updateJobRemote } from "@/lib/repository";
 import { assembleProject, listProjectAssemblies } from "@/lib/video/project-assembly";
 import { describeError } from "@/lib/errors";
+import { errorResponse, requireUser } from "@/lib/auth";
+import { projectOwnedBy } from "@/lib/projects";
 import type { ResultMedia, StoredJob } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -13,8 +15,16 @@ export const dynamic = "force-dynamic";
 const schema = z.object({ projectId: z.string().min(1) });
 
 export async function POST(request: Request) {
+  let user;
+  try {
+    user = requireUser(request);
+  } catch (error) {
+    const handled = errorResponse(error);
+    return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
+  }
   try {
     const { projectId } = schema.parse(await request.json());
+    if (!projectOwnedBy(projectId, user.id)) return NextResponse.json({ error: "作品不存在" }, { status: 404 });
     let project = listProjects().find(item => item.id === projectId);
     if (!project) return NextResponse.json({ error: "作品不存在" }, { status: 404 });
     if (!project.shots.length) return NextResponse.json({ error: "作品还没有镜头" }, { status: 400 });

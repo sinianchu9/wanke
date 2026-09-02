@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getPublicSettings, updateAppSettings } from "@/lib/settings";
 import { describeError } from "@/lib/errors";
+import { errorResponse, requireAdmin, requireUser } from "@/lib/auth";
+import { writeAudit } from "@/lib/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,15 +32,29 @@ const schema = z.object({
   clearYikeAccessKeySecret: z.boolean().optional(),
 });
 
-export async function GET() {
-  return NextResponse.json({ settings: getPublicSettings() });
+export async function GET(request: Request) {
+  try {
+    requireUser(request);
+    return NextResponse.json({ settings: getPublicSettings() });
+  } catch (error) {
+    const handled = errorResponse(error);
+    return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
   try {
+    const admin = requireAdmin(request);
     const input = schema.parse(await request.json());
-    return NextResponse.json({ ok: true, settings: updateAppSettings(input) });
+    const settings = updateAppSettings(input);
+    writeAudit(admin.id, "settings.update", "settings", "app", {
+      fields: Object.keys(input).filter(key => !(input as Record<string, unknown>)[key]),
+    });
+    return NextResponse.json({ ok: true, settings });
   } catch (error) {
+    const handled = errorResponse(error);
+    if (handled) return handled;
+    if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues.map(issue => issue.message).join("；") }, { status: 400 });
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
 }

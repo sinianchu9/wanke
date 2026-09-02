@@ -1,13 +1,14 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
-import { getAsset } from "@/lib/repository";
+import { getAsset, getAssetForUser } from "@/lib/repository";
 import type { StoredAsset } from "@/lib/types";
 
 export type SubjectType = "person" | "product";
 
 export type StoredSubjectCard = {
   id: string;
+  userId: string | null;
   name: string;
   subjectType: SubjectType;
   description: string;
@@ -30,6 +31,7 @@ function parseIds(value: string | null | undefined) {
 function rowToCard(row: any): StoredSubjectCard {
   return {
     id: row.id,
+    userId: row.user_id || null,
     name: row.name,
     subjectType: row.subject_type,
     description: row.description || "",
@@ -41,11 +43,11 @@ function rowToCard(row: any): StoredSubjectCard {
   };
 }
 
-function assertImageAssets(assetIds: string[]) {
+function assertImageAssets(assetIds: string[], ownerId?: string) {
   const unique = [...new Set(assetIds)];
   if (unique.length < 1 || unique.length > 5) throw new Error("主体卡需要 1–5 张参考图片");
   for (const id of unique) {
-    const asset = getAsset(id);
+    const asset = ownerId ? getAssetForUser(id, ownerId) : getAsset(id);
     if (!asset) throw new Error("主体卡引用了不存在的素材，请重新选择");
     if (asset.mediaType !== "image") throw new Error(`主体卡当前只接受图片素材：“${asset.name}”不是图片`);
   }
@@ -59,15 +61,16 @@ export function createSubjectCard(input: {
   usageNotes?: string;
   primaryAssetId: string;
   assetIds: string[];
+  userId?: string | null;
 }) {
-  const assetIds = assertImageAssets(input.assetIds);
+  const assetIds = assertImageAssets(input.assetIds, input.userId || undefined);
   if (!assetIds.includes(input.primaryAssetId)) throw new Error("主参考图必须属于这张主体卡的参考图片");
   const now = new Date().toISOString();
   const id = randomUUID();
   db.prepare(`INSERT INTO subject_cards
-    (id, name, subject_type, description, usage_notes, primary_asset_id, asset_ids_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, input.name.trim(), input.subjectType, input.description?.trim() || "", input.usageNotes?.trim() || "", input.primaryAssetId, JSON.stringify(assetIds), now, now);
+    (id, name, subject_type, description, usage_notes, primary_asset_id, asset_ids_json, user_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, input.name.trim(), input.subjectType, input.description?.trim() || "", input.usageNotes?.trim() || "", input.primaryAssetId, JSON.stringify(assetIds), input.userId || null, now, now);
   return getSubjectCard(id)!;
 }
 
@@ -78,9 +81,10 @@ export function updateSubjectCard(id: string, input: {
   usageNotes?: string;
   primaryAssetId: string;
   assetIds: string[];
+  userId?: string | null;
 }) {
   if (!getSubjectCard(id)) throw new Error("主体卡不存在");
-  const assetIds = assertImageAssets(input.assetIds);
+  const assetIds = assertImageAssets(input.assetIds, input.userId || undefined);
   if (!assetIds.includes(input.primaryAssetId)) throw new Error("主参考图必须属于这张主体卡的参考图片");
   db.prepare(`UPDATE subject_cards SET name=?, subject_type=?, description=?, usage_notes=?, primary_asset_id=?, asset_ids_json=?, updated_at=? WHERE id=?`)
     .run(input.name.trim(), input.subjectType, input.description?.trim() || "", input.usageNotes?.trim() || "", input.primaryAssetId, JSON.stringify(assetIds), new Date().toISOString(), id);
@@ -96,12 +100,24 @@ export function listSubjectCards(): StoredSubjectCard[] {
   return (db.prepare("SELECT * FROM subject_cards ORDER BY updated_at DESC").all() as any[]).map(rowToCard);
 }
 
+export function listSubjectCardsForUser(userId: string): StoredSubjectCard[] {
+  return (db.prepare("SELECT * FROM subject_cards WHERE user_id = ? ORDER BY updated_at DESC").all(userId) as any[]).map(rowToCard);
+}
+
+export function getSubjectCardForUser(id: string, userId: string, isAdmin = false): StoredSubjectCard | null {
+  const card = getSubjectCard(id);
+  if (!card) return null;
+  if (!isAdmin && card.userId !== userId) return null;
+  return card;
+}
+
 export function deleteSubjectCard(id: string) {
   return db.prepare("DELETE FROM subject_cards WHERE id=?").run(id).changes > 0;
 }
 
-export function publicSubjectCards() {
-  return listSubjectCards().map(card => {
+export function publicSubjectCards(userId?: string) {
+  const cards = userId ? listSubjectCardsForUser(userId) : listSubjectCards();
+  return cards.map(card => {
     const assets = card.assetIds.map(id => getAsset(id)).filter((asset): asset is StoredAsset => Boolean(asset));
     const primaryAsset = getAsset(card.primaryAssetId) || assets[0] || null;
     const liveAssetIds = assets.map(asset => asset.id);
