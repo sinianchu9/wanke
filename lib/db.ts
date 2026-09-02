@@ -8,7 +8,8 @@ type GlobalWithDb = typeof globalThis & { __wankeDb?: any };
 function openDb() {
   const dbPath = path.resolve(process.env.WANKE_DB_PATH || "./data/wanke.db");
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  const db = new Database(dbPath);
+  const db = new Database(dbPath, { timeout: 10000 });
+  db.pragma("busy_timeout = 10000");
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(`
