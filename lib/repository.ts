@@ -11,6 +11,7 @@ const parse = <T>(value: string | null | undefined, fallback: T): T => {
 function rowToJob(row: any): StoredJob {
   return {
     id: row.id,
+    userId: row.user_id || null,
     kind: row.kind,
     title: row.title,
     providerJobId: row.provider_job_id,
@@ -31,6 +32,7 @@ function rowToJob(row: any): StoredJob {
 function rowToAsset(row: any): StoredAsset {
   return {
     id: row.id,
+    userId: row.user_id || null,
     providerMediaId: row.provider_media_id,
     name: row.name,
     mediaType: row.media_type,
@@ -46,13 +48,14 @@ export function createJob(input: {
   title?: string;
   request: Record<string, unknown>;
   parentJobId?: string | null;
+  userId?: string | null;
 }) {
   const now = new Date().toISOString();
   const id = randomUUID();
   db.prepare(`INSERT INTO jobs
-    (id, kind, title, status, request_json, output_json, parent_job_id, created_at, updated_at)
-    VALUES (?, ?, ?, 'queued', ?, '[]', ?, ?, ?)`) 
-    .run(id, input.kind, input.title?.trim() || defaultTitle(input.kind), JSON.stringify(input.request), input.parentJobId || null, now, now);
+    (id, kind, title, status, request_json, output_json, parent_job_id, user_id, created_at, updated_at)
+    VALUES (?, ?, ?, 'queued', ?, '[]', ?, ?, ?, ?)`) 
+    .run(id, input.kind, input.title?.trim() || defaultTitle(input.kind), JSON.stringify(input.request), input.parentJobId || null, input.userId || null, now, now);
 
   if (input.parentJobId) {
     const membership = db.prepare("SELECT shot_id FROM shot_jobs WHERE job_id=?").get(input.parentJobId) as any;
@@ -75,11 +78,26 @@ export function listJobs(limit = 100): StoredJob[] {
   return (db.prepare("SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?").all(limit) as any[]).map(rowToJob);
 }
 
-export function listActiveJobs(limit = 20): StoredJob[] {
+export function listJobsForUser(userId: string, limit = 100): StoredJob[] {
+  return (db.prepare("SELECT * FROM jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?").all(userId, limit) as any[]).map(rowToJob);
+}
+
+/** Ownership-aware lookup: owners see their jobs, admins see everything, others see nothing. */
+export function getJobForUser(id: string, userId: string, isAdmin = false): StoredJob | null {
+  const job = getJob(id);
+  if (!job) return null;
+  if (!isAdmin && job.userId !== userId) return null;
+  return job;
+}
+
+export function listActiveJobs(limit = 20, userId?: string): StoredJob[] {
   const now = Date.now();
   // A provider can temporarily introduce/return a status Wanke does not recognize yet.
   // Keep pollable `unknown` jobs in the recovery loop instead of silently dropping them.
-  const candidates = (db.prepare("SELECT * FROM jobs WHERE status IN ('queued','running','unknown') AND provider_job_id IS NOT NULL ORDER BY updated_at ASC LIMIT 100").all() as any[]).map(rowToJob);
+  const rows = userId
+    ? db.prepare("SELECT * FROM jobs WHERE status IN ('queued','running','unknown') AND provider_job_id IS NOT NULL AND user_id = ? ORDER BY updated_at ASC LIMIT 100").all(userId)
+    : db.prepare("SELECT * FROM jobs WHERE status IN ('queued','running','unknown') AND provider_job_id IS NOT NULL ORDER BY updated_at ASC LIMIT 100").all();
+  const candidates = (rows as any[]).map(rowToJob);
   return candidates.filter(job => {
     if (job.details?.pollable === false) return false;
     const ageMs = Math.max(0, now - new Date(job.createdAt).getTime());
@@ -169,13 +187,14 @@ export function createAsset(input: {
   mediaType: string;
   sourceUrl: string;
   provider?: Record<string, unknown> | null;
+  userId?: string | null;
 }) {
   const now = new Date().toISOString();
   const id = randomUUID();
   db.prepare(`INSERT INTO assets
-    (id, provider_media_id, name, media_type, source_url, provider_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`) 
-    .run(id, input.providerMediaId || null, input.name, input.mediaType, input.sourceUrl, JSON.stringify(input.provider || null), now, now);
+    (id, provider_media_id, name, media_type, source_url, provider_json, user_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`) 
+    .run(id, input.providerMediaId || null, input.name, input.mediaType, input.sourceUrl, JSON.stringify(input.provider || null), input.userId || null, now, now);
   return getAsset(id)!;
 }
 
@@ -186,6 +205,17 @@ export function getAsset(id: string): StoredAsset | null {
 
 export function listAssets(limit = 300): StoredAsset[] {
   return (db.prepare("SELECT * FROM assets ORDER BY created_at DESC LIMIT ?").all(limit) as any[]).map(rowToAsset);
+}
+
+export function listAssetsForUser(userId: string, limit = 300): StoredAsset[] {
+  return (db.prepare("SELECT * FROM assets WHERE user_id = ? ORDER BY created_at DESC LIMIT ?").all(userId, limit) as any[]).map(rowToAsset);
+}
+
+export function getAssetForUser(id: string, userId: string, isAdmin = false): StoredAsset | null {
+  const asset = getAsset(id);
+  if (!asset) return null;
+  if (!isAdmin && asset.userId !== userId) return null;
+  return asset;
 }
 
 export function deleteAsset(id: string) {

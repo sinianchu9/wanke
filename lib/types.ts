@@ -28,6 +28,7 @@ export interface ResultMedia {
 
 export interface StoredJob {
   id: string;
+  userId: string | null;
   kind: JobKind;
   title: string;
   providerJobId: string | null;
@@ -46,6 +47,7 @@ export interface StoredJob {
 
 export interface StoredAsset {
   id: string;
+  userId: string | null;
   providerMediaId: string | null;
   name: string;
   mediaType: string;

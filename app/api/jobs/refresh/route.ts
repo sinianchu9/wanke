@@ -3,31 +3,39 @@ import { archiveJobOutput } from "@/lib/archive";
 import { getJob, listActiveJobs, updateJobRemote } from "@/lib/repository";
 import { refreshJob } from "@/lib/video/provider";
 import type { ResultMedia, StoredJob } from "@/lib/types";
+import { errorResponse, requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST() {
-  const jobs = listActiveJobs(12);
-  const refreshResults = await Promise.allSettled(jobs.map(async job => {
-    const remote = await refreshJob(job);
-    return updateJobRemote(job.id, remote);
-  }));
+export async function POST(request: Request) {
+  try {
+    const user = requireUser(request);
+    // Members only poll their own jobs; admins refresh everything.
+    const jobs = listActiveJobs(12, user.role === "admin" ? undefined : user.id);
+    const refreshResults = await Promise.allSettled(jobs.map(async job => {
+      const remote = await refreshJob(job);
+      return updateJobRemote(job.id, remote);
+    }));
 
-  const updatedJobs = refreshResults
-    .filter((result): result is PromiseFulfilledResult<StoredJob | null> => result.status === "fulfilled")
-    .map(result => result.value)
-    .filter((job): job is StoredJob => Boolean(job));
+    const updatedJobs = refreshResults
+      .filter((result): result is PromiseFulfilledResult<StoredJob | null> => result.status === "fulfilled")
+      .map(result => result.value)
+      .filter((job): job is StoredJob => Boolean(job));
 
-  const archiveCandidates = updatedJobs.filter(job => shouldAutoArchive(job));
-  const archiveResults = await mapLimit(archiveCandidates, 2, async job => autoArchiveQuickResult(job));
+    const archiveCandidates = updatedJobs.filter(job => shouldAutoArchive(job));
+    const archiveResults = await mapLimit(archiveCandidates, 2, async job => autoArchiveQuickResult(job));
 
-  return NextResponse.json({
-    refreshed: refreshResults.filter(result => result.status === "fulfilled").length,
-    failed: refreshResults.filter(result => result.status === "rejected").length,
-    autoArchived: archiveResults.filter(result => result.ok).length,
-    archivePending: archiveResults.filter(result => !result.ok).length,
-  });
+    return NextResponse.json({
+      refreshed: refreshResults.filter(result => result.status === "fulfilled").length,
+      failed: refreshResults.filter(result => result.status === "rejected").length,
+      autoArchived: archiveResults.filter(result => result.ok).length,
+      archivePending: archiveResults.filter(result => !result.ok).length,
+    });
+  } catch (error) {
+    const handled = errorResponse(error);
+    return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
+  }
 }
 
 function shouldAutoArchive(job: StoredJob) {

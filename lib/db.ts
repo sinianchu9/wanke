@@ -146,8 +146,116 @@ function openDb() {
       updated_at TEXT NOT NULL,
       FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
+
+    -- ===== SaaS layer: accounts, sessions, billing, works, audit =====
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user','admin')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),
+      avatar_url TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_login_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+    CREATE TABLE IF NOT EXISTS memberships (
+      user_id TEXT PRIMARY KEY,
+      plan TEXT NOT NULL DEFAULT 'free' CHECK(plan IN ('free','pro','studio')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','expired','suspended')),
+      quota_limit_videos INTEGER NOT NULL,
+      quota_used_videos INTEGER NOT NULL DEFAULT 0,
+      period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS works (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      cover_url TEXT,
+      video_url TEXT,
+      archived_file TEXT,
+      job_ids_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived')),
+      visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_works_user_created ON works(user_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS admin_audit_logs (
+      id TEXT PRIMARY KEY,
+      admin_user_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL DEFAULT '',
+      meta_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_created ON admin_audit_logs(created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS login_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL,
+      ip TEXT NOT NULL DEFAULT '',
+      success INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_login_attempts_email_created ON login_attempts(email, created_at DESC);
   `);
+  addColumnIfMissing(db, "jobs", "user_id", "TEXT");
+  addColumnIfMissing(db, "assets", "user_id", "TEXT");
+  addColumnIfMissing(db, "projects", "user_id", "TEXT");
+  addColumnIfMissing(db, "subject_cards", "user_id", "TEXT");
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_jobs_user_created ON jobs(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_assets_user_created ON assets(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_projects_user_updated ON projects(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_subject_cards_user ON subject_cards(user_id, updated_at DESC);
+  `);
+  seedAdminFromEnv(db);
   return db;
+}
+
+// Idempotent column migration so pre-SaaS databases upgrade safely.
+// Legacy rows keep user_id NULL: they stay invisible to members and are
+// only visible to admins (see docs/SAAS.md "Legacy data").
+// Multiple Next workers can boot at once, so treat "duplicate column" as success.
+function addColumnIfMissing(db: any, table: string, column: string, type: string) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (cols.some(c => c.name === column)) return;
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  } catch (error: any) {
+    if (!String(error?.message || "").includes("duplicate column")) throw error;
+  }
+}
+
+function seedAdminFromEnv(db: any) {
+  const adminEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  if (!adminEmail) return;
+  const row = db.prepare("SELECT id, role FROM users WHERE email = ?").get(adminEmail) as { id: string; role: string } | undefined;
+  if (row && row.role !== "admin") {
+    db.prepare("UPDATE users SET role='admin', updated_at=? WHERE id=?").run(new Date().toISOString(), row.id);
+  }
 }
 
 const globalForDb = globalThis as GlobalWithDb;

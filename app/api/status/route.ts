@@ -4,11 +4,18 @@ import { testConnection } from "@/lib/yike/provider";
 import { modelStudioConfigSummary } from "@/lib/video/modelstudio";
 import { getVideoProviderMode } from "@/lib/settings";
 import { describeError } from "@/lib/errors";
+import { errorResponse, requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  try {
+    requireUser(request);
+  } catch (error) {
+    const handled = errorResponse(error);
+    return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
+  }
   const yike = yikeConfigSummary();
   const modelStudio = modelStudioConfigSummary();
   const providerMode = getVideoProviderMode();

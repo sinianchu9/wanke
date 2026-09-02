@@ -26,12 +26,14 @@ import {
   WandSparkles,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import CreatorForms from "@/components/forms";
 import SimpleVideoGenerator from "@/components/simple-video-generator";
 import QuickCreationWizard from "@/components/quick-creation-wizard";
 import ChatCreationHome from "@/components/chat-creation-home";
 import AssetLibrary from "@/components/asset-library";
 import JobCenter from "@/components/job-center";
+import WorksLibrary from "@/components/works-library";
 import ProjectHome from "@/components/project-home";
 import SettingsPanel from "@/components/settings-panel";
 import SubjectLibrary, { type PublicSubjectCard } from "@/components/subject-library";
@@ -40,7 +42,7 @@ import type { StoredAsset, StoredJob } from "@/lib/types";
 import styles from "@/components/studio-shell.module.css";
 import workflowStyles from "@/components/workflow-surface.module.css";
 
-type Tab = "home" | "quick" | "generate" | "projects" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "subjects" | "jobs" | "settings";
+type Tab = "home" | "quick" | "generate" | "projects" | "works" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "subjects" | "jobs" | "settings";
 type WorkflowTab = "quick" | "generate" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation";
 type ProviderMode = "auto" | "modelstudio" | "yike";
 type QuickCreateResult = { submitted?: number; failed?: number; projectName?: string };
@@ -48,7 +50,8 @@ type QuickCreateResult = { submitted?: number; failed?: number; projectName?: st
 const CHAT_DRAFT_KEY = "wanke:chat-creation-draft:v1";
 
 const primaryNav = [
-  { id: "projects" as const, label: "我的作品", icon: FolderKanban },
+  { id: "projects" as const, label: "项目空间", icon: FolderKanban },
+  { id: "works" as const, label: "我的作品", icon: Film },
   { id: "jobs" as const, label: "任务中心", icon: ListVideo },
   { id: "assets" as const, label: "素材库", icon: Library },
   { id: "subjects" as const, label: "主体库", icon: UserRound },
@@ -69,7 +72,8 @@ const labels: Record<Tab, string> = {
   home: "新建创作",
   quick: "快速向导",
   generate: "高级创作",
-  projects: "我的作品",
+  projects: "项目空间",
+  works: "我的作品",
   remake: "高级复刻",
   clone: "快速复刻",
   avatar: "数字人口播",
@@ -115,20 +119,47 @@ export default function Studio() {
   const [notice, setNotice] = useState<string>("");
   const [status, setStatus] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [me, setMe] = useState<any>(null);
 
   const loadAll = useCallback(async () => {
-    const [j, a, subjectData, projectData, s] = await Promise.all([
+    const [j, a, subjectData, projectData, s, meData] = await Promise.all([
       fetch("/api/jobs", { cache: "no-store" }).then(r => r.json()),
       fetch("/api/assets", { cache: "no-store" }).then(r => r.json()),
       fetch("/api/subjects", { cache: "no-store" }).then(r => r.json()),
       fetch("/api/projects", { cache: "no-store" }).then(r => r.json()),
       fetch("/api/status", { cache: "no-store" }).then(r => r.json()),
+      fetch("/api/auth/me", { cache: "no-store" }).then(r => r.json()),
     ]);
+    if (!meData.user) {
+      window.location.href = "/login?next=/studio";
+      return;
+    }
     setJobs(mergeJobs(j.jobs || [], projectData.jobs || []));
     setAssets(a.assets || []);
     setSubjects(subjectData.subjects || []);
     setProjects(projectData.projects || []);
     setStatus(s);
+    setMe(meData);
+  }, []);
+
+  const saveAsWork = useCallback(async (job: StoredJob, outputIndex: number) => {
+    try {
+      const response = await fetch("/api/works", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id, outputIndex }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "保存失败");
+      setNotice(`已保存到「我的作品」：${body.work?.title || job.title}`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const logout = useCallback(async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/";
   }, []);
 
   useEffect(() => {
@@ -435,12 +466,31 @@ export default function Studio() {
           <div className={styles.topbarTitle}><span>{labels[tab]}</span></div>
           <div className={styles.topbarSpacer} />
           <div className={styles.topbarStats}>
+            {me?.membership && (
+              <Link href="/account" className={styles.statPill} title={`${me.membership.planInfo?.label || ""} · 本周期 ${me.membership.quotaUsedVideos}/${me.membership.quotaLimitVideos} 条 · 点击管理套餐`}>
+                <b>{me.membership.quotaRemainingVideos}</b>剩余额度
+              </Link>
+            )}
             <span className={styles.statPill}><b>{stats.active}</b>处理中</span>
             <span className={styles.statPill}><b>{stats.success}</b>已完成</span>
             <span className={styles.statPill}><b>{stats.assets}</b>素材</span>
           </div>
           <button className={styles.iconButton} title="刷新" onClick={() => loadAll()}><RefreshCw size={16} /></button>
           <button className={styles.iconButton} title="设置" onClick={() => navigate("settings")}><SettingsIcon size={16} /></button>
+          {me?.user && (
+            <div className={styles.userChip}>
+              <span className={styles.userChipBadge}>{(me.user.name || me.user.email || "?").slice(0, 1).toUpperCase()}</span>
+              <div className={styles.userChipMeta}>
+                <strong>{me.user.name}</strong>
+                <span>{me.membership?.planInfo?.label || "免费版"}{me.user.role === "admin" ? " · 管理员" : ""}</span>
+              </div>
+              <div className={styles.userChipActions}>
+                <Link href="/account">会员中心</Link>
+                {me.user.role === "admin" && <Link href="/admin">管理后台</Link>}
+                <button onClick={logout}>退出</button>
+              </div>
+            </div>
+          )}
         </header>
 
         {notice && <div className={styles.notice}><WandSparkles size={15} />{notice}</div>}
@@ -494,9 +544,10 @@ export default function Studio() {
           ) : (
             <div className={styles.contentInner}>
               {tab === "projects" && <ProjectHome projects={projects} jobs={jobs} subjects={subjects} onChanged={loadAll} onCreateInShot={createInShot} focusProjectId={focusedProjectId} />}
+              {tab === "works" && <WorksLibrary onNotice={setNotice} />}
               {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={yikeReady} />}
               {tab === "subjects" && <SubjectLibrary subjects={subjects} assets={assets} onChanged={loadAll} />}
-              {tab === "jobs" && <JobCenter key={focusedJobId || "job-center"} jobs={focusedJobs} modelStudioAvailable={modelStudioConfigured} onChanged={loadAll} onGoAssets={() => navigate("assets")} />}
+              {tab === "jobs" && <JobCenter key={focusedJobId || "job-center"} jobs={focusedJobs} modelStudioAvailable={modelStudioConfigured} onChanged={loadAll} onGoAssets={() => navigate("assets")} onSaveWork={saveAsWork} />}
               {tab === "settings" && <SettingsPanel onChanged={loadAll} />}
             </div>
           )}

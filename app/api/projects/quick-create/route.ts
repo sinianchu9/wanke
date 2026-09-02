@@ -10,6 +10,10 @@ import { setProjectTransitionSettings } from "@/lib/video/project-transitions";
 import { validateJobInput } from "@/lib/yike/schemas";
 import { getModelStudioRuntimeConfig, getVideoProviderMode, getYikeRuntimeConfig } from "@/lib/settings";
 import { describeError } from "@/lib/errors";
+import { errorResponse, requireUser, type SessionUser } from "@/lib/auth";
+import { refundQuota, reserveQuota } from "@/lib/membership";
+import { getAssetForUser } from "@/lib/repository";
+import { getSubjectCardForUser } from "@/lib/subjects";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,17 +53,32 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
+  let user: SessionUser;
+  try {
+    user = requireUser(request);
+  } catch (error) {
+    const handled = errorResponse(error);
+    return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
+  }
   try {
     const input = schema.parse(await request.json());
+    if (input.subjectId && !getSubjectCardForUser(input.subjectId, user.id)) {
+      return NextResponse.json({ error: "所选主体卡不存在" }, { status: 400 });
+    }
+    if (input.imageAssetId && !getAssetForUser(input.imageAssetId, user.id)) {
+      return NextResponse.json({ error: "所选素材不存在" }, { status: 400 });
+    }
     const effectiveProviderMode = input.providerMode ?? getVideoProviderMode();
     assertQuickGenerationReady(Boolean(input.localInputRef), effectiveProviderMode);
     const plan = buildQuickCreationPlan({ ...input, name: input.name || inferredProjectName(input.goal, input.type) });
     await preflightQuickPlan(plan, effectiveProviderMode);
 
-    const project = createProject({ name: plan.projectName, description: plan.projectDescription });
+    const project = createProject({ name: plan.projectName, description: plan.projectDescription, userId: user.id });
     if (input.subjectId) setProjectSubjects(project.id, [input.subjectId]);
     if (plan.shots.length > 1) setProjectTransitionSettings({ projectId: project.id, transitionType: "fade", duration: 0.5 });
 
+    // Reserve one quota unit per shot before submitting; refund per synchronous failure.
+    reserveQuota(user.id, plan.shots.length);
     const results: Array<{ shotId: string; shotName: string; jobId: string; status: string; error?: string | null }> = [];
     for (const shotPlan of plan.shots) {
       const shot = createShot({ projectId: project.id, name: shotPlan.name, brief: shotPlan.brief });
@@ -69,7 +88,7 @@ export async function POST(request: Request) {
         shotId: shot.id,
         referenceSource: plan.referenceSource,
       });
-      let job = createJob({ kind: "video_generation", title: `${project.name} · ${shot.name}`, request: jobInput });
+      let job = createJob({ kind: "video_generation", title: `${project.name} · ${shot.name}`, request: jobInput, userId: user.id });
       assignJobToShot(shot.id, job.id);
       try {
         const prepared = await prepareJobInput("video_generation", jobInput);
@@ -89,6 +108,7 @@ export async function POST(request: Request) {
           },
         })!;
       } catch (error) {
+        refundQuota(user.id, 1);
         job = updateJobRemote(job.id, {
           status: "failed",
           error: describeError(error),
@@ -114,6 +134,8 @@ export async function POST(request: Request) {
       failed: results.length - submitted,
     }, { status: 201 });
   } catch (error) {
+    const handled = errorResponse(error);
+    if (handled) return handled;
     if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues.map(issue => issue.message).join("；") }, { status: 400 });
     return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }

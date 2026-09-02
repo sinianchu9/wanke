@@ -4,6 +4,8 @@ import { listProjects } from "@/lib/projects";
 import { getJob } from "@/lib/repository";
 import { ffprobeAvailable, mediaProfileKey, probeResultMedia } from "@/lib/video/media-probe";
 import { describeError } from "@/lib/errors";
+import { errorResponse, requireUser, type SessionUser } from "@/lib/auth";
+import { projectOwnedBy } from "@/lib/projects";
 import type { ResultMedia } from "@/lib/types";
 
 export const runtime = "nodejs";

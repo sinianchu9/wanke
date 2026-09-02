@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { errorResponse, requireUser } from "@/lib/auth";
 import { getModelStudioRuntimeConfig } from "@/lib/settings";
 import { buildTemplateEnhancedPrompt, getVideoRecipe, recipeSupportsMode } from "@/lib/video/recipes";
 
@@ -40,6 +41,7 @@ function plainText(value: unknown) {
 
 export async function POST(request: Request) {
   try {
+    requireUser(request);
     const input = schema.parse(await request.json());
     const recipe = getVideoRecipe(input.recipeId);
     if (!recipeSupportsMode(recipe.id, input.jobType)) {
@@ -104,6 +106,8 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ prompt: enhanced, engine: "qwen-plus", recipeId: recipe.id });
     } catch (error) {
+    const handled = errorResponse(error);
+    if (handled) return handled;
       return NextResponse.json({
         prompt: fallback,
         engine: "template",

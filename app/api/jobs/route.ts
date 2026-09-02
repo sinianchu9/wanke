@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createJob, listJobs, updateJobRemote } from "@/lib/repository";
-import { assignJobToShot, getShot } from "@/lib/projects";
+import { createJob, listJobsForUser, updateJobRemote } from "@/lib/repository";
+import { assignJobToShot, getShot, shotOwnedBy } from "@/lib/projects";
 import { JOB_KINDS } from "@/lib/types";
 import { submitJob } from "@/lib/video/provider";
 import { prepareJobInput } from "@/lib/video/prepare";
 import { describeError } from "@/lib/errors";
+import { errorResponse, requireUser, type SessionUser } from "@/lib/auth";
+import { refundQuota, reserveQuota } from "@/lib/membership";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,16 +20,38 @@ const createSchema = z.object({
   shotId: z.string().optional().nullable(),
 });
 
-export async function GET() {
-  return NextResponse.json({ jobs: listJobs() });
+export async function GET(request: Request) {
+  try {
+    const user = requireUser(request);
+    return NextResponse.json({ jobs: listJobsForUser(user.id) });
+  } catch (error) {
+    const handled = errorResponse(error);
+    return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
+  let user: SessionUser;
+  try {
+    user = requireUser(request);
+  } catch (error) {
+    const handled = errorResponse(error);
+    return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
+  }
+
   let job: ReturnType<typeof createJob> | null = null;
+  let reserved = false;
   try {
     const payload = createSchema.parse(await request.json());
-    if (payload.shotId && !getShot(payload.shotId)) return NextResponse.json({ error: "当前项目镜头已经不存在，请重新选择镜头" }, { status: 400 });
-    job = createJob({ kind: payload.kind, title: payload.title, request: payload.input, parentJobId: payload.parentJobId });
+    if (payload.shotId) {
+      if (!getShot(payload.shotId) || !shotOwnedBy(payload.shotId, user.id)) {
+        return NextResponse.json({ error: "当前项目镜头已经不存在，请重新选择镜头" }, { status: 400 });
+      }
+    }
+    // Quota: reserve before provider submission; refund when the provider rejects synchronously.
+    reserveQuota(user.id, 1);
+    reserved = true;
+    job = createJob({ kind: payload.kind, title: payload.title, request: payload.input, parentJobId: payload.parentJobId, userId: user.id });
     if (payload.shotId) assignJobToShot(payload.shotId, job.id);
     const preparedInput = await prepareJobInput(payload.kind, payload.input);
     const submitted = await submitJob(payload.kind, preparedInput);
@@ -41,7 +65,10 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ job }, { status: 201 });
   } catch (error) {
+    const handled = errorResponse(error);
+    if (handled) return handled;
     const message = errorMessage(error);
+    if (reserved) refundQuota(user.id, 1);
     if (job) updateJobRemote(job.id, { status: "failed", error: message });
     return NextResponse.json({ error: message, job: job ? updateJobRemote(job.id, {}) : null }, { status: 400 });
   }

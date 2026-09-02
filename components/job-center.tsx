@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Check, ChevronRight, Clock3, Copy, Download, ExternalLink, Film, GitBranch, Layers3, LoaderCircle, RefreshCw, Repeat2, RotateCcw, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, BookmarkPlus, Check, ChevronRight, Clock3, Copy, Download, ExternalLink, Film, GitBranch, Layers3, LoaderCircle, RefreshCw, Repeat2, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import ContinueCreation from "@/components/continue-creation";
 import VideoExtend from "@/components/video-extend";
 import VideoEdit from "@/components/video-edit";
@@ -10,11 +10,12 @@ import { JOB_KIND_LABELS, type ResultMedia, type StoredJob } from "@/lib/types";
 const kindName: Record<string, string> = JOB_KIND_LABELS;
 type BatchMeta = { id: string; index: number; total: number };
 
-export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoAssets: _onGoAssets }: {
+export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoAssets: _onGoAssets, onSaveWork }: {
   jobs: StoredJob[];
   modelStudioAvailable: boolean;
   onChanged: () => Promise<void> | void;
   onGoAssets: () => void;
+  onSaveWork?: (job: StoredJob, outputIndex: number) => Promise<void> | void;
 }) {
   const [selected, setSelected] = useState<string | null>(jobs[0]?.id || null);
   const [busy, setBusy] = useState("");
@@ -135,7 +136,7 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
 
         {current.outputs.length > 0 ? <div>
           <div className="subhead"><h3>生成结果</h3><span>{current.outputs.length} 个输出 · 可直接查看和保存</span></div>
-          <div className={`result-grid ${current.outputs.length === 1 ? "single" : ""}`}>{current.outputs.map((output, index) => <ResultCard output={output} key={`${output.outputUrl}-${index}`} index={index} onArchive={() => archive(current, index)} busy={busy !== ""}/>)}</div>
+          <div className={`result-grid ${current.outputs.length === 1 ? "single" : ""}`}>{current.outputs.map((output, index) => <ResultCard output={output} key={`${output.outputUrl}-${index}`} index={index} onArchive={() => archive(current, index)} onSaveWork={current.status === "succeeded" && onSaveWork ? () => onSaveWork(current, index) : undefined} busy={busy !== ""}/>)}</div>
         </div> : <PendingState job={current}/>} 
 
         <ContinueCreation job={current} onCreated={selectCreated}/>
@@ -197,11 +198,12 @@ function PendingState({ job }: { job: StoredJob }) {
   return <div className="pending-card"><LoaderCircle className={job.status === "running" || job.status === "queued" ? "spin" : ""} size={24}/><div><strong>{title}</strong><span>{text}</span></div></div>;
 }
 
-function ResultCard({ output, index, onArchive, busy }: { output: ResultMedia; index: number; onArchive: () => void; busy: boolean }) {
+function ResultCard({ output, index, onArchive, onSaveWork, busy }: { output: ResultMedia; index: number; onArchive: () => void; onSaveWork?: () => void; busy: boolean }) {
   const remote = output.outputUrl || "";
   const url = output.archivedFile ? `/api/archive/${encodeURIComponent(output.archivedFile)}` : remote;
   const subtitle = output.kind === "subtitle" || /\.srt(\?|$)/i.test(url);
   const json = output.kind === "json" || /\.json(\?|$)/i.test(url);
+  const isVideo = !subtitle && !json && output.kind !== "other" && Boolean(url);
   return <article className="result-card">
     {subtitle ? <div className="subtitle-result"><strong>SRT</strong><span>{output.label || "字幕文件"}</span></div>
       : json ? <div className="subtitle-result json-result"><strong>JSON</strong><span>{output.label || "结构化生产文件"}</span></div>
@@ -215,6 +217,7 @@ function ResultCard({ output, index, onArchive, busy }: { output: ResultMedia; i
         {output.editingProjectId && <span>剪辑工程: {short(output.editingProjectId)}</span>}
       </div>
       <div className="result-actions">
+        {isVideo && onSaveWork && <button className="icon-button" disabled={busy} title="保存到「我的作品」，长期管理" onClick={onSaveWork}><BookmarkPlus size={15}/></button>}
         {remote && !output.archivedFile && <button className="icon-button" disabled={busy} title="保存到本机（推荐），避免云端结果链接过期" onClick={onArchive}><Download size={15}/></button>}
         {url && <a className="icon-button" href={url} target="_blank" rel="noreferrer" title="打开结果"><ExternalLink size={15}/></a>}
       </div>
