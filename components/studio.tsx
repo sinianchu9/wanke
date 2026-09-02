@@ -8,19 +8,23 @@ import {
   ChevronRight,
   Clapperboard,
   CopyCheck,
+  Crown,
   Film,
   FolderKanban,
   Languages,
   Library,
   ListVideo,
   LoaderCircle,
+  LogOut,
   Menu,
   Mic2,
+  MoreHorizontal,
   PanelLeftClose,
   Plus,
   RefreshCw,
   ScanFace,
   Settings as SettingsIcon,
+  ShieldCheck,
   Sparkles,
   UserRound,
   WandSparkles,
@@ -120,6 +124,7 @@ export default function Studio() {
   const [status, setStatus] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [me, setMe] = useState<any>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const loadAll = useCallback(async () => {
     const [j, a, subjectData, projectData, s, meData] = await Promise.all([
@@ -442,14 +447,42 @@ export default function Studio() {
         </div>
 
         <div className={styles.sidebarFooter}>
-          <button className={styles.serviceButton} onClick={() => navigate("settings")}>
-            <span className={`${styles.statusDot} ${generationReady === true ? styles.statusDotReady : generationReady === false ? styles.statusDotBad : ""}`} />
-            <span className={styles.serviceButtonText}>
-              <strong>{generationReady === null ? "正在检查视频服务" : generationReady ? "默认线路可用" : "默认线路需要配置"}</strong>
-              <small>{providerMode === "auto" ? "默认：自动路由" : providerMode === "modelstudio" ? "默认：强制百炼" : "默认：强制万镜一刻"}</small>
-            </span>
-            <SettingsIcon size={14} />
-          </button>
+          {userMenuOpen && <button className={styles.userMenuScrim} aria-label="关闭菜单" onClick={() => setUserMenuOpen(false)} />}
+          <div className={styles.userMenuWrap}>
+            {me?.user && userMenuOpen && (
+              <div className={styles.userMenuPopover}>
+                <button className={styles.userMenuItem} onClick={() => { setUserMenuOpen(false); navigate("settings"); }}>
+                  <span className={`${styles.statusDot} ${generationReady === true ? styles.statusDotReady : generationReady === false ? styles.statusDotBad : ""}`} />
+                  <span>{generationReady === null ? "正在检查视频服务" : generationReady ? "默认线路可用" : "默认线路需要配置"}</span>
+                  <small>{providerMode === "auto" ? "自动路由" : providerMode === "modelstudio" ? "强制百炼" : "强制万镜一刻"}</small>
+                </button>
+                <div className={styles.userMenuDivider} />
+                <Link className={styles.userMenuItem} href="/account">
+                  <Crown size={15} /><span>会员中心</span>
+                </Link>
+                <button className={styles.userMenuItem} onClick={() => { setUserMenuOpen(false); navigate("settings"); }}>
+                  <SettingsIcon size={15} /><span>设置</span>
+                </button>
+                {me.user.role === "admin" && (
+                  <Link className={styles.userMenuItem} href="/admin">
+                    <ShieldCheck size={15} /><span>管理后台</span>
+                  </Link>
+                )}
+                <div className={styles.userMenuDivider} />
+                <button className={`${styles.userMenuItem} ${styles.userMenuItemDanger}`} onClick={logout}>
+                  <LogOut size={15} /><span>退出登录</span>
+                </button>
+              </div>
+            )}
+            <button className={styles.userMenuButton} onClick={() => setUserMenuOpen(value => !value)}>
+              <span className={styles.userMenuAvatar}>{(me?.user?.name || me?.user?.email || "?").slice(0, 1).toUpperCase()}</span>
+              <span className={styles.userMenuMeta}>
+                <strong>{me?.user?.name || "未登录"}</strong>
+                <small>{me?.membership?.planInfo?.label || "免费版"}{me?.user?.role === "admin" ? " · 管理员" : ""}</small>
+              </span>
+              <MoreHorizontal size={16} className={styles.userMenuDots} />
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -477,20 +510,6 @@ export default function Studio() {
           </div>
           <button className={styles.iconButton} title="刷新" onClick={() => loadAll()}><RefreshCw size={16} /></button>
           <button className={styles.iconButton} title="设置" onClick={() => navigate("settings")}><SettingsIcon size={16} /></button>
-          {me?.user && (
-            <div className={styles.userChip}>
-              <span className={styles.userChipBadge}>{(me.user.name || me.user.email || "?").slice(0, 1).toUpperCase()}</span>
-              <div className={styles.userChipMeta}>
-                <strong>{me.user.name}</strong>
-                <span>{me.membership?.planInfo?.label || "免费版"}{me.user.role === "admin" ? " · 管理员" : ""}</span>
-              </div>
-              <div className={styles.userChipActions}>
-                <Link href="/account">会员中心</Link>
-                {me.user.role === "admin" && <Link href="/admin">管理后台</Link>}
-                <button onClick={logout}>退出</button>
-              </div>
-            </div>
-          )}
         </header>
 
         {notice && <div className={styles.notice}><WandSparkles size={15} />{notice}</div>}

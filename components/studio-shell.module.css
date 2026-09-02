@@ -28,7 +28,8 @@
 .brandButton,
 .navItem,
 .recentItem,
-.serviceButton,
+.userMenuButton,
+.userMenuItem,
 .groupToggle {
   border: 0;
   background: transparent;
@@ -48,8 +49,7 @@
 
 .brandButton:hover,
 .navItem:hover,
-.recentItem:hover,
-.serviceButton:hover { background: #ececf1; }
+.recentItem:hover { background: #ececf1; }
 
 .brandMark {
   width: 30px;
@@ -128,19 +128,6 @@
 }
 
 .sidebarFooter { padding: 8px; border-top: 1px solid #e5e5e7; }
-.serviceButton {
-  width: 100%;
-  min-height: 44px;
-  border-radius: 9px;
-  padding: 8px 10px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  text-align: left;
-}
-.serviceButtonText { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.serviceButtonText strong { font-size: 11px; }
-.serviceButtonText small { font-size: 9px; color: #888; }
 .statusDot { width: 7px; height: 7px; border-radius: 50%; background: #bbb; flex: 0 0 auto; }
 .statusDotReady { background: #16a36f; }
 .statusDotBad { background: #d64b5f; }
@@ -555,11 +542,63 @@
   .composerHint { padding: 0 12px; line-height: 1.45; }
 }
 
-.userChip { display:flex; align-items:center; gap:9px; border:1px solid var(--line); background:#12161c; border-radius:11px; padding:6px 10px; margin-left:6px; }
-.userChipBadge { width:26px; height:26px; border-radius:8px; background:linear-gradient(145deg,#c9ffb4,#72d87c); color:#0b140b; display:grid; place-items:center; font-weight:800; font-size:13px; }
-.userChipMeta { display:flex; flex-direction:column; line-height:1.2; }
-.userChipMeta strong { font-size:12px; }
-.userChipMeta span { font-size:10px; color:var(--muted); }
-.userChipActions { display:flex; gap:2px; margin-left:6px; }
-.userChipActions a, .userChipActions button { font-size:11px; color:#a8b0ba; border:0; background:transparent; padding:5px 7px; border-radius:7px; }
-.userChipActions a:hover, .userChipActions button:hover { background:#1b212a; color:#fff; }
+.userMenuWrap { position: relative; }
+.userMenuScrim { position: fixed; inset: 0; z-index: 55; border: 0; background: transparent; cursor: default; }
+.userMenuButton {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 11px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+}
+.userMenuButton:hover { background: #ececf1; }
+.userMenuAvatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #202123;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+.userMenuMeta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.userMenuMeta strong { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.userMenuMeta small { font-size: 10px; color: #8d8d92; }
+.userMenuDots { color: #8d8d92; flex: 0 0 auto; }
+.userMenuPopover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  background: #fff;
+  border: 1px solid #e5e5e8;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.12);
+  padding: 6px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+}
+.userMenuItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: #202123;
+  text-align: left;
+}
+.userMenuItem:hover { background: #f1f1f2; }
+.userMenuItem > span:not([class]) { flex: 1; min-width: 0; }
+.userMenuItem .statusDot { flex: 0 0 auto; }
+.userMenuItem small { color: #8d8d92; font-size: 10px; }
+.userMenuItemDanger { color: #d64b5f; }
+.userMenuDivider { height: 1px; background: #eee; margin: 5px 4px; }
