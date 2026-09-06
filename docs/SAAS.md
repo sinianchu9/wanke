@@ -1,7 +1,12 @@
 # Wanke SaaS 设计与规则
 
-本文档是 Wanke 商业化（账号、套餐、配额、多租户隔离、管理后台）的唯一事实来源。
+本文档记录 Wanke SaaS 边界层（账号、套餐、配额、多租户隔离、管理后台）的设计与规则。
 视频引擎（`lib/video`、`lib/yike`、任务轮询、本地归档）保持不变，SaaS 能力全部叠加在边界层。
+
+> **现行事实来源**：商业化收口后的套餐、创作额度、订单、支付与退款以
+> [`docs/COMMERCIALIZATION_PLAN.md`](COMMERCIALIZATION_PLAN.md) 为准（含阶段进度与验收证据）。
+> 本文下列章节中与之冲突的旧描述（写死套餐常量、模拟支付、`quota_used` 单一计数）已经作废，
+> 保留在此仅用于说明边界层设计思路。
 
 ## 1. 数据模型
 
@@ -35,7 +40,7 @@
 
 ## 3. 套餐与配额
 
-套餐常量在 `lib/membership.ts` 的 `PLANS`（可配置）：
+套餐真值在 `plans` 表（后台「商品与套餐」维护），首启按历史常量播种：
 
 | Plan | 月生成条数 | 演示价格 |
 |---|---|---|
@@ -55,10 +60,12 @@
 
 **周期规则**：30 天周期（`period_start/period_end`），惰性滚动——
 读取会员信息时若周期已过期，自动重置 `quota_used=0` 并滚动到当前周期。
-不做复杂续费状态机；会员状态始终随周期自动续展（真实支付接入是扩展点）。
+不做复杂续费状态机；会员状态始终随周期自动续展。
 
-**计费扩展点**：`POST /api/membership/switch` 当前为「模拟支付」；
-接入真实渠道时替换为支付回调驱动 `switchPlan()`，其余逻辑不变。
+**支付与权益发放（现行实现）**：`POST /api/membership/switch` 模拟支付入口已下线。
+下单 → 支付宝收银台 → 异步通知验签 / 主动查单 → `finalizePaidOrder()` 条件跃迁 →
+同一事务内发放会员或额度并写入 `quota_ledger`（幂等键 `order:<订单 ID>`）。
+详见 [`docs/COMMERCIALIZATION_PLAN.md`](COMMERCIALIZATION_PLAN.md) Phase 2 与 `lib/billing/*`。
 
 ## 4. 多租户隔离
 
@@ -97,7 +104,16 @@
 | POST | /api/auth/logout | 登出 |
 | GET | /api/auth/me | 当前用户 + 会员信息 |
 | GET | /api/membership | 会员详情 + 套餐目录 |
-| POST | /api/membership/switch | 模拟支付切换套餐（新周期，额度重置） |
+| GET/POST | /api/orders | 我的订单 / 创建订单（`clientToken` 幂等） |
+| POST | /api/orders/[id]/pay | 发起支付宝收银台（返回签名后的支付地址） |
+| GET | /api/orders/[id]/pay-status | 支付结果确认（必要时主动查单并结算） |
+| POST | /api/orders/[id]/refund | 用户申请退款（需运营审核） |
+| POST | /api/payments/alipay/notify | 支付宝异步通知（验签、幂等、金额与收款主体核对） |
+| GET | /api/quota/ledger | 创作额度明细 |
+| GET/POST | /api/admin/refunds | 退款列表 / 运营发起并执行退款 |
+| POST | /api/admin/refunds/[id] | 通过 / 驳回 / 执行退款 |
+| GET/POST | /api/admin/payment-test | 支付通道状态 / 免费连通性测试 |
+| POST | /api/admin/orders/[id]/sync | 运营主动查询支付结果 |
 | GET/POST | /api/works | 作品列表 / 从成功任务保存作品 |
 | PATCH/DELETE | /api/works/[id] | 重命名 / 归档 / 删除 |
 | GET | /api/admin/stats | 运营数字 |
@@ -114,7 +130,9 @@
 
 ## 8. 已知限制与下一步商业化清单
 
-- 支付：当前为模拟切换；需接入支付宝/微信/Stripe + 支付回调与发票。
+- 支付：支付宝电脑/手机网站支付已接入（验签、主动查单、超时关闭、退款）；
+  微信/Stripe 与自动开票仍待接入，发票目前为人工处理入口。
+- 支付密钥模式：仅支持支付宝「公钥模式」，证书模式尚未实现。
 - 邮件：邮箱验证、找回密码、配额告警通知（结构已预留，未实现完整流程）。
 - OAuth：微信/Google 登录（users/sessions 模型兼容，需加 identities 表）。
 - Postgres：当前 SQLite + WAL 满足单机；表结构与 SQL 均使用标准语法，

@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { HttpError } from "@/lib/auth";
 import { getPlan, planSnapshot, requirePurchasablePlan, type Plan, type PlanSnapshot } from "@/lib/billing/catalog";
 import { grantEntitlementForOrder } from "@/lib/billing/entitlements";
+import { ensurePaymentRecord, markPaymentSuccess } from "@/lib/billing/payments";
+import { alipayAvailable, alipayConfig, buildPaymentUrl, type AlipayChannel } from "@/lib/billing/alipay";
 import { writeTransaction } from "@/lib/billing/quota";
 
 /**
@@ -278,20 +280,22 @@ export function finalizePaidOrder(orderId: string, confirmation: PaymentConfirma
     throw new HttpError(409, "AMOUNT_MISMATCH", "支付金额与订单金额不一致，权益未发放");
   }
 
-  const paymentId = randomUUID();
   const now = nowIso();
   const paidAt = confirmation.paidAt || now;
-  const outTradeNo = order.orderNo;
 
   return writeTransaction(() => {
-    const payment = db.prepare(`INSERT INTO payments
-      (id, order_id, user_id, provider, channel, out_trade_no, trade_no, amount_cents, status, verified,
-       notify_count, notify_json, buyer_logon_id, error, paid_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'success', ?, 1, ?, ?, NULL, ?, ?, ?)`)
-      .run(paymentId, order.id, order.userId, confirmation.provider, confirmation.channel === "wap" ? "wap" : "page",
-        outTradeNo, confirmation.tradeNo, confirmation.amountCents, confirmation.verified ? 1 : 0,
-        JSON.stringify(confirmation.notifyJson || {}), confirmation.buyerLogonId || null, paidAt, now, now);
-    if (!payment) throw new HttpError(500, "PAYMENT_RECORD_FAILED", "支付记录写入失败");
+    // One payment row per order (`out_trade_no` is UNIQUE): checkout may already have
+    // created it as `created`, so confirmation updates that row instead of inserting.
+    markPaymentSuccess(order, {
+      provider: confirmation.provider,
+      channel: confirmation.channel === "wap" ? "wap" : "page",
+      tradeNo: confirmation.tradeNo,
+      amountCents: confirmation.amountCents,
+      verified: confirmation.verified,
+      buyerLogonId: confirmation.buyerLogonId || null,
+      notifyJson: confirmation.notifyJson || null,
+      paidAt,
+    });
 
     const transition = db.prepare(`UPDATE orders SET status='paid', paid_at=?, updated_at=?
       WHERE id=? AND status IN ('pending','paying','abnormal')`)
@@ -317,9 +321,116 @@ export function markOrderAbnormal(orderId: string, reason: string) {
   });
 }
 
+/** Idempotent: re-opening the cashier keeps one order and only records the device used. */
 export function markOrderPaying(orderId: string, channel: OrderDevice) {
-  db.prepare("UPDATE orders SET status='paying', device=?, updated_at=? WHERE id=? AND status='pending'")
+  db.prepare("UPDATE orders SET status='paying', device=?, updated_at=? WHERE id=? AND status IN ('pending','paying')")
     .run(channel, nowIso(), orderId);
+}
+
+export interface StartPaymentInput {
+  orderId: string;
+  userId: string;
+  channel: AlipayChannel;
+  /** Request origin, used only when the operator has not configured callback addresses. */
+  requestOrigin?: string;
+}
+
+export interface StartPaymentResult {
+  payUrl: string;
+  channel: AlipayChannel;
+  channelText: string;
+  orderNo: string;
+  productName: string;
+  amountCents: number;
+  expiresAt: string;
+  resultUrl: string;
+}
+
+function safeOrigin(value?: string): string {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "http:" || url.protocol === "https:" ? url.origin : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Open the cashier for an existing order.
+ *
+ * Deliberately does not create a second order and does not touch benefits: it checks
+ * that the order is still payable, records the payment attempt, and hands back a signed
+ * Alipay URL. Fulfilment only ever happens through `finalizePaidOrder`, driven by a
+ * verified notification or an active query — never by this redirect.
+ */
+export function startPayment(input: StartPaymentInput): StartPaymentResult {
+  const order = getOrderForUser(input.orderId, input.userId);
+  if (!order) throw new HttpError(404, "ORDER_NOT_FOUND", "订单不存在");
+  if (order.status === "paid" || order.status === "partial_refund" || order.status === "refunded") {
+    throw new HttpError(409, "ORDER_ALREADY_PAID", "该订单已经支付成功，权益已经到账");
+  }
+  if (order.status === "closed" || order.status === "canceled") {
+    throw new HttpError(409, "ORDER_NOT_PAYABLE", "该订单已经关闭，请重新下单");
+  }
+  if (order.payableCents <= 0) {
+    throw new HttpError(409, "ORDER_NOT_PAYABLE", "该订单无需支付");
+  }
+  if (new Date(order.expiresAt).getTime() <= Date.now()) {
+    // An expired order must never become payable again: close it, then ask for a new one.
+    writeTransaction(() => {
+      const changed = db.prepare("UPDATE orders SET status='closed', updated_at=? WHERE id=? AND status IN ('pending','paying')")
+        .run(nowIso(), order.id).changes;
+      if (changed === 1) recordOrderEvent(order.id, "closed", { reason: "超时未支付" });
+    });
+    throw new HttpError(409, "ORDER_EXPIRED", "该订单已经超过有效期，请重新下单");
+  }
+
+  const config = alipayConfig();
+  if (!alipayAvailable(config)) {
+    throw new HttpError(503, "PAYMENT_CHANNEL_UNAVAILABLE", "支付通道尚未开通，请稍后再试或联系客服");
+  }
+
+  const origin = safeOrigin(input.requestOrigin);
+  const notifyUrl = config.notifyUrl || (origin ? `${origin}/api/payments/alipay/notify` : "");
+  const resultUrl = `/payment/result?orderNo=${encodeURIComponent(order.orderNo)}`;
+  const returnUrl = config.returnUrl || (origin ? `${origin}${resultUrl}` : "");
+
+  let payUrl: string;
+  try {
+    payUrl = buildPaymentUrl({
+      orderNo: order.orderNo,
+      subject: `${order.snapshot?.name || "Wanke 创作服务"}`,
+      body: `Wanke · ${order.snapshot?.name || "创作服务"}（订单 ${order.orderNo}）`,
+      amountCents: order.payableCents,
+      channel: input.channel,
+      notifyUrl,
+      returnUrl,
+      expiresAt: order.expiresAt,
+    }, config);
+  } catch {
+    // A malformed key or a missing callback address must not leak protocol detail.
+    throw new HttpError(503, "PAYMENT_CHANNEL_UNAVAILABLE", "支付通道暂时不可用，请稍后再试或联系客服");
+  }
+
+  ensurePaymentRecord(order, { channel: input.channel });
+  markOrderPaying(order.id, input.channel === "wap" ? "wap" : "pc");
+  recordOrderEvent(order.id, "payment_started", {
+    channel: input.channel,
+    amountCents: order.payableCents,
+    gateway: safeOrigin(config.gatewayUrl) || config.gatewayUrl,
+    env: config.env,
+  });
+
+  return {
+    payUrl,
+    channel: input.channel,
+    channelText: input.channel === "wap" ? "手机支付" : "电脑支付",
+    orderNo: order.orderNo,
+    productName: order.snapshot?.name || "",
+    amountCents: order.payableCents,
+    expiresAt: order.expiresAt,
+    resultUrl,
+  };
 }
 
 export function cancelOrder(orderId: string, userId: string): Order {

@@ -7,8 +7,9 @@ import {
   Receipt, RefreshCw, Server, Settings2, ShieldCheck, Users, Video,
 } from "lucide-react";
 import SettingsPanel from "@/components/settings-panel";
+import { PAYMENT_STATUS_COPY, REFUND_STATUS_COPY } from "@/lib/copy";
 
-type Section = "dashboard" | "users" | "plans" | "orders" | "jobs" | "works" | "service" | "settings" | "audit";
+type Section = "dashboard" | "users" | "plans" | "orders" | "refunds" | "jobs" | "works" | "service" | "settings" | "audit";
 
 const NAV: Array<{ group: string; items: Array<{ id: Section; label: string; icon: typeof Users }> }> = [
   { group: "经营", items: [{ id: "dashboard", label: "经营概览", icon: BarChart3 }] },
@@ -16,6 +17,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Section; label: string; ico
   { group: "商业", items: [
     { id: "plans", label: "商品与套餐", icon: Package },
     { id: "orders", label: "订单管理", icon: Receipt },
+    { id: "refunds", label: "退款与售后", icon: Coins },
   ] },
   { group: "创作", items: [
     { id: "jobs", label: "任务监管", icon: Video },
@@ -66,6 +68,7 @@ export default function AdminConsole() {
         {section === "users" && <UsersSection />}
         {section === "plans" && <PlansSection />}
         {section === "orders" && <OrdersSection />}
+        {section === "refunds" && <RefundsSection />}
         {section === "jobs" && <JobsSection />}
         {section === "works" && <WorksSection />}
         {section === "service" && <ServiceSection />}
@@ -402,8 +405,11 @@ function OrdersSection() {
   if (status) params.set("status", status);
   const { data, error, loading, reload } = useLoad<any>(`/api/admin/orders?${params.toString()}`, [query, status]);
 
+  const [orderMessage, setOrderMessage] = useState("");
+
   async function open(orderId: string) {
     try {
+      setOrderMessage("");
       setSelected(await api(`/api/admin/orders/${orderId}`));
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
@@ -467,7 +473,7 @@ function OrdersSection() {
           {selected.payments.map((payment: any) => <tr key={payment.id}>
             <td>{payment.tradeNo || <span className="muted">尚无交易号</span>}<br /><span className="muted mini">商户订单号 {payment.outTradeNo}</span></td>
             <td>{yuan(payment.amountCents)}</td>
-            <td>{payment.status}</td>
+            <td>{PAYMENT_STATUS_COPY[payment.status] || payment.status}{payment.error ? <><br /><span className="error-text mini">{payment.error}</span></> : null}</td>
             <td>{payment.verified ? "已验签" : "未验签"}</td>
             <td>{payment.notifyCount}</td>
             <td>{payment.paidAt ? new Date(payment.paidAt).toLocaleString("zh-CN") : "—"}</td>
@@ -480,12 +486,15 @@ function OrdersSection() {
         <thead><tr><th>退款单号</th><th>金额</th><th>状态</th><th>原因</th><th>申请时间</th></tr></thead>
         <tbody>
           {selected.refunds.map((refund: any) => <tr key={refund.id}>
-            <td>{refund.refundNo}</td><td>{yuan(refund.amountCents)}</td><td>{refund.status}</td>
+            <td>{refund.refundNo}</td><td>{yuan(refund.amountCents)}</td>
+            <td>{REFUND_STATUS_COPY[refund.status] || refund.status}{refund.error ? <><br /><span className="error-text mini">{refund.error}</span></> : null}</td>
             <td>{refund.reason}</td><td>{new Date(refund.createdAt).toLocaleString("zh-CN")}</td>
           </tr>)}
           {selected.refunds.length === 0 && <tr><td colSpan={5} className="muted">没有退款记录</td></tr>}
         </tbody>
       </table>
+      <OrderDetailActions detail={selected} onChanged={async (next: any) => { setSelected(next); }} onMessage={setOrderMessage} />
+      {orderMessage && <div className="notice" style={{ margin: "12px 0 0" }}>{orderMessage}</div>}
       <h3 style={{ marginTop: 12 }}>订单事件</h3>
       <table className="admin-table">
         <thead><tr><th>时间</th><th>事件</th><th>详情</th></tr></thead>
@@ -631,6 +640,7 @@ function SystemSettingsSection() {
       </div>
     </div>
     {message && <div className="notice" style={{ margin: "0 0 12px" }}>{message}</div>}
+    <PaymentChannelCard />
     {loading ? <Loading /> : error ? <ErrorNote message={error} /> : (
       <div className="system-grid">
         {Object.entries(SCOPE_LABELS).map(([scope, label]) => {
@@ -674,6 +684,206 @@ function SystemSettingsSection() {
   </div>;
 }
 
+function OrderDetailActions({ detail, onChanged, onMessage }: {
+  detail: any;
+  onChanged: (detail: any) => void;
+  onMessage: (message: string) => void;
+}) {
+  const [busy, setBusy] = useState("");
+  const order = detail.order;
+  const eligibility = detail.refundEligibility || { eligible: false, amountCents: 0, reason: "" };
+
+  async function run(label: string, task: () => Promise<any>) {
+    setBusy(label);
+    onMessage("");
+    try {
+      await task();
+    } catch (err) {
+      onMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function sync() {
+    await run("sync", async () => {
+      const body = await api(`/api/admin/orders/${order.id}/sync`, { method: "POST" });
+      onMessage(`主动查询结果：${body.note || "支付宝没有返回新的交易状态"}（当前订单状态：${body.order.statusText}）`);
+      if (body.detail) onChanged(body.detail);
+    });
+  }
+
+  async function refund() {
+    const reason = window.prompt(`为订单 ${order.orderNo} 发起退款（最多可退 ${yuan(eligibility.amountCents)}）\n请填写退款原因：`, "");
+    if (reason === null) return;
+    if (reason.trim().length < 2) { onMessage("请填写退款原因"); return; }
+    const amountInput = window.prompt("退款金额（元），留空表示全额退款：", "");
+    if (amountInput === null) return;
+    const amountCents = amountInput.trim() ? Math.round(Number(amountInput.trim()) * 100) : undefined;
+    if (amountCents !== undefined && (!Number.isFinite(amountCents) || amountCents <= 0)) {
+      onMessage("退款金额不正确");
+      return;
+    }
+    await run("refund", async () => {
+      const body = await api("/api/admin/refunds", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: order.id, reason: reason.trim(), amountCents, execute: true }),
+      });
+      onMessage(`退款 ${body.refund.refundNo}：${body.refund.statusText}${body.refund.error ? ` · ${body.refund.error}` : ""}`);
+      onChanged(await api(`/api/admin/orders/${order.id}`));
+    });
+  }
+
+  const payable = ["pending", "paying", "abnormal"].includes(order.status);
+  return <div className="inline-actions" style={{ marginTop: 14 }}>
+    {payable && <button className="secondary" disabled={busy === "sync"} onClick={sync}>
+      {busy === "sync" ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}主动查询支付结果
+    </button>}
+    {eligibility.eligible && <button className="secondary" disabled={busy === "refund"} onClick={refund}>
+      {busy === "refund" ? <LoaderCircle className="spin" size={13} /> : null}发起退款（原路退回）
+    </button>}
+    {!payable && !eligibility.eligible && <span className="muted mini">{eligibility.reason || "当前订单没有可执行的支付或退款操作。"}</span>}
+  </div>;
+}
+
+function RefundsSection() {
+  const [status, setStatus] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState("");
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  const { data, error, loading, reload } = useLoad<any>(`/api/admin/refunds?${params.toString()}`, [status]);
+
+  async function act(refund: any, action: "approve" | "reject" | "execute") {
+    let reason: string | undefined;
+    if (action === "reject") {
+      const input = window.prompt(`驳回退款 ${refund.refundNo}，请填写会展示给用户的原因：`, "");
+      if (input === null) return;
+      if (input.trim().length < 2) { setMessage("请填写驳回原因"); return; }
+      reason = input.trim();
+    }
+    if (action === "execute" && !window.confirm(`确认对 ${refund.refundNo} 原路退款 ${yuan(refund.amountCents)}？`)) return;
+    setBusy(refund.id);
+    setMessage("");
+    try {
+      const body = await api(`/api/admin/refunds/${refund.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, reason }),
+      });
+      setMessage(`退款 ${body.refund.refundNo}：${body.refund.statusText}${body.refund.error ? ` · ${body.refund.error}` : ""}`);
+      await reload();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return <div className="admin-panel">
+    <div className="admin-panel-head">
+      <h2>退款与售后</h2>
+      <div className="admin-filters">
+        <select value={status} onChange={event => setStatus(event.target.value)}>
+          <option value="">全部状态</option>
+          <option value="requested">用户申请待处理</option>
+          <option value="approved">已通过待退款</option>
+          <option value="processing">退款处理中</option>
+          <option value="succeeded">退款已完成</option>
+          <option value="failed">退款未成功</option>
+          <option value="rejected">已驳回</option>
+        </select>
+        <button className="secondary" onClick={reload}><RefreshCw size={13} />刷新</button>
+      </div>
+    </div>
+    {message && <div className="notice" style={{ margin: "0 0 12px" }}>{message}</div>}
+    {loading ? <Loading /> : error ? <ErrorNote message={error} /> : (
+      <table className="admin-table">
+        <thead><tr><th>退款单号</th><th>订单 / 用户</th><th>金额</th><th>回收额度</th><th>原因</th><th>状态</th><th>来源</th><th>时间</th><th>操作</th></tr></thead>
+        <tbody>
+          {data.refunds.map((refund: any) => <tr key={refund.id}>
+            <td><strong>{refund.refundNo}</strong><br /><span className="muted mini">退款请求号 {refund.outRequestNo.slice(0, 8)}…</span></td>
+            <td>{refund.orderNo}<br /><span className="muted mini">{refund.userEmail}</span></td>
+            <td>{yuan(refund.amountCents)}</td>
+            <td>{refund.creditsReclaimed}</td>
+            <td className="muted mini">{refund.reason}</td>
+            <td><span className={`stage-state ${refund.status === "succeeded" ? "succeeded" : refund.status === "failed" || refund.status === "rejected" ? "failed" : "queued"}`}>{refund.statusText}</span>
+              {refund.error ? <><br /><span className="error-text mini">{refund.error}</span></> : null}</td>
+            <td>{refund.requestedBy}</td>
+            <td>{new Date(refund.createdAt).toLocaleString("zh-CN")}
+              {refund.completedAt ? <><br /><span className="muted mini">完成 {new Date(refund.completedAt).toLocaleString("zh-CN")}</span></> : null}</td>
+            <td className="inline-actions" style={{ marginTop: 0, flexDirection: "column", alignItems: "stretch" }}>
+              {refund.status === "requested" && <>
+                <button className="secondary" disabled={busy === refund.id} onClick={() => act(refund, "approve")}>通过</button>
+                <button className="secondary" disabled={busy === refund.id} onClick={() => act(refund, "reject")}>驳回</button>
+              </>}
+              {(refund.status === "approved" || refund.status === "failed") && (
+                <button className="primary" disabled={busy === refund.id} onClick={() => act(refund, "execute")}>
+                  {busy === refund.id ? <LoaderCircle className="spin" size={13} /> : null}
+                  {refund.status === "failed" ? "重试退款" : "执行退款"}
+                </button>
+              )}
+              {["processing", "succeeded", "rejected"].includes(refund.status) && <span className="muted mini">无需操作</span>}
+            </td>
+          </tr>)}
+          {data.refunds.length === 0 && <tr><td colSpan={9} className="muted">没有退款记录</td></tr>}
+        </tbody>
+      </table>
+    )}
+    <p className="mini muted">退款金额不会超过订单实付金额，同一笔订单不会重复退款；「重试退款」使用同一个退款请求号，支付宝会去重。退款结果未知时必须先到支付宝商家后台核对，不要盲目重试。</p>
+  </div>;
+}
+
+function PaymentChannelCard() {
+  const [data, setData] = useState<any>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try { setData(await api("/api/admin/payment-test")); } catch (err) { setMessage(err instanceof Error ? err.message : String(err)); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  async function test() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const body = await api("/api/admin/payment-test", { method: "POST" });
+      setData({ channel: body.channel });
+      setMessage(`${body.result.ok ? "测试通过" : "测试未通过"}：${body.result.message}`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const channel = data?.channel;
+  return <section className="panel" style={{ marginBottom: 16 }}>
+    <div className="panel-head">
+      <h3>支付通道状态</h3>
+      <button className="secondary" disabled={busy} onClick={test}>
+        {busy ? <LoaderCircle className="spin" size={13} /> : <ShieldCheck size={13} />}支付测试
+      </button>
+    </div>
+    {message && <div className="notice" style={{ margin: "10px 0 0" }}>{message}</div>}
+    {channel ? <>
+      <dl className="kv-list" style={{ marginTop: 10 }}>
+        <div><dt>通道状态</dt><dd>{channel.available
+          ? <span className="success-text">已开通（{channel.envText}）</span>
+          : <span className="error-text">{channel.enabled ? `配置不完整：缺少${channel.missing.join("、")}` : "未启用"}</span>}</dd></div>
+        <div><dt>签名方式</dt><dd>{channel.keyMode} · {channel.signType}（暂不支持证书模式）</dd></div>
+        <div><dt>网关地址</dt><dd className="mini">{channel.gatewayUrl}</dd></div>
+        <div><dt>收款主体</dt><dd>{channel.sellerId || <span className="error-text">未填写，到账通知无法核对收款方</span>}</dd></div>
+        <div><dt>最近一次测试</dt><dd>{channel.lastTest?.testedAt
+          ? `${new Date(channel.lastTest.testedAt).toLocaleString("zh-CN")} · ${channel.lastTest.ok ? "通过" : "未通过"}${channel.lastTest.message ? `：${channel.lastTest.message}` : ""}`
+          : "还没有测试过"}</dd></div>
+      </dl>
+      <p className="mini muted">支付测试只向支付宝查询一个不存在的订单号，用于验证应用编号、私钥和网关是否被接受，不会产生任何真实收款。</p>
+    </> : <p className="mini muted">正在读取支付通道状态…</p>}
+  </section>;
+}
+
 function AuditSection() {
   const { data, error, loading, reload } = useLoad<any>("/api/admin/audit-logs", []);
   const ACTION_LABELS: Record<string, string> = {
@@ -687,6 +897,13 @@ function AuditSection() {
     "work.delete": "删除作品",
     "settings.update": "更新创作服务配置",
     "system_settings.update": "更新系统设置",
+    "order.refund": "订单退款",
+    "order.sync": "主动查询支付结果",
+    "refund.request": "发起退款",
+    "refund.approve": "通过退款",
+    "refund.reject": "驳回退款",
+    "refund.execute": "执行退款",
+    "payment.test": "支付连接测试",
     "plan.upsert": "保存商品",
     "plan.recommend": "调整推荐商品",
   };

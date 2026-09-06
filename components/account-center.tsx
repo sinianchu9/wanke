@@ -31,7 +31,8 @@ type LedgerEntry = { id: string; delta: number; balanceAfter: number; reasonText
 
 type OrderRow = {
   id: string; orderNo: string; productName: string; amountCents: number; credits: number;
-  status: string; statusText: string; statusHint: string; payable: boolean; createdAt: string; paidAt: string | null; expiresAt: string;
+  status: string; statusText: string; statusHint: string; payable: boolean; payableCents: number;
+  refundedCents: number; refundable: boolean; createdAt: string; paidAt: string | null; expiresAt: string;
 };
 
 async function call(path: string, init?: RequestInit) {
@@ -82,6 +83,25 @@ export default function AccountCenter() {
       .finally(() => setLoading(false));
   }, [load]);
 
+  /**
+   * Hand the browser to the Alipay cashier. Nothing about the membership changes here:
+   * the server settles the order from the verified notification or its own query.
+   */
+  async function startPay(orderId: string): Promise<boolean> {
+    const channel = typeof window !== "undefined" && window.matchMedia("(max-width: 720px)").matches ? "wap" : "page";
+    const body = await call(`/api/orders/${orderId}/pay`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel }),
+    });
+    if (body.payUrl) {
+      window.location.href = body.payUrl;
+      return true;
+    }
+    setNotice(body.notice || "支付页面已经准备好，请继续完成支付。");
+    return false;
+  }
+
   async function checkout(plan: CatalogPlan) {
     setBusy(plan.id);
     setNotice("");
@@ -96,12 +116,20 @@ export default function AccountCenter() {
         body: JSON.stringify({ planId: plan.id, clientToken, device: window.matchMedia("(max-width: 720px)").matches ? "wap" : "pc" }),
       });
       setPaymentAvailable(Boolean(body.paymentAvailable));
+      const order = body.order;
+      if (order.status === "paid") {
+        await load();
+        setSection("membership");
+        setNotice(`「${order.productName}」已经生效，权益已到账。`);
+        return;
+      }
+      if (body.paymentAvailable && order.payableCents > 0 && await startPay(order.id)) return;
       const orderBody = await call("/api/orders");
       setOrders(orderBody.orders || []);
       setSection("orders");
       setNotice(body.paymentAvailable
-        ? `订单 ${body.order.orderNo} 已创建，请在有效期内完成支付。`
-        : `订单 ${body.order.orderNo} 已创建。支付通道开通后可以在「我的订单」继续支付。`);
+        ? `订单 ${order.orderNo} 已创建，请在有效期内完成支付。`
+        : `订单 ${order.orderNo} 已创建。支付通道开通后可以在「我的订单」继续支付。`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -114,13 +142,32 @@ export default function AccountCenter() {
     setNotice("");
     setError("");
     try {
-      const body = await call(`/api/orders/${order.id}/pay`, {
+      await startPay(order.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function requestRefund(order: OrderRow) {
+    const reason = window.prompt(`申请退款（订单 ${order.orderNo}）\n请简单说明原因，我们会在审核后原路退回：`, "");
+    if (reason === null) return;
+    if (reason.trim().length < 2) {
+      setError("请填写退款原因（至少 2 个字）");
+      return;
+    }
+    setBusy(order.id);
+    setNotice("");
+    setError("");
+    try {
+      const body = await call(`/api/orders/${order.id}/refund`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel: window.matchMedia("(max-width: 720px)").matches ? "wap" : "page" }),
+        body: JSON.stringify({ reason: reason.trim() }),
       });
-      if (body.redirectUrl) window.location.href = body.redirectUrl;
-      else setNotice("支付页面已经准备好，请继续完成支付。");
+      await load();
+      setNotice(body.notice || "退款申请已经提交，我们会尽快处理。");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -278,8 +325,14 @@ export default function AccountCenter() {
                       <button className="primary" disabled={busy === order.id} onClick={() => pay(order)}>
                         {busy === order.id ? <LoaderCircle className="spin" size={14} /> : null}继续支付
                       </button>
+                      <Link className="secondary" href={`/payment/result?orderNo=${encodeURIComponent(order.orderNo)}`}>支付结果</Link>
                       <button className="secondary" disabled={busy === order.id} onClick={() => cancel(order)}>取消订单</button>
                     </>}
+                    {order.refundable && order.refundedCents < order.payableCents && (
+                      <button className="secondary" disabled={busy === order.id} onClick={() => requestRefund(order)}>
+                        {busy === order.id ? <LoaderCircle className="spin" size={14} /> : null}申请退款
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

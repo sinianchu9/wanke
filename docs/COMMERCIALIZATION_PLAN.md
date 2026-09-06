@@ -96,7 +96,7 @@
 |---|---|---|
 | Phase 0 | 现状审计、基线冻结、本文档 | typecheck + build + 旧 E2E 全绿 |
 | Phase 1 | 商品/套餐后台化、创作额度、额度账本、订单、支付记录、退款记录、任务计费、下线模拟支付 | 商业 E2E（额度/订单/权益幂等） |
-| Phase 2 | 支付宝配置、电脑/手机支付、异步通知验签、主动查单、超时关闭、重复通知、退款 | 支付宝专项 10 条 |
+| Phase 2 | 支付宝配置、电脑/手机支付、异步通知验签、主动查单、超时关闭、重复通知、退款 | 支付宝专项 10 条（已达成，见 §5.3） |
 | Phase 3 | 邮箱验证、找回密码、改密、会话管理、用户中心重构、订单列表、额度明细 | 账号 E2E |
 | Phase 4 | 分类额度规则、提交前报价、冻结/确认/退回、成本记录、服务端 Worker | 额度专项 7 条 + 关浏览器续跑 |
 | Phase 5 | Storage 抽象、本地/OSS、私有访问、统计、清理 | 存储 E2E |
@@ -108,7 +108,7 @@
 
 - [x] Phase 0：审计与基线冻结（本文档；typecheck/build/33 项 SaaS E2E 通过）
 - [x] Phase 1：商业数据基础（详见 §4；typecheck/build 通过，SaaS E2E 60 项 + 商业 E2E 78 项全绿）
-- [ ] Phase 2：支付宝
+- [x] Phase 2：支付宝（详见 §5；typecheck/build 通过，SaaS E2E 61 项 + 商业 E2E 80 项 + 支付宝专项 110 项全绿）
 - [ ] Phase 3：账号完整化
 - [ ] Phase 4：视频任务商业化
 - [ ] Phase 5：作品与存储商业化
@@ -173,3 +173,86 @@ node_modules/.bin/next build                       # 通过
 
 Phase 1 边界：支付宝尚未接入，`POST /api/orders/:id/pay` 明确返回 503「支付通道尚未开通」，
 不做任何模拟成功；真实支付与专项 10 条在 Phase 2 验收。
+
+---
+
+## 5. Phase 2 完成记录（支付宝收款闭环）
+
+### 5.1 落地内容
+
+- **协议层** `lib/billing/alipay.ts`：只用 `node:crypto`，无新依赖。RSA2 签名/验签、
+  密钥归一化（控制台裸 base64 或 PEM 都能用）、金额分↔元字符串严格互转、
+  北京时间时间戳（不受宿主时区影响）、`alipay.trade.page.pay`（电脑）/`alipay.trade.wap.pay`（手机）
+  收银台地址、`alipay.trade.query`/`refund`/`close`/`fastpay.refund.query`。
+  请求签名包含 `sign_type`、异步通知验签按官方 `verifyV1` 剔除 `sign` 与 `sign_type`
+  （并保留 `verifyV2` 回退），同步响应按「原始 JSON 子串」验签而不是重新序列化。
+- **下单到收银台** `startPayment()`（`lib/billing/orders.ts`）：校验通道可用、订单可支付、
+  未过期（过期先关单再要求重新下单）；一笔订单只有一条 `payments` 记录，重复打开收银台只更新设备；
+  返回签名后的支付地址，**不在这里发放任何权益**。
+- **异步通知** `POST /api/payments/alipay/notify` + `lib/billing/alipay-notify.ts`：
+  先验签，再核对 `app_id`、商户订单号、金额、收款主体；成功走 `finalizePaidOrder()`
+  （条件跃迁 + `order:<id>` 账本幂等键），每一条通知（含伪造/未知订单）原文落
+  `payment_notifications`。应答规则：已处理/重复/需人工 → `success`（避免无意义重试 24 小时），
+  验签失败/内部错误 → `failure`（等支付宝重试）。
+- **主动查单** `lib/billing/payment-sync.ts` + `GET /api/orders/[id]/pay-status`：
+  订单仍在飞行中时才向支付宝查询，查到已付款走与通知完全相同的结算路径；
+  带 3 秒节流；`ACQ.TRADE_NOT_EXIST` 一律呈现为「正在确认支付结果……」，绝不显示「支付失败」。
+- **支付结果页** `app/payment/result/page.tsx` + `components/payment-result.tsx`：
+  轮询 `pay-status`，文案来自 `PAYMENT_RESULT_COPY`（§10.3）；支付宝回跳参数只用于定位订单，
+  不能触发任何发放。会员中心下单后直接跳转收银台，「我的订单」提供继续支付/支付结果/取消/申请退款。
+- **退款** `lib/billing/refund-gateway.ts` + `POST /api/orders/[id]/refund`（用户申请，需审核）
+  + `/api/admin/refunds`（列表/运营发起并执行）+ `/api/admin/refunds/[id]`（通过/驳回/执行）。
+  `fund_change=Y` 才算成功；`fund_change=N` 用退款查询确认 `REFUND_SUCCESS` 才按幂等成功处理，
+  否则记为「退款结果未知」交人工核对，**不自动重复提交**；运营重试沿用同一 `out_request_no`。
+- **后台** 系统设置页新增「支付通道状态」卡片 + 「支付测试」（免费连通性：查询一个不存在的订单号，
+  `ACQ.TRADE_NOT_EXIST` 即凭据有效），测试时间与结果落库；订单详情新增「主动查询支付结果」
+  与「发起退款」；新增「退款与售后」页面；订单/退款状态改为业务话术显示；
+  新增 `alipay_seller_id`（收款主体）配置项，所有操作写入管理员记录。
+- **运维文档**：`docs/OPERATIONS.md` §10 上线配置清单、主密钥注意事项与支付故障处理；
+  `docs/SAAS.md`/`README.md` 中「模拟支付」的过期描述已改为现行支付链路。
+
+### 5.2 本轮修掉的真实缺陷
+
+| 缺陷 | 影响 | 处理 |
+|---|---|---|
+| `decryptSecret()` 按 5 段解析 `enc:v1:<keyId>:<iv>:<tag>:<ct>`（实际 6 段） | **所有已加密的秘密配置永远读不出来**：支付宝私钥/公钥不可用；Phase 1 迁移进 `secrets` 的 `modelstudio_api_key`、`yike_access_key_*` 也读不回来（明文行已删），视频链路只能靠环境变量兜底 | 按 6 段解析并校验前缀与十六进制字段；后台掩码由「配置需要重新保存」恢复为真实掩码；商业 E2E 增加「存进去能再读出来」的往返断言，防止格式再次静默损坏 |
+| `finalizePaidOrder()` 直接 INSERT 支付记录，而收银台已经写入同 `out_trade_no` 的 `created` 行 | 通知一到就撞 UNIQUE 约束，**付款成功却发不出权益** | 新增 `markPaymentSuccess()`：按 `out_trade_no` 更新既有行、只在缺失时插入，已成功的行不被覆盖或降级 |
+| 用户重复提交退款申请时无法区分「新建」与「返回在途记录」 | 界面把在途申请当成新申请（201），运营也可能重复发起 | `requestRefund()` 返回 `{refund, reused}`；用户端据此回 200 与「已在处理中」，运营端遇到在途记录直接 409 并给出退款单号 |
+| 已全额退款订单再次申请退款报「该订单当前不能申请退款」 | 用户看不懂，也不符合 §15「已退款再次退款」的明确拒绝 | 先判 `refunded` 状态并返回 `ALREADY_REFUNDED`／「该订单已经完成退款」 |
+| `markOrderPaying()` 只允许 `pending → paying` | 电脑下单后改用手机继续支付时设备信息不更新 | 改为 `pending/paying` 幂等更新设备 |
+
+### 5.3 验收证据
+
+```
+node_modules/.bin/tsc --noEmit                     # 通过
+node_modules/.bin/next build                       # 通过
+./scripts/e2e-run.sh scripts/saas-e2e.mjs          # ALL E2E CHECKS PASSED（61 项）
+./scripts/e2e-run.sh scripts/commerce-e2e.mjs      # ALL COMMERCE CHECKS PASSED（80 项）
+./scripts/e2e-run.sh scripts/payment-e2e.mjs       # ALL PAYMENT CHECKS PASSED（110 项）
+```
+
+支付宝专项测试用 `scripts/alipay-mock.mjs`（协议级本地网关：用商户公钥校验我们的签名，
+用支付宝私钥签名自己的响应与异步通知）跑真实链路，§51 十条逐条对应：
+
+| § | 场景 | 证据 |
+|---|---|---|
+| 1 | 创建订单两次不能产生错误权益 | 同 `clientToken`、同商品重复下单都复用同一订单；未支付时账本 0 行、会员仍为免费版；支付后 `order:<id>` 账本恰好 1 行 |
+| 2 | 同一通知发送 10 次只发一次会员 | 10 条通知全部应答 `success`；订单 `paid` 一次；`payments` 1 行、`verified=1`、`notify_count=10`；账本 1 行、站内通知 1 条；`payment_notifications` 留存 10 条 |
+| 3 | 金额与订单不符拒绝发放 | 有效签名但金额 1.00 的通知 → 订单/支付记录标记「需要确认」，账本 0 行，会员不变，原因写入通知记录；收款主体不符同样拒绝 |
+| 4 | 假通知不能通过验签 | 用错误私钥签名 / 无签名 / `app_id` 不符 → 一律 `failure`，订单不动、权益不发，通知以 `verified=0` 落库；未知订单号 → 记录后 `success` 停止无意义重试 |
+| 5 | 付款后立即关闭网页仍然到账 | 只发通知、完全不访问结果页：订单 `paid`、加油包额度到账（仅 bonus，会员不变） |
+| 6 | 回调延迟最终仍然到账 | 先不通知 → `pay-status` 主动查单结算为 `paid`；随后 2 条迟到通知应答 `success` 且不重复发放，仅 `notify_count` 递增 |
+| 7 | 支付页刷新不会新建无限订单 | 连续 4 次发起支付 + 重新下单：`orders` 1 行、`payments` 1 行 |
+| 8 | 订单过期不能继续发放 | 过期订单发起支付 → 409 `ORDER_EXPIRED` 并关单；过期后收到付款通知 → 订单转「需要确认」、账本 0 行、结果页提示联系客服且绝不提示重新付款 |
+| 9 | 退款两次不能多退 | 用户重复申请复用同一退款单；审核前资金未动；执行成功后订单 `refunded`、`refunded_cents=9900`、权益回收账本 1 行、会员回到免费版；再次申请 409 `ALREADY_REFUNDED`，运营再发起 409，重复执行不改变金额，网关侧只有 1 次资金变动 |
+| 10 | 不能通过前端参数把未支付订单改成已支付 | 后台订单无写接口（405）；`action=mark_paid` → 400；`pay-status` 只读（405）；下单携带 `status/payableCents` 被忽略（仍 `pending`、9900）；免费套餐不可 0 元购买；运营主动查单在支付宝未收到付款时不会造出已支付订单；会员访问运营接口一律 403 |
+
+另外覆盖：支付通道状态与掩码（私钥/公钥永不回浏览器）、错误私钥时支付测试给出可执行提示、
+收银台参数（`FAST_INSTANT_TRADE_PAY`/`QUICK_WAP_WAY`、金额元字符串、`timeout_express`、
+通知与返回地址、RSA2 签名且网关验签通过）、退款结果未知时不谎报成功且不改动订单、
+运营确认后重试只退一次、`TRADE_CLOSED` 关闭未支付订单、`WAIT_BUYER_PAY` 不发放、
+结果页与会员文案不含协议细节、财务与异常视图可运营。
+
+Phase 2 边界：**仅支持支付宝公钥模式**（证书模式未实现）；未接自动续费/免密代扣（§10.5）；
+真实支付宝沙箱与生产联调需要运营者提供 APPID、应用私钥、支付宝公钥与公网 HTTPS 回调地址，
+本轮全部验证在协议级本地网关上完成，未产生真实资金流动。

@@ -18,17 +18,23 @@ npm install && npm run build && npm start
 ```
 
 1. 打开 `/register` 注册；使用 `ADMIN_EMAIL` 注册的账号自动成为管理员。
-2. 新用户默认 free 套餐（每月 10 条生成额度），可在「会员中心」模拟升级（演示期不接真实支付）。
+2. 新用户默认免费套餐，可在「会员中心」下单购买套餐或创作额度加油包；支付走支付宝电脑/手机网站支付，权益以服务器确认的支付结果为准（后台「系统设置 → 支付设置」配置并做支付测试）。
 3. 提交生成任务前校验登录 + 会员状态 + 配额；提交成功计 1 条，远端同步拒绝自动退回。
 4. 成功的任务结果可在任务中心一键「保存到作品」，进入作品库长期管理。
 5. 管理员在 `/admin` 管理用户套餐/启停、监管全站任务与作品，所有关键写操作写入审计日志。
 
-端到端验收剧本（需要本地服务运行在 3100 端口、一次性数据库）：
+端到端验收剧本（一次性数据库 + 生产构建，脚本自己拉起服务）：
 
 ```bash
-ADMIN_EMAIL=admin@wanke.test WANKE_DB_PATH=./data/e2e.db node_modules/.bin/next start -p 3100 &
-node scripts/saas-e2e.mjs
+npm run build
+./scripts/e2e-run.sh scripts/saas-e2e.mjs       # 账号、隔离、权限、后台
+./scripts/e2e-run.sh scripts/commerce-e2e.mjs   # 套餐真值、订单、额度账本、密钥
+./scripts/e2e-run.sh scripts/payment-e2e.mjs    # 支付宝专项（scripts/alipay-mock.mjs 作为本地网关）
 ```
+
+`scripts/alipay-mock.mjs` 是协议级本地网关：它会用商户公钥校验我们的签名，并用支付宝私钥
+签名自己的响应与异步通知，因此验签、金额核对、重复通知、过期订单、主动查单与退款都是真实链路，
+不产生任何真实资金流动。
 
 ## Phase 1：视频生成优先
 

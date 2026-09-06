@@ -6,6 +6,7 @@ import { getFreePlan, getPlan } from "@/lib/billing/catalog";
 import { appendCreditLedger, readBalance, reclaimBonusCredits, renewCycleIfNeeded, writeTransaction } from "@/lib/billing/quota";
 import { recordOrderEvent } from "@/lib/billing/orders";
 import { createNotification } from "@/lib/notifications";
+import { REFUND_STATUS_COPY } from "@/lib/copy";
 
 /**
  * Refund domain.
@@ -104,6 +105,12 @@ export function refundableAmountCents(orderId: string): number {
   return Math.max(0, Number(order.payable_cents || 0) - Number(order.refunded_cents || 0));
 }
 
+export interface RefundRequestResult {
+  refund: Refund;
+  /** True when an in-flight request for this order was returned instead of a new one. */
+  reused: boolean;
+}
+
 export function requestRefund(input: {
   orderId: string;
   requestedBy: "user" | "admin";
@@ -111,18 +118,21 @@ export function requestRefund(input: {
   adminUserId?: string;
   reason: string;
   amountCents?: number;
-}): Refund {
+}): RefundRequestResult {
   const order = db.prepare("SELECT * FROM orders WHERE id=? OR order_no=?").get(input.orderId, input.orderId) as any;
   if (!order) throw new HttpError(404, "ORDER_NOT_FOUND", "订单不存在");
   if (input.requestedBy === "user" && order.user_id !== input.userId) {
     throw new HttpError(404, "ORDER_NOT_FOUND", "订单不存在");
   }
   if (!input.reason.trim()) throw new HttpError(400, "REASON_REQUIRED", "请填写退款原因");
+  if (order.status === "refunded") {
+    throw new HttpError(409, "ALREADY_REFUNDED", "该订单已经完成退款");
+  }
   if (order.status !== "paid" && order.status !== "partial_refund") {
     throw new HttpError(409, "ORDER_NOT_REFUNDABLE", "该订单当前不能申请退款");
   }
   const existing = inFlightRefund(order.id);
-  if (existing) return existing;
+  if (existing) return { refund: existing, reused: true };
   const remaining = refundableAmountCents(order.id);
   if (remaining <= 0) throw new HttpError(409, "ALREADY_REFUNDED", "该订单已经完成退款");
   const amountCents = input.amountCents === undefined ? remaining : Math.round(input.amountCents);
@@ -143,7 +153,7 @@ export function requestRefund(input: {
         status, input.requestedBy, input.adminUserId || null, now, now);
     recordOrderEvent(order.id, "refund_requested", { refundNo, amountCents, by: input.requestedBy, reason: input.reason.trim() });
   });
-  return getRefund(id)!;
+  return { refund: getRefund(id)!, reused: false };
 }
 
 export function approveRefund(refundId: string, adminUserId: string): Refund {
@@ -297,10 +307,35 @@ function reclaimBenefitsForRefund(order: any, refund: Refund): number {
   return Math.max(0, Math.round((plan?.credits ?? Number(snapshot.credits || 0)) - after.planRemaining));
 }
 
+/** Backoffice/API shape: business language, no internal enums. */
+export function refundView(refund: Refund & { orderNo?: string | null; userEmail?: string | null }) {
+  return {
+    id: refund.id,
+    refundNo: refund.refundNo,
+    orderId: refund.orderId,
+    orderNo: refund.orderNo || null,
+    userEmail: refund.userEmail || null,
+    amountCents: refund.amountCents,
+    creditsReclaimed: refund.creditsReclaimed,
+    reason: refund.reason,
+    status: refund.status,
+    statusText: REFUND_STATUS_COPY[refund.status] || refund.status,
+    requestedBy: refund.requestedBy === "admin" ? "运营发起" : "用户申请",
+    outRequestNo: refund.outRequestNo,
+    providerRefundNo: refund.providerRefundNo,
+    error: refund.error,
+    createdAt: refund.createdAt,
+    completedAt: refund.completedAt,
+  };
+}
+
 /** User-facing refund eligibility for the order detail page. */
 export function refundEligibility(orderId: string): { eligible: boolean; amountCents: number; reason: string } {
   const order = db.prepare("SELECT * FROM orders WHERE id=?").get(orderId) as any;
   if (!order) return { eligible: false, amountCents: 0, reason: "订单不存在" };
+  if (order.status === "refunded") {
+    return { eligible: false, amountCents: 0, reason: "该订单已经完成退款" };
+  }
   if (order.status !== "paid" && order.status !== "partial_refund") {
     return { eligible: false, amountCents: 0, reason: "订单未支付或已经关闭" };
   }

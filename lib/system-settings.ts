@@ -38,6 +38,7 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   { key: "alipay_gateway_url", scope: "payment", label: "支付网关地址", help: "留空时按环境自动选择官方网关。", technicalKey: "gateway", type: "url", default: "", env: "ALIPAY_GATEWAY_URL" },
   { key: "alipay_notify_url", scope: "payment", label: "支付结果通知地址", help: "支付宝付款完成后，会通过这个地址把结果通知给 Wanke。必须是公网可访问的 HTTPS 地址。", technicalKey: "notify_url", type: "url", default: "", env: "ALIPAY_NOTIFY_URL" },
   { key: "alipay_return_url", scope: "payment", label: "支付完成返回地址", help: "用户付款完成后浏览器跳回的页面。", technicalKey: "return_url", type: "url", default: "", env: "ALIPAY_RETURN_URL" },
+  { key: "alipay_seller_id", scope: "payment", label: "收款主体", help: "支付宝商家账号的 2088 开头的商户编号。到账通知会核对这个编号，防止资金进错账户。", technicalKey: "seller_id", type: "text", default: "", env: "ALIPAY_SELLER_ID" },
   { key: "alipay_private_key", scope: "payment", label: "应用私钥", help: "用于对请求签名，只保存在服务器，不会返回浏览器。", secret: true, type: "text", env: "ALIPAY_PRIVATE_KEY" },
   { key: "alipay_public_key", scope: "payment", label: "支付宝公钥", help: "用于校验支付宝发来的结果通知，防止伪造通知。", secret: true, type: "text", env: "ALIPAY_PUBLIC_KEY" },
   { key: "storage_driver", scope: "storage", label: "作品存储方式", help: "本地存储适合开发与单机部署，对象存储适合正式运营。", type: "select", options: [{ value: "local", label: "本地存储" }, { value: "oss", label: "对象存储（OSS）" }], default: "local", env: "WANKE_STORAGE_DRIVER" },

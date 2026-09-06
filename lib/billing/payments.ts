@@ -94,6 +94,49 @@ export function ensurePaymentRecord(order: { id: string; orderNo: string; userId
   return getPayment(id)!;
 }
 
+export interface PaymentSuccessInput {
+  provider?: string;
+  channel: PaymentChannel;
+  tradeNo: string;
+  amountCents: number;
+  verified: boolean;
+  buyerLogonId?: string | null;
+  notifyJson?: Record<string, unknown> | null;
+  paidAt: string;
+}
+
+/**
+ * Record "money arrived" for an order exactly once.
+ *
+ * `payments.out_trade_no` is UNIQUE and checkout already inserts a `created` row, so a
+ * confirmed payment UPDATEs that row instead of adding a second one. A row that is
+ * already successful keeps its first confirmation (paid_at, trade_no, notify payload);
+ * later duplicate notifications only bump `notify_count`.
+ */
+export function markPaymentSuccess(order: { id: string; orderNo: string; userId: string }, input: PaymentSuccessInput): string {
+  const now = nowIso();
+  const provider = input.provider || "alipay";
+  const channel: PaymentChannel = input.channel === "wap" ? "wap" : "page";
+  const notifyJson = JSON.stringify(input.notifyJson || {});
+  const existing = db.prepare("SELECT id FROM payments WHERE out_trade_no=?").get(order.orderNo) as { id?: string } | undefined;
+  if (existing?.id) {
+    db.prepare(`UPDATE payments SET order_id=?, user_id=?, provider=?, channel=?, trade_no=?, amount_cents=?,
+      status='success', verified=?, buyer_logon_id=?, notify_json=?, paid_at=?, error=NULL, updated_at=?
+      WHERE id=? AND status <> 'success'`)
+      .run(order.id, order.userId, provider, channel, input.tradeNo, input.amountCents, input.verified ? 1 : 0,
+        input.buyerLogonId || null, notifyJson, input.paidAt, now, existing.id);
+    return existing.id;
+  }
+  const id = randomUUID();
+  db.prepare(`INSERT INTO payments
+    (id, order_id, user_id, provider, channel, out_trade_no, trade_no, amount_cents, status, verified,
+     notify_count, notify_json, buyer_logon_id, error, paid_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'success', ?, 0, ?, ?, NULL, ?, ?, ?)`)
+    .run(id, order.id, order.userId, provider, channel, order.orderNo, input.tradeNo, input.amountCents,
+      input.verified ? 1 : 0, notifyJson, input.buyerLogonId || null, input.paidAt, now, now);
+  return id;
+}
+
 export function markPaymentFailed(paymentId: string, error: string) {
   db.prepare("UPDATE payments SET status='failed', error=?, updated_at=? WHERE id=? AND status <> 'success'")
     .run(String(error).slice(0, 1000), nowIso(), paymentId);

@@ -196,6 +196,11 @@ const readSettings = await call("/api/admin/system-settings?scope=payment", { co
 check("stored secret is never returned", !readSettings.text.includes(SECRET_MARKER));
 const secretField = (readSettings.json?.settings || []).find(item => item.key === "alipay_private_key");
 check("secret shows as configured and masked", secretField?.configured === true && secretField?.value === "" && Boolean(secretField?.masked), JSON.stringify(secretField));
+// Regression: a stored secret must be readable by the server again (mask is derived from
+// the decrypted value). Without this the ciphertext format can silently break every
+// credential, including the payment keys and the migrated provider keys.
+check("stored secret can be decrypted again", secretField?.masked?.startsWith(SECRET_MARKER.slice(0, 4))
+  && !secretField.masked.includes("配置需要重新保存") && !secretField.masked.includes(SECRET_MARKER), secretField?.masked);
 check("non-sensitive value is readable", (readSettings.json?.settings || []).find(item => item.key === "alipay_app_id")?.value === "2021000000000001");
 const cipherRow = queryOne("SELECT ciphertext FROM secrets WHERE key='alipay_private_key'");
 check("secret is encrypted at rest", Boolean(cipherRow?.ciphertext) && !String(cipherRow.ciphertext).includes(SECRET_MARKER));

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { errorResponse, HttpError, requireUser } from "@/lib/auth";
-import { getOrderForUser } from "@/lib/billing/orders";
-import { getBooleanSetting, getSetting } from "@/lib/system-settings";
-import { describeError } from "@/lib/errors";
+import { errorResponse, requireUser } from "@/lib/auth";
+import { startPayment } from "@/lib/billing/orders";
+import { publicErrorMessage } from "@/lib/copy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,26 +11,41 @@ type Ctx = { params: Promise<{ id: string }> };
 
 const schema = z.object({ channel: z.enum(["page", "wap"]).default("page") });
 
+/**
+ * Open the Alipay cashier for an existing order.
+ *
+ * The browser is redirected to the returned URL; benefits are never granted here.
+ * Fulfilment happens only through the verified notification or an active query, so
+ * closing the browser right after paying still results in a delivered order.
+ */
 export async function POST(request: Request, ctx: Ctx) {
   try {
     const user = requireUser(request);
     const { id } = await ctx.params;
     const input = schema.parse(await request.json().catch(() => ({})));
-    const order = getOrderForUser(id, user.id);
-    if (!order) throw new HttpError(404, "ORDER_NOT_FOUND", "订单不存在");
-    if (order.status === "paid") throw new HttpError(409, "ORDER_ALREADY_PAID", "该订单已经支付成功");
-    if (order.status === "closed" || order.status === "canceled") {
-      throw new HttpError(409, "ORDER_NOT_PAYABLE", "该订单已经关闭，请重新下单");
-    }
-    if (!getBooleanSetting("alipay_enabled") || !getSetting("alipay_app_id")) {
-      throw new HttpError(503, "PAYMENT_CHANNEL_UNAVAILABLE", "支付通道尚未开通，请稍后再试或联系客服");
-    }
-    void input.channel;
-    throw new HttpError(503, "PAYMENT_CHANNEL_UNAVAILABLE", "支付通道尚未开通，请稍后再试或联系客服");
+    const result = startPayment({
+      orderId: id,
+      userId: user.id,
+      channel: input.channel,
+      requestOrigin: new URL(request.url).origin,
+    });
+    return NextResponse.json({
+      ok: true,
+      payUrl: result.payUrl,
+      orderNo: result.orderNo,
+      productName: result.productName,
+      amountCents: result.amountCents,
+      channel: result.channel,
+      channelText: result.channelText,
+      expiresAt: result.expiresAt,
+      resultUrl: result.resultUrl,
+      notice: "支付完成后权益会自动到账。如果没有自动跳转，请回到「我的订单」查看结果，不要重复付款。",
+    });
   } catch (error) {
     const handled = errorResponse(error);
     if (handled) return handled;
-    if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues.map(issue => issue.message).join("；") }, { status: 400 });
-    return NextResponse.json({ error: describeError(error) }, { status: 400 });
+    if (error instanceof z.ZodError) return NextResponse.json({ error: "支付方式不正确，请重新选择" }, { status: 400 });
+    // Members never see raw protocol or crypto output.
+    return NextResponse.json({ error: publicErrorMessage(error) || "操作没有完成，请稍后再试" }, { status: 400 });
   }
 }

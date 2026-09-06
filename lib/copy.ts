@@ -103,6 +103,67 @@ export const PAYMENT_STATUS_COPY: Record<string, string> = {
   abnormal: "需要确认",
 };
 
+/**
+ * Payment result page copy (§10.3). A pending payment is never described as failed:
+ * the money may already be on its way, and telling the member otherwise invites a
+ * second payment for the same order.
+ */
+export const PAYMENT_RESULT_COPY: Record<string, {
+  headline: string;
+  hint: string;
+  tone: "success" | "progress" | "neutral" | "attention";
+  settled: boolean;
+}> = {
+  paid: {
+    headline: "支付成功，权益已经到账",
+    hint: "套餐或创作额度已经发放，可以直接开始创作。",
+    tone: "success",
+    settled: true,
+  },
+  pending: {
+    headline: "正在确认支付结果……",
+    hint: "付款完成后权益会自动到账，通常只需要几秒钟。这个页面会自动刷新，请不要重复付款。",
+    tone: "progress",
+    settled: false,
+  },
+  paying: {
+    headline: "正在确认支付结果……",
+    hint: "付款完成后权益会自动到账，通常只需要几秒钟。这个页面会自动刷新，请不要重复付款。",
+    tone: "progress",
+    settled: false,
+  },
+  closed: {
+    headline: "订单已经关闭",
+    hint: "这笔订单超时没有完成支付。如果还需要，请重新下单；已经付款的话请联系客服。",
+    tone: "neutral",
+    settled: true,
+  },
+  canceled: {
+    headline: "订单已经取消",
+    hint: "这笔订单已经取消，不会产生任何扣费。",
+    tone: "neutral",
+    settled: true,
+  },
+  partial_refund: {
+    headline: "该订单已经完成部分退款",
+    hint: "退款金额已经原路退回，可以在「我的订单」查看明细。",
+    tone: "neutral",
+    settled: true,
+  },
+  refunded: {
+    headline: "该订单已经完成退款",
+    hint: "退款金额已经原路退回，可以在「我的订单」查看明细。",
+    tone: "neutral",
+    settled: true,
+  },
+  abnormal: {
+    headline: "支付结果需要人工确认",
+    hint: "我们已经记录了这笔支付，客服会尽快与你联系处理。请不要重复付款。",
+    tone: "attention",
+    settled: true,
+  },
+};
+
 export const REFUND_STATUS_COPY: Record<string, string> = {
   requested: "已提交，等待处理",
   approved: "已通过审核",

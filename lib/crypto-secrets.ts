@@ -79,9 +79,14 @@ export function encryptSecret(plain: string): string {
 
 export function decryptSecret(stored: string): string {
   if (!isEncryptedSecret(stored)) return stored;
+  // `enc:v1:<keyId>:<iv>:<tag>:<ciphertext>` — six fields, because the version prefix
+  // itself contains a colon. Counting five made every stored secret undecryptable.
   const parts = stored.split(":");
-  if (parts.length !== 5) throw new Error("秘密配置格式无效");
-  const [, sealedKeyId, ivHex, tagHex, cipherHex] = parts;
+  if (parts.length !== 6 || parts[0] !== "enc" || parts[1] !== "v1") throw new Error("秘密配置格式无效");
+  const [, , sealedKeyId, ivHex, tagHex, cipherHex] = parts;
+  if (!/^[0-9a-f]+$/i.test(ivHex) || !/^[0-9a-f]+$/i.test(tagHex) || !/^[0-9a-f]+$/i.test(cipherHex)) {
+    throw new Error("秘密配置格式无效");
+  }
   const { key, id, previous } = masterKey();
   const candidates = sealedKeyId === id ? [key] : previous && sealedKeyId === previous.id ? [previous.key] : [key, ...(previous ? [previous.key] : [])];
   let lastError: unknown = null;
