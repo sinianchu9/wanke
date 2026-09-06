@@ -8,14 +8,27 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type UserRole = "user" | "admin";
 
+export type AccountStatus = "active" | "disabled" | "closed";
+
 export interface SessionUser {
   id: string;
   email: string;
   name: string;
   role: UserRole;
-  status: "active" | "disabled";
+  status: AccountStatus;
   avatarUrl: string | null;
+  emailVerified: boolean;
   createdAt: string;
+}
+
+export interface SessionInfo {
+  id: string;
+  userAgent: string;
+  ip: string;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  current: boolean;
 }
 
 export class HttpError extends Error {
@@ -75,6 +88,7 @@ function rowToUser(row: any): SessionUser {
     role: row.role,
     status: row.status,
     avatarUrl: row.avatar_url || null,
+    emailVerified: Boolean(row.email_verified),
     createdAt: row.created_at,
   };
 }
@@ -90,16 +104,42 @@ export function getUserByEmail(email: string): (SessionUser & { passwordHash: st
   return { ...rowToUser(row), passwordHash: row.password_hash };
 }
 
-export function createSession(userId: string): string {
+export function createSession(userId: string, meta: { userAgent?: string | null; ip?: string | null } = {}): string {
   const token = randomBytes(32).toString("hex");
   const now = new Date();
-  db.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at, last_seen_at) VALUES (?,?,?,?,?)")
-    .run(tokenDigest(token), userId, now.toISOString(), new Date(now.getTime() + SESSION_TTL_MS).toISOString(), now.toISOString());
+  db.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at, last_seen_at, user_agent, ip) VALUES (?,?,?,?,?,?,?)")
+    .run(tokenDigest(token), userId, now.toISOString(), new Date(now.getTime() + SESSION_TTL_MS).toISOString(), now.toISOString(),
+      String(meta.userAgent || "").slice(0, 300) || null, String(meta.ip || "").slice(0, 64) || null);
   return token;
 }
 
 export function destroySession(token: string) {
   db.prepare("DELETE FROM sessions WHERE token_hash=?").run(tokenDigest(token));
+}
+
+export function listSessions(userId: string, currentToken: string): SessionInfo[] {
+  const currentHash = currentToken ? tokenDigest(currentToken) : "";
+  const now = Date.now();
+  const rows = db.prepare(`SELECT token_hash, user_agent, ip, created_at, last_seen_at, expires_at FROM sessions
+    WHERE user_id=? AND expires_at > ? ORDER BY last_seen_at DESC`).all(userId, new Date(now).toISOString()) as any[];
+  return rows.map((row, index) => ({
+    id: `session-${index}-${row.token_hash.slice(0, 8)}`,
+    userAgent: row.user_agent || "",
+    ip: row.ip || "",
+    createdAt: row.created_at,
+    lastSeenAt: row.last_seen_at,
+    expiresAt: row.expires_at,
+    current: row.token_hash === currentHash,
+  }));
+}
+
+export function revokeOtherSessions(userId: string, currentToken: string): number {
+  const currentHash = currentToken ? tokenDigest(currentToken) : "";
+  return db.prepare("DELETE FROM sessions WHERE user_id=? AND token_hash <> ?").run(userId, currentHash).changes;
+}
+
+export function revokeAllSessions(userId: string): number {
+  return db.prepare("DELETE FROM sessions WHERE user_id=?").run(userId).changes;
 }
 
 function parseCookies(header: string | null): Record<string, string> {

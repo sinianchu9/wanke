@@ -237,9 +237,9 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
   return <div className="content-stack">
     <div className="hero-card">
       <div>
-        <div className="eyebrow">AUTO VIDEO GENERATION</div>
+        <div className="eyebrow">智能成片</div>
         <h2>告诉我你要什么视频</h2>
-        <p>先选生成方式，再选创作预设。预设负责“怎么拍”，系统路由负责“用哪个 Provider / 模型执行”，两者互不混淆。</p>
+        <p>先选生成方式，再选创作预设：预设决定“怎么拍”，平台会自动为你安排合适的创作服务。</p>
       </div>
     </div>
 
@@ -278,7 +278,7 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
           <textarea className="big-text" value={prompt} onChange={event => {setPrompt(event.target.value);setEnhanceNote("");setEnhanceError("")}} placeholder="例如：一个穿黑色风衣的男人在东京雨夜街头向镜头走来，路面有霓虹倒影，镜头缓慢后退，电影感，人物动作自然。" />
           <div className="inline-actions">
             <button type="button" className="secondary" disabled={enhancing || !prompt.trim()} onClick={enhancePrompt}><WandSparkles size={15}/>{enhancing ? "正在整理…" : "智能增强提示词"}</button>
-            <span className="muted mini">有百炼 API Key + Workspace 时使用 Qwen；不可用时明确回退为本地预设整理。</span>
+            <span className="muted mini">智能增强只整理你的文字表达，不会改变素材和创作类型；服务繁忙时会自动使用本地预设整理。</span>
           </div>
           {enhanceNote && <div className="mini success-text">{enhanceNote}</div>}
           {enhanceError && <div className="mini error-text">{enhanceError}</div>}
@@ -287,7 +287,7 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
         <details className="advanced">
           <summary><HelpCircle size={15}/> 生成预设与智能增强怎么用？</summary>
           <div className="advanced-body">
-            <div className="muted mini">① <strong>生成方式</strong>决定素材规则；② <strong>生成预设</strong>决定稳定的创作策略和默认画幅/时长；③ <strong>智能增强</strong>只是把你的文字整理得更适合视频模型；④ 最后由设置中的 <strong>自动 / 百炼 / 万镜一刻</strong>决定实际执行 Provider。</div>
+            <div className="muted mini">① <strong>生成方式</strong>决定素材规则；② <strong>生成预设</strong>决定稳定的创作策略和默认画幅/时长；③ <strong>智能增强</strong>只是把你的文字整理得更适合视频创作；④ 实际执行由平台自动安排，你不需要关心。</div>
             <div className="field"><span className="field-label">当前预设演示</span><div className="muted mini">原始输入：{recipe.demoInput}</div><div className="muted mini">整理后的表达示例：{recipe.demoOutput}</div></div>
             <div className="muted mini">边界规则：智能增强不会替你增加未提供的品牌、人物身份、型号或剧情；生成预设也不会绕过当前生成方式的素材限制。</div>
           </div>
@@ -366,7 +366,7 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
               <div className="muted mini"><strong>适合：</strong>同一个创作意图想一次获得多个候选，例如产品广告同时出 3 个版本后挑最好的一条。</div>
               <div className="muted mini"><strong>不适合：</strong>三个版本需要不同人物、不同产品或完全不同 Prompt；这种情况应分别创建任务。</div>
               <div className="muted mini"><strong>演示：</strong>产品广告 Recipe + 同一张手环产品图 + “镜头缓慢环绕” + 3 个版本 → 任务中心出现“版本 1/3、2/3、3/3”，可以分别完成、失败或重试。</div>
-              <div className="muted mini"><strong>和 Recipe 的关系：</strong>同批次共享同一 Recipe 和输入条件；批量版本只负责产生独立候选，不改变 Recipe、Prompt、素材或 Provider 规则。</div>
+              <div className="muted mini"><strong>和创作预设的关系：</strong>同批次共享同一预设和输入条件；批量版本只负责产生独立候选，不改变预设、描述、素材或生成规则。</div>
             </div>
           </details>
         </div>
@@ -376,7 +376,7 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
             <Send size={16} />{submitting ? "正在提交…" : localUploading ? "正在准备图片…" : versionCount > 1 ? `生成 ${versionCount} 个版本` : "开始生成"}
           </button>
           {!ready && <span className="muted mini">填写描述并补齐当前模式需要的素材后即可生成</span>}
-          {ready && <span className="muted mini">当前：{recipe.label} · {subjectIds.length ? `${subjectIds.length} 个主体 · ` : ""}{versionCount > 1 ? `${versionCount} 个独立版本 · ` : ""}模型和 Provider 路由由系统设置决定</span>}
+          {ready && <span className="muted mini">当前：{recipe.label} · {subjectIds.length ? `${subjectIds.length} 个主体 · ` : ""}{versionCount > 1 ? `${versionCount} 个独立版本 · ` : ""}创作服务由平台自动安排</span>}
         </div>
       </div>
     </section>

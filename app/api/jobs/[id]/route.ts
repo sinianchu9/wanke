@@ -9,7 +9,9 @@ import { collectLocalInputRefs, deleteLocalInput } from "@/lib/video/local-input
 import { archiveJobOutput, deleteArchivedOutputs } from "@/lib/archive";
 import { describeError } from "@/lib/errors";
 import { errorResponse, requireUser, type SessionUser } from "@/lib/auth";
-import { refundQuota, reserveQuota } from "@/lib/membership";
+import { attachJobToCharge, beginSubmitCharge, failSubmitCharge } from "@/lib/billing/charges";
+import { publicErrorMessage } from "@/lib/copy";
+import { memberJobView } from "@/lib/job-view";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +23,9 @@ export async function GET(request: Request, ctx: Ctx) {
     const user = requireUser(request);
     const { id } = await ctx.params;
     const job = getJobForUser(id, user.id, user.role === "admin");
-    return job ? NextResponse.json({ job }) : NextResponse.json({ error: "任务不存在" }, { status: 404 });
+    return job
+      ? NextResponse.json({ job: memberJobView(job, user.role === "admin") })
+      : NextResponse.json({ error: "任务不存在" }, { status: 404 });
   } catch (error) {
     const handled = errorResponse(error);
     return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
@@ -37,7 +41,8 @@ export async function POST(request: Request, ctx: Ctx) {
     return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
   const { id } = await ctx.params;
-  const job = getJobForUser(id, user.id, user.role === "admin");
+  const isAdmin = user.role === "admin";
+  const job = getJobForUser(id, user.id, isAdmin);
   if (!job) return NextResponse.json({ error: "任务不存在" }, { status: 404 });
   try {
     const body = await request.json().catch(() => ({}));
@@ -46,7 +51,7 @@ export async function POST(request: Request, ctx: Ctx) {
     if (action === "refresh") {
       const remote = await refreshJob(job);
       const updated = updateJobRemote(id, remote);
-      return NextResponse.json({ job: updated });
+      return NextResponse.json({ job: memberJobView(updated, isAdmin) });
     }
 
     if (action === "retry") {
@@ -59,7 +64,7 @@ export async function POST(request: Request, ctx: Ctx) {
         sourceJobId: job.id,
       }, true);
       if ("error" in child) return child.error;
-      return NextResponse.json({ job: child.job }, { status: 201 });
+      return NextResponse.json({ job: memberJobView(child.job, isAdmin) }, { status: 201 });
     }
 
     if (action === "similar") {
@@ -70,7 +75,7 @@ export async function POST(request: Request, ctx: Ctx) {
         sourceJobId: job.id,
       }, true);
       if ("error" in child) return child.error;
-      return NextResponse.json({ job: child.job }, { status: 201 });
+      return NextResponse.json({ job: memberJobView(child.job, isAdmin) }, { status: 201 });
     }
 
     if (action === "continue") {
@@ -106,14 +111,14 @@ export async function POST(request: Request, ctx: Ctx) {
         sourceOutputUrl: sourceUrl,
       });
       if ("error" in child) return child.error;
-      return NextResponse.json({ job: child.job }, { status: 201 });
+      return NextResponse.json({ job: memberJobView(child.job, isAdmin) }, { status: 201 });
     }
 
     if (action === "resume") {
       if (job.kind !== "storyboard" || !job.providerJobId) return NextResponse.json({ error: "只有故事板远端任务支持续跑" }, { status: 400 });
       const provider = await resumeStoryboard(job.providerJobId);
       const updated = updateJobRemote(id, { status: "running", provider, error: null, finishedAt: null });
-      return NextResponse.json({ job: updated });
+      return NextResponse.json({ job: memberJobView(updated, isAdmin) });
     }
 
     if (action === "archive") {
@@ -122,14 +127,14 @@ export async function POST(request: Request, ctx: Ctx) {
       const archived = await archiveJobOutput(job, index);
       const outputs = job.outputs.map((item, i) => i === index ? archived : item);
       const updated = updateJobRemote(id, { outputs });
-      return NextResponse.json({ job: updated, output: archived });
+      return NextResponse.json({ job: memberJobView(updated, isAdmin), output: archived });
     }
 
     return NextResponse.json({ error: "未知操作" }, { status: 400 });
   } catch (error) {
     const handled = errorResponse(error);
     if (handled) return handled;
-    return NextResponse.json({ error: describeError(error) }, { status: 400 });
+    return NextResponse.json({ error: publicErrorMessage(describeError(error)) || "本次操作没有完成，请稍后重试。" }, { status: 400 });
   }
 }
 
@@ -153,7 +158,7 @@ export async function DELETE(request: Request, ctx: Ctx) {
   }
 }
 
-/** Reserve one quota unit, submit the child job, and refund when submission fails synchronously. */
+/** Quote + reserve credits, submit the child job, then return credits when the submission fails. */
 async function submitChildWithQuota(
   user: SessionUser,
   parent: StoredJob,
@@ -162,14 +167,17 @@ async function submitChildWithQuota(
   relationDetails: Record<string, unknown>,
   attachToParentShot = false,
 ): Promise<{ job: StoredJob } | { error: NextResponse }> {
+  let chargeId: string;
   try {
-    reserveQuota(user.id, 1);
+    const { charge } = beginSubmitCharge({ userId: user.id, kind: parent.kind, jobInput: requestPayload });
+    chargeId = charge.id;
   } catch (error) {
     const handled = errorResponse(error);
     return { error: handled || NextResponse.json({ error: "服务器错误" }, { status: 500 }) };
   }
   const child = await submitChild(user, parent, requestPayload, title, relationDetails, attachToParentShot);
-  if (child.status === "failed") refundQuota(user.id, 1);
+  attachJobToCharge(chargeId, child.id);
+  if (child.status === "failed") failSubmitCharge(chargeId, child.error || "", child.id);
   return { job: child };
 }
 

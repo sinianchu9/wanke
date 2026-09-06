@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BookmarkPlus, Check, ChevronRight, Clock3, Copy, Download, ExternalLink, Film, GitBranch, Layers3, LoaderCircle, RefreshCw, Repeat2, RotateCcw, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, BookmarkPlus, Check, ChevronRight, Clock3, Download, ExternalLink, Film, GitBranch, Layers3, LoaderCircle, RefreshCw, Repeat2, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import ContinueCreation from "@/components/continue-creation";
 import VideoExtend from "@/components/video-extend";
 import VideoEdit from "@/components/video-edit";
-import { JOB_KIND_LABELS, type ResultMedia, type StoredJob } from "@/lib/types";
+import { JOB_KIND_LABELS, type JobStatus, type ResultMedia, type StoredJob } from "@/lib/types";
+import { JOB_STATUS_COPY } from "@/lib/copy";
 
 const kindName: Record<string, string> = JOB_KIND_LABELS;
 type BatchMeta = { id: string; index: number; total: number };
@@ -117,7 +118,6 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
             <div className="detail-meta">
               <StatusLabel status={current.status}/>
               <span>{new Date(current.createdAt).toLocaleString()}</span>
-              {current.providerJobId && <button className="text-copy" onClick={() => navigator.clipboard.writeText(current.providerJobId!)} title="复制任务编号"><code>{short(current.providerJobId)}</code><Copy size={12}/></button>}
             </div>
           </div>
           <div className="detail-actions">
@@ -144,7 +144,6 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
         <VideoEdit job={current} modelStudioAvailable={modelStudioAvailable} onCreated={selectCreated}/>
         {current.kind === "storyboard" && <StoryboardDetails job={current}/>} 
 
-        <details className="raw-detail"><summary>技术详情</summary><div className="raw-columns"><JsonBlock title="提交参数" value={current.request}/><JsonBlock title="服务原始响应" value={current.provider}/></div></details>
       </>}
     </section>
   </div>;
@@ -169,7 +168,7 @@ function relationLabel(job: StoredJob) {
 }
 
 function statusShort(status: string) {
-  return status === "succeeded" ? "完成" : status === "failed" ? "失败" : status === "running" ? "生成中" : status === "queued" ? "排队" : "待确认";
+  return JOB_STATUS_COPY[status as JobStatus] || "状态确认中";
 }
 
 function PendingState({ job }: { job: StoredJob }) {
@@ -177,7 +176,7 @@ function PendingState({ job }: { job: StoredJob }) {
   let text = "刷新任务查看最新状态。";
   if (job.status === "failed") {
     title = "没有可用输出";
-    text = "查看上方失败原因后，可以点击“重试失败任务”。";
+    text = "查看上方提示后，可以点击“重试失败任务”。";
   } else if (job.status === "running") {
     text = job.kind === "video_extension"
       ? "正在沿原视频时间轴生成连续内容，完成后会返回包含原片的完整延长视频。"
@@ -187,11 +186,7 @@ function PendingState({ job }: { job: StoredJob }) {
           ? "正在生成视频，完成后结果会自动出现。"
           : "任务正在执行，Wanke 会自动检查进度。";
   } else if (job.status === "queued") {
-    text = job.kind === "video_extension"
-      ? "视频延长任务已进入百炼队列。"
-      : job.kind === "video_editing"
-        ? "视频编辑任务已进入百炼队列。"
-        : "任务已进入生成队列，Wanke 会自动检查进度。";
+    text = "任务已进入生成队列，Wanke 会自动检查进度。";
   } else if (job.details?.pollable === false) {
     text = String(job.details?.note || "任务已提交，但当前没有可查询的进度接口。");
   }
@@ -213,8 +208,6 @@ function ResultCard({ output, index, onArchive, onSaveWork, busy }: { output: Re
       <div>
         <strong>{output.label || `版本 ${index + 1}`}{output.outputLanguage ? ` · ${output.outputLanguage}` : ""}</strong>
         {output.archivedFile ? <span className="archive-ok">已保存到本机 · {output.archivedFile}</span> : remote && <span>云端结果链接会过期，满意后建议保存到本机。</span>}
-        {output.mediaId && <span>MediaId: {short(output.mediaId)}</span>}
-        {output.editingProjectId && <span>剪辑工程: {short(output.editingProjectId)}</span>}
       </div>
       <div className="result-actions">
         {isVideo && onSaveWork && <button className="icon-button" disabled={busy} title="保存到「我的作品」，长期管理" onClick={onSaveWork}><BookmarkPlus size={15}/></button>}
@@ -236,10 +229,6 @@ function StoryboardDetails({ job }: { job: StoredJob }) {
   </div>;
 }
 
-function JsonBlock({ title, value }: any) {
-  return <div><b>{title}</b><pre>{JSON.stringify(value, null, 2)}</pre></div>;
-}
-
 function StatusIcon({ status }: { status: string }) {
   if (status === "succeeded") return <span className="status-icon success"><Check size={14}/></span>;
   if (status === "failed") return <span className="status-icon fail"><AlertTriangle size={14}/></span>;
@@ -248,8 +237,7 @@ function StatusIcon({ status }: { status: string }) {
 }
 
 function StatusLabel({ status }: { status: string }) {
-  const map: Record<string, string> = { succeeded: "已完成", failed: "失败", running: "生成中", queued: "排队中", unknown: "待确认" };
-  return <span className={`status-label ${status}`}>{map[status] || status}</span>;
+  return <span className={`status-label ${status}`}>{JOB_STATUS_COPY[status as JobStatus] || "状态确认中"}</span>;
 }
 
 function short(value: string) {

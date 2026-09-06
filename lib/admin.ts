@@ -72,31 +72,61 @@ export function listAdminUsers(filter: { query?: string; plan?: string; status?:
 }
 
 export function adminStats() {
-  const q = (sql: string) => Number((db.prepare(sql).get() as any)?.c || 0);
+  const q = (sql: string, ...params: unknown[]) => Number((db.prepare(sql).get(...params) as any)?.c || 0);
+  const sum = (sql: string, ...params: unknown[]) => Number((db.prepare(sql).get(...params) as any)?.total || 0);
   const now = new Date();
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+  const planRows = db.prepare(`SELECT m.plan_id, COALESCE(p.name, m.plan) AS name, COUNT(*) AS c
+    FROM memberships m LEFT JOIN plans p ON p.id = COALESCE(m.plan_id, m.plan)
+    GROUP BY COALESCE(m.plan_id, m.plan) ORDER BY c DESC`).all() as any[];
+  const paidUserIds = db.prepare("SELECT DISTINCT user_id FROM orders WHERE status IN ('paid','partial_refund','refunded')").all() as Array<{ user_id: string }>;
+  const activeToday = q(`SELECT COUNT(DISTINCT user_id) AS c FROM jobs WHERE created_at >= ?`, dayStart);
+
   return {
     users: {
       total: q("SELECT COUNT(*) AS c FROM users"),
       active: q("SELECT COUNT(*) AS c FROM users WHERE status='active'"),
+      suspended: q("SELECT COUNT(*) AS c FROM users WHERE status='disabled'"),
+      closed: q("SELECT COUNT(*) AS c FROM users WHERE status='closed'"),
       admins: q("SELECT COUNT(*) AS c FROM users WHERE role='admin'"),
-      newToday: q(`SELECT COUNT(*) AS c FROM users WHERE created_at >= '${dayStart}'`),
+      newToday: q("SELECT COUNT(*) AS c FROM users WHERE created_at >= ?", dayStart),
+      activeToday,
+      paid: paidUserIds.length,
     },
-    plans: {
-      free: q("SELECT COUNT(*) AS c FROM memberships WHERE plan='free'"),
-      pro: q("SELECT COUNT(*) AS c FROM memberships WHERE plan='pro'"),
-      studio: q("SELECT COUNT(*) AS c FROM memberships WHERE plan='studio'"),
+    plans: planRows.map(row => ({ id: row.plan_id, name: row.name || row.plan_id, count: Number(row.c || 0) })),
+    revenue: {
+      todayCents: sum("SELECT COALESCE(SUM(amount_cents),0) AS total FROM payments WHERE status='success' AND paid_at >= ?", dayStart),
+      monthCents: sum("SELECT COALESCE(SUM(amount_cents),0) AS total FROM payments WHERE status='success' AND paid_at >= ?", monthStart),
+      totalCents: sum("SELECT COALESCE(SUM(amount_cents),0) AS total FROM payments WHERE status='success'"),
+      refundedCents: sum("SELECT COALESCE(SUM(amount_cents),0) AS total FROM refunds WHERE status='succeeded'"),
+      paidOrdersToday: q("SELECT COUNT(*) AS c FROM orders WHERE status IN ('paid','partial_refund','refunded') AND paid_at >= ?", dayStart),
+      pendingOrders: q("SELECT COUNT(*) AS c FROM orders WHERE status IN ('pending','paying')"),
+      abnormalOrders: q("SELECT COUNT(*) AS c FROM orders WHERE status='abnormal'"),
+      unverifiedNotifications: q("SELECT COUNT(*) AS c FROM payment_notifications WHERE verified=0"),
     },
     jobs: {
       total: q("SELECT COUNT(*) AS c FROM jobs"),
       running: q("SELECT COUNT(*) AS c FROM jobs WHERE status IN ('queued','running','unknown')"),
       succeeded: q("SELECT COUNT(*) AS c FROM jobs WHERE status='succeeded'"),
       failed: q("SELECT COUNT(*) AS c FROM jobs WHERE status='failed'"),
-      today: q(`SELECT COUNT(*) AS c FROM jobs WHERE created_at >= '${dayStart}'`),
+      today: q("SELECT COUNT(*) AS c FROM jobs WHERE created_at >= ?", dayStart),
       legacy: q("SELECT COUNT(*) AS c FROM jobs WHERE user_id IS NULL"),
+    },
+    credits: {
+      reserved: q("SELECT COUNT(*) AS c FROM task_charges WHERE status='reserved'"),
+      settled: q("SELECT COUNT(*) AS c FROM task_charges WHERE status='settled'"),
+      refunded: q("SELECT COUNT(*) AS c FROM task_charges WHERE status='refunded'"),
+      consumedToday: sum("SELECT COALESCE(SUM(-delta),0) AS total FROM quota_ledger WHERE reason='job_reserve' AND created_at >= ?", dayStart),
     },
     works: { total: q("SELECT COUNT(*) AS c FROM works") },
     assets: { total: q("SELECT COUNT(*) AS c FROM assets") },
+    support: {
+      openTickets: q("SELECT COUNT(*) AS c FROM support_tickets WHERE status IN ('open','processing','waiting_user')"),
+      pendingInvoices: q("SELECT COUNT(*) AS c FROM invoice_requests WHERE status='pending'"),
+      pendingRefunds: q("SELECT COUNT(*) AS c FROM refunds WHERE status IN ('requested','approved','processing')"),
+    },
     generatedAt: now.toISOString(),
   };
 }

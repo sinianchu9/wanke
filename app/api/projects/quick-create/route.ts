@@ -11,7 +11,7 @@ import { validateJobInput } from "@/lib/yike/schemas";
 import { getModelStudioRuntimeConfig, getVideoProviderMode, getYikeRuntimeConfig } from "@/lib/settings";
 import { describeError } from "@/lib/errors";
 import { errorResponse, requireUser, type SessionUser } from "@/lib/auth";
-import { refundQuota, reserveQuota } from "@/lib/membership";
+import { assertBatchAffordable, attachJobToCharge, beginSubmitCharge, failSubmitCharge } from "@/lib/billing/charges";
 import { getAssetForUser } from "@/lib/repository";
 import { getSubjectCardForUser } from "@/lib/subjects";
 
@@ -28,6 +28,8 @@ const schema = z.object({
   subjectId: z.string().min(1).nullable().optional(),
   imageAssetId: z.string().min(1).nullable().optional(),
   referenceUrl: z.string().trim().max(2048).optional().default(""),
+  // Client-generated request id: a repeated submit reuses the same per-shot charges.
+  clientRequestId: z.string().min(8).max(128).optional(),
   localInputRef: z.string().trim().max(240).optional().default(""),
 }).superRefine((value, ctx) => {
   const directCount = [value.imageAssetId, value.referenceUrl, value.localInputRef].filter(Boolean).length;
@@ -77,8 +79,9 @@ export async function POST(request: Request) {
     if (input.subjectId) setProjectSubjects(project.id, [input.subjectId]);
     if (plan.shots.length > 1) setProjectTransitionSettings({ projectId: project.id, transitionType: "fade", duration: 0.5 });
 
-    // Reserve one quota unit per shot before submitting; refund per synchronous failure.
-    reserveQuota(user.id, plan.shots.length);
+    // Check the whole plan is affordable first, then reserve per shot so a single
+    // synchronous rejection only returns that shot's credits.
+    const quickQuote = assertBatchAffordable(user.id, "video_generation", {}, plan.shots.length);
     const results: Array<{ shotId: string; shotName: string; jobId: string; status: string; error?: string | null }> = [];
     for (const shotPlan of plan.shots) {
       const shot = createShot({ projectId: project.id, name: shotPlan.name, brief: shotPlan.brief });
@@ -88,7 +91,14 @@ export async function POST(request: Request) {
         shotId: shot.id,
         referenceSource: plan.referenceSource,
       });
+      const { charge } = beginSubmitCharge({
+        userId: user.id,
+        kind: "video_generation",
+        jobInput,
+        clientRequestId: input.clientRequestId ? `${input.clientRequestId}:${shot.id}` : undefined,
+      });
       let job = createJob({ kind: "video_generation", title: `${project.name} · ${shot.name}`, request: jobInput, userId: user.id });
+      attachJobToCharge(charge.id, job.id);
       assignJobToShot(shot.id, job.id);
       try {
         const prepared = await prepareJobInput("video_generation", jobInput);
@@ -108,7 +118,7 @@ export async function POST(request: Request) {
           },
         })!;
       } catch (error) {
-        refundQuota(user.id, 1);
+        failSubmitCharge(charge.id, describeError(error), job.id);
         job = updateJobRemote(job.id, {
           status: "failed",
           error: describeError(error),

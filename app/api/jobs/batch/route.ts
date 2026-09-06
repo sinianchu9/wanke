@@ -7,7 +7,9 @@ import { submitJob } from "@/lib/video/provider";
 import { prepareJobInput } from "@/lib/video/prepare";
 import { describeError } from "@/lib/errors";
 import { errorResponse, requireUser } from "@/lib/auth";
-import { refundQuota, reserveQuota } from "@/lib/membership";
+import { assertBatchAffordable, attachJobToCharge, beginSubmitCharge, failSubmitCharge } from "@/lib/billing/charges";
+import { publicErrorMessage } from "@/lib/copy";
+import { memberJobListView } from "@/lib/job-view";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +20,7 @@ const schema = z.object({
   input: z.record(z.string(), z.unknown()),
   count: z.coerce.number().int().min(2).max(4),
   shotId: z.string().optional().nullable(),
+  clientRequestId: z.string().min(8).max(128).optional(),
 });
 
 type BatchMeta = { id: string; index: number; total: number };
@@ -37,8 +40,9 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "当前项目镜头已经不存在，请重新选择镜头" }, { status: 400 });
       }
     }
-    // Reserve the whole batch atomically up front; refund per version rejected synchronously.
-    reserveQuota(user.id, payload.count);
+    // Check the whole batch is affordable before charging any part of it, then reserve
+    // per version so one synchronous rejection only returns that version's credits.
+    const batchQuote = assertBatchAffordable(user.id, "video_generation", payload.input, payload.count);
     const batchId = randomUUID();
     const jobs: ReturnType<typeof createJob>[] = [];
 
@@ -48,7 +52,14 @@ export async function POST(request: Request) {
       const batch: BatchMeta = { id: batchId, index, total: payload.count };
       const baseTitle = payload.title?.trim() || "AI 视频生成";
       const requestInput = { ...payload.input, _batch: batch };
+      const { charge } = beginSubmitCharge({
+        userId: user.id,
+        kind: "video_generation",
+        jobInput: payload.input,
+        clientRequestId: payload.clientRequestId ? `${payload.clientRequestId}:${index}` : undefined,
+      });
       let job = createJob({ kind: "video_generation", title: `${baseTitle} · 版本 ${index}/${payload.count}`, request: requestInput, userId: user.id });
+      attachJobToCharge(charge.id, job.id);
       if (payload.shotId) assignJobToShot(payload.shotId, job.id);
 
       try {
@@ -63,7 +74,7 @@ export async function POST(request: Request) {
           details: { ...(submitted.details || {}), batchId, batchIndex: index, batchTotal: payload.count },
         })!;
       } catch (error) {
-        refundQuota(user.id, 1);
+        failSubmitCharge(charge.id, describeError(error), job.id);
         job = updateJobRemote(job.id, {
           status: "failed",
           error: describeError(error),
@@ -76,13 +87,13 @@ export async function POST(request: Request) {
 
     const submitted = jobs.filter(job => job.providerJobId).length;
     const failed = jobs.filter(job => job.status === "failed").length;
-    return NextResponse.json({ batchId, jobs, summary: { total: payload.count, submitted, failed } }, { status: 201 });
+    return NextResponse.json({ batchId, jobs: memberJobListView(jobs, user.role === "admin"), quote: batchQuote, summary: { total: payload.count, submitted, failed, credits: batchQuote.credits } }, { status: 201 });
   } catch (error) {
     const handled = errorResponse(error);
     if (handled) return handled;
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.issues.map(issue => issue.message).join("；") }, { status: 400 });
     }
-    return NextResponse.json({ error: describeError(error) }, { status: 400 });
+    return NextResponse.json({ error: publicErrorMessage(describeError(error)) || "本次创作没有完成，请稍后重试。" }, { status: 400 });
   }
 }

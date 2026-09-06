@@ -1,5 +1,7 @@
 import "server-only";
 import Database from "better-sqlite3";
+import { ensureCommercialSchema } from "@/lib/db-commercial";
+import { encryptSecret } from "@/lib/crypto-secrets";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -231,6 +233,10 @@ function openDb() {
     CREATE INDEX IF NOT EXISTS idx_projects_user_updated ON projects(user_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_subject_cards_user ON subject_cards(user_id, updated_at DESC);
   `);
+  // Registered before the commercial schema migration so legacy plain-text
+  // provider credentials can be sealed while the connection is still opening.
+  (globalThis as any).__wankeSecretEncrypt = encryptSecret;
+  ensureCommercialSchema(db);
   seedAdminFromEnv(db);
   return db;
 }

@@ -22,10 +22,18 @@ node_modules/.bin/next start -p "$PORT" > /tmp/wanke-e2e-server.log 2>&1 &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
 
+# Readiness probe: the landing page is the only route that answers without a session
+# (/api/status is member-only now), and a failed probe must not silently waste the run.
+READY=0
 for _ in $(seq 1 90); do
-  if curl -fsS "http://127.0.0.1:$PORT/api/status" > /dev/null 2>&1; then break; fi
+  if curl -fsS -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then READY=1; break; fi
   sleep 1
 done
+if [ "$READY" != "1" ]; then
+  echo "server did not become ready on port $PORT" >&2
+  tail -40 /tmp/wanke-e2e-server.log >&2 || true
+  exit 1
+fi
 
 echo "== e2e db: $DB =="
 node "$SCRIPT"

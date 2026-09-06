@@ -39,7 +39,7 @@ import AssetLibrary from "@/components/asset-library";
 import JobCenter from "@/components/job-center";
 import WorksLibrary from "@/components/works-library";
 import ProjectHome from "@/components/project-home";
-import SettingsPanel from "@/components/settings-panel";
+import UserSettingsPanel from "@/components/user-settings-panel";
 import SubjectLibrary, { type PublicSubjectCard } from "@/components/subject-library";
 import type { ProductionProject } from "@/lib/project-types";
 import type { StoredAsset, StoredJob } from "@/lib/types";
@@ -49,6 +49,19 @@ import workflowStyles from "@/components/workflow-surface.module.css";
 type Tab = "home" | "quick" | "generate" | "projects" | "works" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation" | "assets" | "subjects" | "jobs" | "settings";
 type WorkflowTab = "quick" | "generate" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation";
 type ProviderMode = "auto" | "modelstudio" | "yike";
+
+/** Client request id makes a submit exactly-once: a retry returns the same creation. */
+function newClientRequestId(prefix: string) {
+  const random = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID().replace(/-/g, "").slice(0, 16)
+    : Math.random().toString(36).slice(2, 18);
+  return `${prefix}-${Date.now().toString(36)}-${random}`;
+}
+
+function creditNote(quote: { credits?: number } | undefined) {
+  const credits = Number(quote?.credits || 0);
+  return credits > 0 ? `（本次消耗 ${credits} 个创作额度）` : "";
+}
 type QuickCreateResult = { submitted?: number; failed?: number; projectName?: string };
 
 const CHAT_DRAFT_KEY = "wanke:chat-creation-draft:v1";
@@ -244,11 +257,13 @@ export default function Studio() {
       const res = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, input, title, parentJobId, shotId }),
+        body: JSON.stringify({ kind, input, title, parentJobId, shotId, clientRequestId: newClientRequestId("job") }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "任务提交失败");
-      setNotice(shotId && activeShot ? `已提交到「${activeShot.project.name} / ${activeShot.shot.name}」：${data.job.title}` : `已提交：${data.job.title}`);
+      setNotice(shotId && activeShot
+        ? `已提交到「${activeShot.project.name} / ${activeShot.shot.name}」：${data.job.title}${creditNote(data.quote)}`
+        : `已提交：${data.job.title}${creditNote(data.quote)}`);
       await loadAll();
       setFocusedJobId(data.job.id || "");
       setTab("jobs");
@@ -269,15 +284,15 @@ export default function Studio() {
       const res = await fetch("/api/jobs/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: "video_generation", input, count, title, shotId: activeShotId || undefined }),
+        body: JSON.stringify({ kind: "video_generation", input, count, title, shotId: activeShotId || undefined, clientRequestId: newClientRequestId("batch") }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "批量任务提交失败");
       const summary = data.summary || {};
       const location = activeShot ? `，已归入「${activeShot.project.name} / ${activeShot.shot.name}」` : "";
       setNotice(summary.failed
-        ? `已创建 ${summary.total} 个版本：${summary.submitted} 个已提交，${summary.failed} 个失败${location}。`
-        : `已创建并提交 ${summary.total} 个独立版本${location}。`
+        ? `已创建 ${summary.total} 个版本：${summary.submitted} 个已提交，${summary.failed} 个未完成${location}${creditNote(data.quote)}。`
+        : `已创建并提交 ${summary.total} 个独立版本${location}${creditNote(data.quote)}。`
       );
       await loadAll();
       setFocusedJobId(data.jobs?.[0]?.id || "");
@@ -355,12 +370,14 @@ export default function Studio() {
     setTab("projects");
   }
 
-  const modelStudioConfigured = status?.modelStudio?.configured === true;
-  const yikeReady = status?.yike?.configured === true;
-  const providerMode = (status?.providerMode || "auto") as ProviderMode;
-  const directVideo = modelStudioConfigured && providerMode !== "yike";
+  // Members only ever learn whether a capability is available; the platform decides
+  // which upstream service runs it (see /api/status and 管理后台 → 创作服务).
+  const directVideo = status?.capabilities?.directVideo === true;
+  const extendedReady = status?.capabilities?.extendedUpload === true;
   const generationReady = status === null ? null : status?.generationReady === true;
-  const chatGenerationReady = status === null ? null : (modelStudioConfigured || yikeReady);
+  const chatGenerationReady = status === null ? null : status?.available === true;
+  const serviceMessage = status?.message || "";
+  const providerMode: ProviderMode = "auto";
   const activeWorkflow = isWorkflowTab(tab) ? tab : null;
 
   useEffect(() => {
@@ -374,7 +391,7 @@ export default function Studio() {
 
   function renderWorkflow(workflow: WorkflowTab) {
     if (workflow === "quick") {
-      return <QuickCreationWizard assets={assets} subjects={subjects} onCreated={quickCreated} onAdvanced={() => navigate("generate")} onSettings={() => navigate("settings")} onAssetsChanged={loadAll} generationReady={generationReady} directAvailable={directVideo} extendedUploadAvailable={yikeReady} />;
+      return <QuickCreationWizard assets={assets} subjects={subjects} onCreated={quickCreated} onAdvanced={() => navigate("generate")} onSettings={() => navigate("settings")} onAssetsChanged={loadAll} generationReady={generationReady} directAvailable={directVideo} extendedUploadAvailable={extendedReady} />;
     }
     if (workflow === "generate") {
       return <SimpleVideoGenerator assets={assets} subjects={subjects} onSubmit={submit} onSubmitBatch={submitBatch} submitting={loading} directAvailable={directVideo} />;
@@ -451,11 +468,11 @@ export default function Studio() {
           <div className={styles.userMenuWrap}>
             {me?.user && userMenuOpen && (
               <div className={styles.userMenuPopover}>
-                <button className={styles.userMenuItem} onClick={() => { setUserMenuOpen(false); navigate("settings"); }}>
+                <div className={styles.userMenuItem} aria-live="polite">
                   <span className={`${styles.statusDot} ${generationReady === true ? styles.statusDotReady : generationReady === false ? styles.statusDotBad : ""}`} />
-                  <span>{generationReady === null ? "正在检查视频服务" : generationReady ? "默认线路可用" : "默认线路需要配置"}</span>
-                  <small>{providerMode === "auto" ? "自动路由" : providerMode === "modelstudio" ? "强制百炼" : "强制万镜一刻"}</small>
-                </button>
+                  <span>{generationReady === null ? "正在确认创作服务" : generationReady ? "创作服务正常" : "创作服务暂时不可用"}</span>
+                  <small>{generationReady === false ? (serviceMessage || "请稍后再试，或联系客服") : "可以随时提交新的创作"}</small>
+                </div>
                 <div className={styles.userMenuDivider} />
                 <Link className={styles.userMenuItem} href="/account">
                   <Crown size={15} /><span>会员中心</span>
@@ -478,7 +495,7 @@ export default function Studio() {
               <span className={styles.userMenuAvatar}>{(me?.user?.name || me?.user?.email || "?").slice(0, 1).toUpperCase()}</span>
               <span className={styles.userMenuMeta}>
                 <strong>{me?.user?.name || "未登录"}</strong>
-                <small>{me?.membership?.planInfo?.label || "免费版"}{me?.user?.role === "admin" ? " · 管理员" : ""}</small>
+                <small>{me?.membership?.planName || "免费版"}{me?.user?.role === "admin" ? " · 管理员" : ""}</small>
               </span>
               <MoreHorizontal size={16} className={styles.userMenuDots} />
             </button>
@@ -500,8 +517,8 @@ export default function Studio() {
           <div className={styles.topbarSpacer} />
           <div className={styles.topbarStats}>
             {me?.membership && (
-              <Link href="/account" className={styles.statPill} title={`${me.membership.planInfo?.label || ""} · 本周期 ${me.membership.quotaUsedVideos}/${me.membership.quotaLimitVideos} 条 · 点击管理套餐`}>
-                <b>{me.membership.quotaRemainingVideos}</b>剩余额度
+              <Link href="/account" className={styles.statPill} title={`${me.membership.planName || ""} · 剩余 ${me.membership.credits?.available ?? 0} 个创作额度 · 点击进入会员中心`}>
+                <b>{me.membership.credits?.available ?? 0}</b>创作额度
               </Link>
             )}
             <span className={styles.statPill}><b>{stats.active}</b>处理中</span>
@@ -529,8 +546,8 @@ export default function Studio() {
               subjects={subjects}
               generationReady={chatGenerationReady}
               defaultProviderMode={providerMode}
-              modelStudioAvailable={modelStudioConfigured}
-              yikeAvailable={yikeReady}
+              modelStudioAvailable={directVideo}
+              yikeAvailable={extendedReady}
               onAssetsChanged={loadAll}
               onCreated={quickCreated}
               onOpenAdvanced={() => navigate("generate")}
@@ -564,10 +581,10 @@ export default function Studio() {
             <div className={styles.contentInner}>
               {tab === "projects" && <ProjectHome projects={projects} jobs={jobs} subjects={subjects} onChanged={loadAll} onCreateInShot={createInShot} focusProjectId={focusedProjectId} />}
               {tab === "works" && <WorksLibrary onNotice={setNotice} />}
-              {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={yikeReady} />}
+              {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={extendedReady} />}
               {tab === "subjects" && <SubjectLibrary subjects={subjects} assets={assets} onChanged={loadAll} />}
-              {tab === "jobs" && <JobCenter key={focusedJobId || "job-center"} jobs={focusedJobs} modelStudioAvailable={modelStudioConfigured} onChanged={loadAll} onGoAssets={() => navigate("assets")} onSaveWork={saveAsWork} />}
-              {tab === "settings" && <SettingsPanel onChanged={loadAll} />}
+              {tab === "jobs" && <JobCenter key={focusedJobId || "job-center"} jobs={focusedJobs} modelStudioAvailable={directVideo} onChanged={loadAll} onGoAssets={() => navigate("assets")} onSaveWork={saveAsWork} />}
+              {tab === "settings" && <UserSettingsPanel onChanged={loadAll} />}
             </div>
           )}
         </section>

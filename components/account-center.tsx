@@ -2,78 +2,160 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, Crown, LoaderCircle } from "lucide-react";
+import { ArrowLeft, Check, Coins, Crown, LoaderCircle, Receipt, Settings2 } from "lucide-react";
+import UserSettingsPanel from "@/components/user-settings-panel";
 
-interface Membership {
+type Section = "membership" | "credits" | "orders" | "settings";
+
+const SECTIONS: Array<{ id: Section; label: string; icon: typeof Crown }> = [
+  { id: "membership", label: "我的会员", icon: Crown },
+  { id: "credits", label: "额度明细", icon: Coins },
+  { id: "orders", label: "我的订单", icon: Receipt },
+  { id: "settings", label: "账号设置", icon: Settings2 },
+];
+
+type Membership = {
   plan: string;
-  status: string;
-  quotaLimitVideos: number;
-  quotaUsedVideos: number;
-  quotaRemainingVideos: number;
+  planName: string;
+  statusText: string;
+  credits: { planLimit: number; planUsed: number; planRemaining: number; bonus: number; available: number };
   periodStart: string;
   periodEnd: string;
-  planInfo: { id: string; label: string; monthlyVideos: number; priceMonthly: number; tagline: string; features: string[] };
+  daysUntilRenewal: number;
+  planInfo: { id: string; name: string; subtitle: string; priceCents: number; priceText: string; credits: number; validityDays: number; features: string[]; recommended: boolean };
+};
+
+type CatalogPlan = { id: string; kind: string; name: string; subtitle: string; priceCents: number; priceText: string; credits: number; validityDays: number; features: string[]; recommended: boolean; purchasable: boolean };
+
+type LedgerEntry = { id: string; delta: number; balanceAfter: number; reasonText: string; note: string; createdAt: string };
+
+type OrderRow = {
+  id: string; orderNo: string; productName: string; amountCents: number; credits: number;
+  status: string; statusText: string; statusHint: string; payable: boolean; createdAt: string; paidAt: string | null; expiresAt: string;
+};
+
+async function call(path: string, init?: RequestInit) {
+  const response = await fetch(path, { cache: "no-store", ...init });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || "加载失败");
+  return body;
 }
 
-interface PlanInfo { id: string; label: string; monthlyVideos: number; priceMonthly: number; tagline: string; features: string[] }
+function yuan(cents: number) {
+  return `¥${(Math.round(cents) / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+}
 
 export default function AccountCenter() {
+  const [section, setSection] = useState<Section>("membership");
   const [user, setUser] = useState<any>(null);
   const [membership, setMembership] = useState<Membership | null>(null);
-  const [plans, setPlans] = useState<PlanInfo[]>([]);
+  const [plans, setPlans] = useState<CatalogPlan[]>([]);
+  const [packs, setPacks] = useState<CatalogPlan[]>([]);
+  const [paymentAvailable, setPaymentAvailable] = useState(false);
+  const [ledger, setLedger] = useState<{ total: number; entries: LedgerEntry[] }>({ total: 0, entries: [] });
+  const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    try {
-      const response = await fetch("/api/membership", { cache: "no-store" });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "加载失败");
-      setMembership(body.membership);
-      setPlans(body.plans || []);
-      const me = await fetch("/api/auth/me", { cache: "no-store" }).then(r => r.json());
-      setUser(me.user);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoading(false);
-    }
+    const [membershipBody, meBody, ledgerBody, orderBody, profileBody] = await Promise.all([
+      call("/api/membership"),
+      call("/api/auth/me"),
+      call("/api/quota/ledger?limit=50"),
+      call("/api/orders"),
+      call("/api/account/profile"),
+    ]);
+    setMembership(membershipBody.membership);
+    setPlans(membershipBody.plans || []);
+    setPacks(membershipBody.packs || []);
+    setUser(meBody.user);
+    setLedger({ total: ledgerBody.total || 0, entries: ledgerBody.entries || [] });
+    setOrders(orderBody.orders || []);
+    setPaymentAvailable(Boolean(profileBody.site?.paymentEnabled));
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load()
+      .catch(err => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setLoading(false));
+  }, [load]);
 
-  async function switchPlan(planId: string) {
-    const target = plans.find(plan => plan.id === planId);
-    if (!target) return;
-    const cost = target.priceMonthly > 0 ? `（演示期模拟支付 ¥${target.priceMonthly}/月）` : "（免费）";
-    if (!confirm(`切换到「${target.label}」套餐${cost}？\n切换后立即开启新的计费周期，额度重置为每月 ${target.monthlyVideos} 条。`)) return;
-    setBusy(planId);
+  async function checkout(plan: CatalogPlan) {
+    setBusy(plan.id);
     setNotice("");
+    setError("");
     try {
-      const response = await fetch("/api/membership/switch", {
+      const clientToken = typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID().replace(/-/g, "")
+        : `${Date.now()}${Math.random().toString(36).slice(2)}`;
+      const body = await call("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: planId }),
+        body: JSON.stringify({ planId: plan.id, clientToken, device: window.matchMedia("(max-width: 720px)").matches ? "wap" : "pc" }),
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "切换失败");
-      setMembership(body.membership);
-      setNotice(`已切换到「${body.membership.planInfo?.label}」，新的额度周期已开始。`);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      setPaymentAvailable(Boolean(body.paymentAvailable));
+      const orderBody = await call("/api/orders");
+      setOrders(orderBody.orders || []);
+      setSection("orders");
+      setNotice(body.paymentAvailable
+        ? `订单 ${body.order.orderNo} 已创建，请在有效期内完成支付。`
+        : `订单 ${body.order.orderNo} 已创建。支付通道开通后可以在「我的订单」继续支付。`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy("");
     }
   }
 
-  if (loading) return <div className="works-empty"><LoaderCircle className="spin" size={22}/>正在加载会员中心…</div>;
+  async function pay(order: OrderRow) {
+    setBusy(order.id);
+    setNotice("");
+    setError("");
+    try {
+      const body = await call(`/api/orders/${order.id}/pay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel: window.matchMedia("(max-width: 720px)").matches ? "wap" : "page" }),
+      });
+      if (body.redirectUrl) window.location.href = body.redirectUrl;
+      else setNotice("支付页面已经准备好，请继续完成支付。");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy("");
+    }
+  }
 
-  const usedPercent = membership ? Math.min(100, Math.round((membership.quotaUsedVideos / Math.max(1, membership.quotaLimitVideos)) * 100)) : 0;
+  async function cancel(order: OrderRow) {
+    if (!confirm(`取消订单 ${order.orderNo}？`)) return;
+    setBusy(order.id);
+    try {
+      await call(`/api/orders/${order.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel" }),
+      });
+      const orderBody = await call("/api/orders");
+      setOrders(orderBody.orders || []);
+      setNotice("订单已取消。");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  if (loading) return <div className="works-empty"><LoaderCircle className="spin" size={22} />正在加载会员中心…</div>;
+
+  const usedPercent = membership
+    ? Math.min(100, Math.round((membership.credits.planUsed / Math.max(1, membership.credits.planLimit)) * 100))
+    : 0;
 
   return <div className="account-wrap">
     <div className="account-top">
-      <Link href="/studio" className="secondary"><ArrowLeft size={14}/>返回工作台</Link>
+      <Link href="/studio" className="secondary"><ArrowLeft size={14} />返回工作台</Link>
       <div>
         <h1>会员中心</h1>
         <p className="muted">{user?.name} · {user?.email}</p>
@@ -81,50 +163,135 @@ export default function AccountCenter() {
     </div>
 
     {notice && <div className="notice" style={{ margin: 0 }}>{notice}</div>}
+    {error && <div className="error-banner">{error}</div>}
 
-    {membership && <div className="account-grid">
-      <section className="panel account-current">
-        <div className="panel-head">
-          <h2>当前套餐</h2>
-          <span className={`plan-badge ${membership.plan}`}>{membership.planInfo.label}</span>
-        </div>
-        <div className="quota-block">
-          <div className="quota-numbers">
-            <strong>{membership.quotaUsedVideos}<small> / {membership.quotaLimitVideos} 条已用</small></strong>
-            <span>剩余 {membership.quotaRemainingVideos} 条</span>
-          </div>
-          <div className="quota-bar"><i style={{ width: `${usedPercent}%` }}/></div>
-        </div>
-        <dl className="kv-list">
-          <div><dt>套餐状态</dt><dd>{membership.status === "active" ? "生效中" : membership.status === "suspended" ? "已停用" : "已过期"}</dd></div>
-          <div><dt>本周期开始</dt><dd>{new Date(membership.periodStart).toLocaleDateString("zh-CN")}</dd></div>
-          <div><dt>本周期结束</dt><dd>{new Date(membership.periodEnd).toLocaleDateString("zh-CN")}（到期自动重置额度）</dd></div>
-        </dl>
-        <p className="mini muted">额度规则：提交生成任务成功即计 1 条；远端提交失败自动退回；生成中的远端失败不退回（详见服务条款）。</p>
-      </section>
+    <div className="member-layout">
+      <nav className="member-nav">
+        {SECTIONS.map(item => (
+          <button key={item.id} className={section === item.id ? "active" : ""} onClick={() => setSection(item.id)}>
+            <item.icon size={15} /><span>{item.label}</span>
+          </button>
+        ))}
+      </nav>
 
-      <section className="plan-grid">
-        {plans.map(plan => {
-          const current = plan.id === membership.plan;
-          return <article key={plan.id} className={`plan-card ${current ? "current" : ""}`}>
-            <header>
-              <h3>{plan.label}{current && <em>当前</em>}</h3>
-              <div className="plan-price">{plan.priceMonthly === 0 ? "免费" : <>¥{plan.priceMonthly}<small>/月</small></>}</div>
-              <p className="muted">{plan.tagline}</p>
-            </header>
-            <ul>
-              <li><Check size={13}/>每月 {plan.monthlyVideos} 条生成额度</li>
-              {plan.features.filter(feature => !feature.startsWith("每月")).map(feature => <li key={feature}><Check size={13}/>{feature}</li>)}
-            </ul>
-            <button className={current ? "secondary" : "primary"} disabled={current || busy !== ""} onClick={() => switchPlan(plan.id)}>
-              {busy === plan.id ? <LoaderCircle className="spin" size={14}/> : null}
-              {current ? "使用中" : plan.priceMonthly > 0 ? `升级到 ${plan.label}` : "切换为免费版"}
-            </button>
-          </article>;
-        })}
-      </section>
-    </div>}
+      <div className="member-body">
+        {section === "membership" && membership && <>
+          <section className="panel account-current">
+            <div className="panel-head">
+              <h2>当前会员</h2>
+              <span className={`plan-badge ${membership.plan}`}>{membership.planName}</span>
+            </div>
+            <div className="quota-block">
+              <div className="quota-numbers">
+                <strong>{membership.credits.available}<small> 个创作额度可用</small></strong>
+                <span>本周期已用 {membership.credits.planUsed} / {membership.credits.planLimit}{membership.credits.bonus > 0 ? ` · 加油包余额 ${membership.credits.bonus}` : ""}</span>
+              </div>
+              <div className="quota-bar"><i style={{ width: `${usedPercent}%` }} /></div>
+            </div>
+            <dl className="kv-list">
+              <div><dt>会员状态</dt><dd>{membership.statusText}</dd></div>
+              <div><dt>有效期至</dt><dd>{new Date(membership.periodEnd).toLocaleDateString("zh-CN")}（还有 {membership.daysUntilRenewal} 天）</dd></div>
+              <div><dt>本周期开始</dt><dd>{new Date(membership.periodStart).toLocaleDateString("zh-CN")}</dd></div>
+            </dl>
+            <p className="mini muted">创作额度按创作类型消耗，提交前会显示本次预计消耗；创作未完成时额度会按规则退回。</p>
+          </section>
 
-    <p className="mini muted account-footnote"><Crown size={12}/>演示期说明：套餐切换为模拟支付，不产生真实扣费；正式计费渠道（支付宝/微信/Stripe）是下一个里程碑的扩展点。</p>
+          <section className="panel">
+            <div className="panel-head"><h2>会员套餐</h2>{!paymentAvailable && <span className="muted mini">支付通道开通后即可在线购买</span>}</div>
+            <div className="plan-grid">
+              {plans.map(plan => {
+                const current = plan.id === membership.plan;
+                return <article key={plan.id} className={`plan-card ${current ? "current" : ""} ${plan.recommended ? "featured" : ""}`}>
+                  <header>
+                    <h3>{plan.name}{current ? <em>当前</em> : plan.recommended ? <em>推荐</em> : null}</h3>
+                    <div className="plan-price">{plan.priceCents === 0 ? "免费" : <>{plan.priceText}<small> / {plan.validityDays} 天</small></>}</div>
+                    <p className="muted">{plan.subtitle}</p>
+                  </header>
+                  <ul>
+                    <li><Check size={13} />{plan.credits} 个创作额度</li>
+                    {plan.features.filter(feature => !feature.includes("创作额度")).map(feature => <li key={feature}><Check size={13} />{feature}</li>)}
+                  </ul>
+                  {plan.priceCents === 0
+                    ? <button className="secondary" disabled>当前已包含</button>
+                    : <button className={current ? "secondary" : "primary"} disabled={!plan.purchasable || busy !== ""} onClick={() => checkout(plan)}>
+                        {busy === plan.id ? <LoaderCircle className="spin" size={14} /> : null}
+                        {current ? "续费" : "立即开通"}
+                      </button>}
+                </article>;
+              })}
+            </div>
+          </section>
+
+          {packs.length > 0 && <section className="panel">
+            <div className="panel-head"><h2>创作额度加油包</h2><span className="muted mini">额度用完时按需补充，不改变会员有效期</span></div>
+            <div className="plan-grid">
+              {packs.map(pack => <article key={pack.id} className={`plan-card ${pack.recommended ? "featured" : ""}`}>
+                <header>
+                  <h3>{pack.name}</h3>
+                  <div className="plan-price">{pack.priceText}</div>
+                  <p className="muted">{pack.subtitle}</p>
+                </header>
+                <ul>{pack.features.map(feature => <li key={feature}><Check size={13} />{feature}</li>)}</ul>
+                <button className="primary" disabled={!pack.purchasable || busy !== ""} onClick={() => checkout(pack)}>
+                  {busy === pack.id ? <LoaderCircle className="spin" size={14} /> : null}立即购买
+                </button>
+              </article>)}
+            </div>
+          </section>}
+        </>}
+
+        {section === "credits" && <section className="panel">
+          <div className="panel-head"><h2>额度明细</h2><span className="muted mini">共 {ledger.total} 条记录</span></div>
+          <table className="admin-table">
+            <thead><tr><th>时间</th><th>事项</th><th>变动</th><th>变动后余额</th></tr></thead>
+            <tbody>
+              {ledger.entries.map(entry => (
+                <tr key={entry.id}>
+                  <td>{new Date(entry.createdAt).toLocaleString("zh-CN")}</td>
+                  <td><strong>{entry.reasonText}</strong>{entry.note ? <><br /><span className="muted mini">{entry.note}</span></> : null}</td>
+                  <td className={entry.delta > 0 ? "success-text" : entry.delta < 0 ? "error-text" : "muted"}>
+                    {entry.delta > 0 ? `+${entry.delta}` : entry.delta}
+                  </td>
+                  <td>{entry.balanceAfter}</td>
+                </tr>
+              ))}
+              {ledger.entries.length === 0 && <tr><td colSpan={4} className="muted">还没有额度变动记录</td></tr>}
+            </tbody>
+          </table>
+        </section>}
+
+        {section === "orders" && <section className="panel">
+          <div className="panel-head"><h2>我的订单</h2></div>
+          <table className="admin-table">
+            <thead><tr><th>订单号</th><th>商品</th><th>金额</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
+            <tbody>
+              {orders.map(order => (
+                <tr key={order.id}>
+                  <td><strong>{order.orderNo}</strong></td>
+                  <td>{order.productName}<br /><span className="muted mini">{order.credits} 个创作额度</span></td>
+                  <td>{yuan(order.amountCents)}</td>
+                  <td><span className={`stage-state ${order.status === "paid" ? "succeeded" : order.status === "pending" || order.status === "paying" ? "queued" : "failed"}`}>{order.statusText}</span>
+                    <br /><span className="muted mini">{order.statusHint}</span></td>
+                  <td>{new Date(order.createdAt).toLocaleString("zh-CN")}{order.paidAt ? <><br /><span className="muted mini">支付于 {new Date(order.paidAt).toLocaleString("zh-CN")}</span></> : null}</td>
+                  <td className="inline-actions">
+                    {order.payable && (order.status === "pending" || order.status === "paying") && <>
+                      <button className="primary" disabled={busy === order.id} onClick={() => pay(order)}>
+                        {busy === order.id ? <LoaderCircle className="spin" size={14} /> : null}继续支付
+                      </button>
+                      <button className="secondary" disabled={busy === order.id} onClick={() => cancel(order)}>取消订单</button>
+                    </>}
+                  </td>
+                </tr>
+              ))}
+              {orders.length === 0 && <tr><td colSpan={6} className="muted">还没有订单</td></tr>}
+            </tbody>
+          </table>
+        </section>}
+
+        {section === "settings" && <UserSettingsPanel onChanged={load} />}
+      </div>
+    </div>
+
+    <p className="mini muted account-footnote"><Crown size={12} />会员权益以服务器确认的支付结果为准；订单、额度和作品记录都会长期保留，可随时在这里查询。</p>
   </div>;
 }

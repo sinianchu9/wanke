@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getPublicSettings, updateAppSettings } from "@/lib/settings";
 import { describeError } from "@/lib/errors";
-import { errorResponse, requireAdmin, requireUser } from "@/lib/auth";
+import { errorResponse, requireAdmin } from "@/lib/auth";
 import { writeAudit } from "@/lib/admin";
 
 export const runtime = "nodejs";
@@ -34,7 +34,9 @@ const schema = z.object({
 
 export async function GET(request: Request) {
   try {
-    requireUser(request);
+    // Creation-service configuration is platform-internal: admins only. Members must
+    // never see which upstream service, region or key the platform runs on.
+    requireAdmin(request);
     return NextResponse.json({ settings: getPublicSettings() });
   } catch (error) {
     const handled = errorResponse(error);

@@ -107,7 +107,7 @@
 ## 3. 阶段进度
 
 - [x] Phase 0：审计与基线冻结（本文档；typecheck/build/33 项 SaaS E2E 通过）
-- [ ] Phase 1：商业数据基础
+- [x] Phase 1：商业数据基础（详见 §4；typecheck/build 通过，SaaS E2E 60 项 + 商业 E2E 78 项全绿）
 - [ ] Phase 2：支付宝
 - [ ] Phase 3：账号完整化
 - [ ] Phase 4：视频任务商业化
@@ -115,3 +115,61 @@
 - [ ] Phase 6：管理后台完整化
 - [ ] Phase 7：前台与 Studio 产品化
 - [ ] Phase 8：上线前高强度验收
+
+---
+
+## 4. Phase 1 完成记录（商业数据基础）
+
+### 4.1 落地内容
+
+- **商品与套餐后台化**：`plans` 表成为唯一真值（`lib/billing/catalog.ts`），官网、会员中心、下单、
+  后台读同一份数据； seeded 免费版/创作者版/工作室版 + 50/200 创作额度加油包；订单固化商品快照，
+  后台改价不改写已售订单。
+- **创作额度与账本**：`quota_ledger`（变动前/变动后/来源/幂等键 UNIQUE）+ `task_charges`
+  （reserved → settled/refunded/voided 单向流转）；会员额度分「套餐周期额度」与「加油包/赠送额度」。
+- **计费规则**：`pricing_rules`（默认 1 额度，与商业化前完全一致）+ `failure_rules`
+  （用户参数=不扣、平台/服务异常=自动退回、内容/取消/未知=人工复核）。
+- **订单域**：`orders`/`order_items`/`order_events`；`client_token` UNIQUE + 待支付订单复用，
+  刷新收银台不会堆单；金额全部为整数分；升级为按未使用价值折抵。
+- **支付/退款域**：`payments`（`out_trade_no` UNIQUE）、`payment_notifications`（指纹去重）、
+  `refunds`（`out_request_no` UNIQUE，可注入执行器）；权益发放 `grantEntitlementForOrder`
+  以 `order:<id>` 账本幂等键 + 订单状态条件跃迁保证「只发一次」。
+- **下线模拟支付**：删除 `POST /api/membership/switch`，会员生效只能由服务端确认支付触发。
+- **秘密配置**：`lib/crypto-secrets.ts`（AES-256-GCM，主密钥 WANKE_MASTER_KEY → AUTH_SECRET →
+  自动生成 `data/.wanke-master.key` 0600，支持轮换）+ `lib/secrets.ts`（留空=保持原值、
+  单独清除、只回掩码）；旧明文设置一次性加密迁移。
+- **产品边界**：`GET /api/settings` 收敛为管理员；`/api/status` 只回能力开关；
+  新增 `/api/admin/creation-service` 承载线路/凭证/连通性等内部诊断；
+  会员任务响应剥离上游原始响应与技术错误（`lib/job-view.ts` + `lib/copy.ts`）。
+- **账号与会员中心**：`/api/account/*`（资料、创作偏好、通知偏好、改密、登录设备、注销）、
+  会员中心左侧导航（我的会员/额度明细/我的订单/账号设置）、后台导航化
+  （经营概览/用户/商品与套餐/订单/任务/作品/创作服务/系统设置/操作记录）。
+
+### 4.2 本轮修掉的真实缺陷
+
+| 缺陷 | 影响 | 处理 |
+|---|---|---|
+| 并发启动播种套餐撞主键（`next build` 9 worker 同时迁移） | 生产构建直接失败 | 整个迁移收敛到一个 `BEGIN IMMEDIATE` 写锁内，播种改 `INSERT OR IGNORE`；`PRAGMA foreign_keys` 移到事务外（事务内为 no-op，否则重建 `users` 会级联删子表） |
+| 免费套餐可被下单（应付 0 → 立即发放） | 用户可无限「购买」免费版重置已用额度 | `createOrder` 拒绝 `priceCents <= 0` 的套餐 |
+| 校验错误原文回给会员（`jobType: Invalid option: expected one of "text_to_video"…`） | 内部字段与枚举泄露 | `publicErrorMessage` 识别 schema 校验输出并转业务话术；`classifyFailure` 据此判定「用户参数不符合要求 → 不扣额度」，不再依赖关键字巧合 |
+| 会员任务详情展示「技术详情」原始 JSON、上游任务编号、MediaId、百炼字样 | 违反 §4/§22/§47 边界 | 删除展示；服务端对非管理员剥离 `provider` 原文并清洗 `error` |
+| E2E 就绪探针打 `/api/status`（现已需登录） | 每次跑测试空等 90 秒 | 探针改打公开首页，失败即退出并打印服务日志 |
+
+### 4.3 验收证据
+
+```
+node_modules/.bin/tsc --noEmit                     # 通过
+node_modules/.bin/next build                       # 通过
+./scripts/e2e-run.sh scripts/saas-e2e.mjs          # ALL E2E CHECKS PASSED（60 项）
+./scripts/e2e-run.sh scripts/commerce-e2e.mjs      # ALL COMMERCE CHECKS PASSED（78 项）
+```
+
+商业 E2E 覆盖：套餐唯一真值、下单幂等（同 token / 刷新复用 / 仅一行订单）、快照冻结与改价隔离、
+未支付不发放权益、支付通道未开通时诚实报 503、跨用户订单 404、取消后不可支付、
+提交前报价、一次提交只产生一条扣费（含账本幂等键计数）、重复提交返回同一任务、
+20 次状态查询不动额度、批量超额前置拒绝且不产生扣费/任务、额度明细业务话术与用户隔离、
+管理员调整额度必须填原因、密钥加密落盘且永不回浏览器、留空保持原值、显式清除、
+操作记录只记字段不记值。
+
+Phase 1 边界：支付宝尚未接入，`POST /api/orders/:id/pay` 明确返回 503「支付通道尚未开通」，
+不做任何模拟成功；真实支付与专项 10 条在 Phase 2 验收。

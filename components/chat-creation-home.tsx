@@ -78,12 +78,6 @@ const promptExamples: Record<CreationType, string> = {
   image_video: "例如：主体保持不变，加入轻微风吹效果，镜头缓慢推近，整体自然真实。",
 };
 
-const providerLabels: Record<ProviderMode, string> = {
-  auto: "自动路由",
-  modelstudio: "强制百炼",
-  yike: "强制万镜一刻",
-};
-
 const toolShortcuts = [
   { id: "remake" as const, label: "高级复刻" },
   { id: "clone" as const, label: "快速复刻" },
@@ -114,8 +108,8 @@ export default function ChatCreationHome({
   const [prompt, setPrompt] = useState(draftSeed.prompt);
   const [platform, setPlatform] = useState<Platform>(draftSeed.platform);
   const [duration, setDuration] = useState<5 | 10 | 15 | 30>(draftSeed.duration);
-  const [providerMode, setProviderMode] = useState<ProviderMode>(draftSeed.providerMode);
-  const [providerTouched, setProviderTouched] = useState(draftSeed.restored);
+  // Members never pick an upstream service; the platform routes each creation.
+  const [providerMode] = useState<ProviderMode>("auto");
   const [subjectId, setSubjectId] = useState(draftSeed.subjectId);
   const [imageAssetId, setImageAssetId] = useState(draftSeed.imageAssetId);
   const [referenceUrl, setReferenceUrl] = useState(draftSeed.referenceUrl);
@@ -123,10 +117,9 @@ export default function ChatCreationHome({
   const [localUploading, setLocalUploading] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
-  const [providerOpen, setProviderOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const popoverOpen = plusOpen || optionsOpen || providerOpen;
+  const popoverOpen = plusOpen || optionsOpen;
 
   useEffect(() => {
     if (!popoverOpen) return;
@@ -134,15 +127,10 @@ export default function ChatCreationHome({
       if (event.key !== "Escape") return;
       setPlusOpen(false);
       setOptionsOpen(false);
-      setProviderOpen(false);
-    };
+      };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [popoverOpen]);
-
-  useEffect(() => {
-    if (!providerTouched && !draftSeed.restored) setProviderMode(defaultProviderMode);
-  }, [defaultProviderMode, draftSeed.restored, providerTouched]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -264,16 +252,8 @@ export default function ChatCreationHome({
       return;
     }
 
-    if (providerMode === "modelstudio" && !modelStudioAvailable) {
-      setError("本次已强制百炼，但百炼还没有配置。请先到设置完成配置。");
-      return;
-    }
-    if (providerMode === "yike" && !yikeAvailable) {
-      setError("本次已强制万镜一刻，但万镜一刻还没有配置。请先到设置完成配置。");
-      return;
-    }
-    if (providerMode === "auto" && !modelStudioAvailable && !yikeAvailable) {
-      setError("还没有可用的视频服务，请先完成一次设置。");
+    if (!modelStudioAvailable && !yikeAvailable) {
+      setError("当前创作服务暂时不可用，请稍后再试。");
       return;
     }
 
@@ -351,16 +331,14 @@ export default function ChatCreationHome({
   }
 
   function providerError() {
-    if (providerMode === "modelstudio" && !modelStudioAvailable) return "本次已强制百炼，但百炼还没有配置。请先到设置完成配置。";
-    if (providerMode === "yike" && !yikeAvailable) return "本次已强制万镜一刻，但万镜一刻还没有配置。请先到设置完成配置。";
-    if (providerMode === "auto" && !modelStudioAvailable && !yikeAvailable) return "还没有可用的视频服务，请先完成一次设置。";
+    if (!modelStudioAvailable && !yikeAvailable) return "当前创作服务暂时不可用，请稍后再试。";
     return "";
   }
 
   async function create() {
     if (interactionLocked) return;
     if (generationReady !== true) {
-      setError(generationReady === null ? "正在检查视频服务，请稍后再试。" : "视频服务还没有配置完成，请先完成设置。");
+      setError(generationReady === null ? "正在确认创作服务，请稍后再试。" : "当前创作服务暂时不可用，请稍后再试。");
       return;
     }
     const routeError = providerError();
@@ -413,19 +391,6 @@ export default function ChatCreationHome({
   function closePopovers() {
     setPlusOpen(false);
     setOptionsOpen(false);
-    setProviderOpen(false);
-  }
-
-  function selectProvider(next: ProviderMode) {
-    if (interactionLocked) return;
-    setProviderTouched(true);
-    setProviderMode(next);
-    setProviderOpen(false);
-    setError("");
-    if (localInput && next === "yike") {
-      clearLocal();
-      setError("万镜一刻不能直接读取临时本机图片；请重新点击 + 选择本机图片，系统会自动上传到素材库后使用。");
-    }
   }
 
   return (
@@ -509,7 +474,7 @@ export default function ChatCreationHome({
                       <input type="file" accept="image/jpeg,image/png,image/webp" disabled={interactionLocked} onChange={event => { chooseLocal(event.target.files?.[0]); event.currentTarget.value = ""; }} />
                     </label>
                   ) : (
-                    <button className={styles.popoverLink} onClick={onOpenSettings}><Settings2 size={15} />当前线路未配置，先去设置</button>
+                    <div className={styles.popoverLink} aria-disabled="true"><Settings2 size={15} />当前创作服务暂不支持本机图片，请稍后再试</div>
                   )}
 
                   {(type === "product_ad" || type === "person_short") && (
@@ -578,32 +543,12 @@ export default function ChatCreationHome({
           </div>
 
           <div className={styles.composerToolsRight}>
-            <div className={styles.popoverAnchor}>
-              <button disabled={interactionLocked} className={styles.providerButton} onClick={() => { const next = !providerOpen; closePopovers(); setProviderOpen(next); }}>
-                <GitBranch size={15} />
-                <span>{providerLabels[providerMode]}</span>
-                <ChevronDown size={14} />
-              </button>
-              {providerOpen && (
-                <div className={`${styles.popover} ${styles.providerPopover}`}>
-                  <div className={styles.popoverHeader}>
-                    <div className={styles.popoverTitle}>本次生成线路</div>
-                    <button className={styles.popoverClose} onClick={closePopovers} aria-label="关闭生成线路"><X size={15} /></button>
-                  </div>
-                  <button className={`${styles.providerChoice} ${providerMode === "auto" ? styles.providerChoiceActive : ""}`} onClick={() => selectProvider("auto")}>
-                    <b>自动路由</b><small>优先百炼；不适配时按兼容规则使用万镜一刻 · {modelStudioAvailable || yikeAvailable ? "可用" : "未配置"}</small>
-                  </button>
-                  <button className={`${styles.providerChoice} ${providerMode === "modelstudio" ? styles.providerChoiceActive : ""}`} onClick={() => selectProvider("modelstudio")}>
-                    <b>强制百炼</b><small>只走百炼，不静默回退 · {modelStudioAvailable ? "已配置" : "未配置"}</small>
-                  </button>
-                  <button className={`${styles.providerChoice} ${providerMode === "yike" ? styles.providerChoiceActive : ""}`} onClick={() => selectProvider("yike")}>
-                    <b>强制万镜一刻</b><small>本次基础视频固定走万镜一刻 · {yikeAvailable ? "已配置" : "未配置"}</small>
-                  </button>
-                  <div className={styles.popoverFootnote}>只影响本次创作，不修改设置页中的全局默认线路。</div>
-                </div>
-              )}
-            </div>
-            <button className={styles.sendButton} disabled={interactionLocked} onClick={create} title={ready ? "开始创作" : type === "text_video" ? "写下视频描述并确认生成线路后开始" : "完善描述、参考和线路后开始"}>
+            <button
+              className={styles.sendButton}
+              disabled={interactionLocked}
+              onClick={create}
+              title={ready ? "开始创作" : type === "text_video" ? "先写下你想要的视频内容" : "补充描述与参考素材后开始"}
+            >
               {busy ? <LoaderCircle className={styles.spin} size={17} /> : <Send size={18} />}
             </button>
           </div>

@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { writeAudit } from "@/lib/admin";
 import { errorResponse, getUserById, HttpError, requireAdmin } from "@/lib/auth";
-import { adminSetMembership, getMembership, PLAN_IDS } from "@/lib/membership";
+import { adminExtendMembership, adminSetMembership, getMembership } from "@/lib/membership";
+import { adminAdjustCredits } from "@/lib/billing/quota";
+import { listPlans } from "@/lib/billing/catalog";
 import { db } from "@/lib/db";
 import { describeError } from "@/lib/errors";
 
@@ -12,9 +14,12 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
 const schema = z.object({
-  plan: z.enum(PLAN_IDS).optional(),
-  status: z.enum(["active", "disabled"]).optional(),
-  quotaUsed: z.number().int().min(0).max(1_000_000).optional(),
+  plan: z.string().min(1).max(64).optional(),
+  status: z.enum(["active", "disabled", "closed"]).optional(),
+  extendDays: z.number().int().min(1).max(3650).optional(),
+  creditDelta: z.number().int().min(-1_000_000).max(1_000_000).optional(),
+  // Every administrative membership/credit change must carry a reason.
+  note: z.string().min(2).max(500).optional(),
 });
 
 export async function PATCH(request: Request, ctx: Ctx) {
@@ -29,23 +34,48 @@ export async function PATCH(request: Request, ctx: Ctx) {
     }
     const meta: Record<string, unknown> = {};
 
+    if (input.plan && !listPlans({ includeArchived: true }).some(plan => plan.id === input.plan)) {
+      throw new HttpError(400, "INVALID_PLAN", "未知套餐");
+    }
+    if ((input.plan || input.extendDays || input.creditDelta) && !(input.note || "").trim()) {
+      throw new HttpError(400, "REASON_REQUIRED", "请填写调整原因，便于运营追溯");
+    }
     if (input.status && input.status !== target.status) {
       db.prepare("UPDATE users SET status=?, updated_at=? WHERE id=?")
         .run(input.status, new Date().toISOString(), id);
-      // Disabled users lose their sessions immediately.
-      if (input.status === "disabled") db.prepare("DELETE FROM sessions WHERE user_id=?").run(id);
-      writeAudit(admin.id, input.status === "disabled" ? "user.disable" : "user.enable", "user", id, { email: target.email });
+      // Suspended and cancelled accounts lose their sessions immediately.
+      if (input.status !== "active") db.prepare("DELETE FROM sessions WHERE user_id=?").run(id);
+      const action = input.status === "active" ? "user.enable" : input.status === "closed" ? "user.close" : "user.disable";
+      writeAudit(admin.id, action, "user", id, { email: target.email, note: input.note || "" });
       meta.status = input.status;
     }
-    if (input.plan || input.quotaUsed !== undefined) {
+    if (input.plan) {
       const before = getMembership(id);
-      const after = adminSetMembership(id, { plan: input.plan, quotaUsed: input.quotaUsed });
+      const after = adminSetMembership(id, { plan: input.plan, note: input.note, adminUserId: admin.id });
       writeAudit(admin.id, "membership.update", "membership", id, {
         email: target.email,
-        before: { plan: before.plan, used: before.quotaUsedVideos, limit: before.quotaLimitVideos },
-        after: { plan: after.plan, used: after.quotaUsedVideos, limit: after.quotaLimitVideos },
+        note: input.note,
+        before: { plan: before.planName, available: before.credits.available },
+        after: { plan: after.planName, available: after.credits.available },
       });
       meta.membership = after;
+    }
+    if (input.extendDays) {
+      const after = adminExtendMembership(id, input.extendDays, input.note || "", admin.id);
+      writeAudit(admin.id, "membership.extend", "membership", id, { email: target.email, days: input.extendDays, note: input.note });
+      meta.membership = after;
+    }
+    if (input.creditDelta) {
+      const before = getMembership(id);
+      const adjustment = adminAdjustCredits({ userId: id, delta: input.creditDelta, note: input.note || "", adminUserId: admin.id });
+      writeAudit(admin.id, input.creditDelta > 0 ? "credits.grant" : "credits.deduct", "membership", id, {
+        email: target.email,
+        delta: adjustment.applied,
+        note: input.note,
+        before: before.credits.available,
+        after: adjustment.balance.available,
+      });
+      meta.creditAdjustment = adjustment;
     }
     return NextResponse.json({ ok: true, user: getUserById(id), membership: getMembership(id), ...meta });
   } catch (error) {

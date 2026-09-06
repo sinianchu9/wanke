@@ -1,14 +1,19 @@
 import { NextResponse } from "next/server";
 import { yikeConfigSummary } from "@/lib/yike/client";
-import { testConnection } from "@/lib/yike/provider";
 import { modelStudioConfigSummary } from "@/lib/video/modelstudio";
 import { getVideoProviderMode } from "@/lib/settings";
-import { describeError } from "@/lib/errors";
 import { errorResponse, requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Member-facing service status: capability flags only.
+ *
+ * The upstream provider, region, endpoint and credential state stay in the
+ * backoffice (`/api/admin/creation-service`). Members only learn whether a creation
+ * capability is available right now, in business language.
+ */
 export async function GET(request: Request) {
   try {
     requireUser(request);
@@ -25,62 +30,15 @@ export async function GET(request: Request) {
     : providerMode === "yike"
       ? yike.configured
       : configured;
-  const preferred = providerMode === "yike" ? yike : providerMode === "modelstudio" ? modelStudio : modelStudio.configured ? modelStudio : yike;
-  const summary = {
-    configured,
+
+  return NextResponse.json({
+    available: configured,
     generationReady,
-    providerMode,
-    regionId: preferred.regionId,
-    regionName: preferred.regionName,
-    endpoint: preferred.endpoint,
-    modelStudio,
-    yike,
-  };
-
-  if (!generationReady) {
-    const error = providerMode === "modelstudio"
-      ? "当前已选择百炼，但百炼 API Key 未配置"
-      : providerMode === "yike"
-        ? "当前已选择万镜一刻，但 AccessKey 未配置完整"
-        : "未配置百炼或万镜一刻凭证";
-    return NextResponse.json({ ...summary, connected: false, error });
-  }
-
-  if (new URL(request.url).searchParams.get("probe") !== "1") {
-    return NextResponse.json({ ...summary, connected: null });
-  }
-
-  // Extension workflows use Yike regardless of which provider is selected for basic generation.
-  // Probe Yike whenever it is configured so the sidebar/settings check remains meaningful.
-  if (!yike.configured) {
-    return NextResponse.json({
-      ...summary,
-      connected: null,
-      modelStudioVerified: false,
-      note: modelStudio.configured
-        ? "百炼配置已保存；API Key、Workspace 与模型权限会在首次真实生成时校验。"
-        : "万镜一刻尚未配置。",
-    });
-  }
-
-  try {
-    const result = await testConnection();
-    const yikeError = !result.ok && "error" in result
-      ? result.error || "万镜一刻核心 API 连接失败"
-      : undefined;
-    return NextResponse.json({
-      ...summary,
-      connected: result.ok,
-      modelStudioVerified: false,
-      ...result,
-      ...(yikeError ? { yikeError } : {}),
-    });
-  } catch (error) {
-    return NextResponse.json({
-      ...summary,
-      connected: false,
-      modelStudioVerified: false,
-      yikeError: describeError(error),
-    });
-  }
+    capabilities: {
+      directVideo: modelStudio.configured && providerMode !== "yike",
+      extendedUpload: yike.configured,
+      advancedWorkflows: yike.configured,
+    },
+    message: generationReady ? "创作服务正常" : "当前创作服务正在准备中，暂时无法提交新的创作",
+  });
 }

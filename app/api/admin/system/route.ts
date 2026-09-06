@@ -3,7 +3,7 @@ import { errorResponse, requireAdmin } from "@/lib/auth";
 import { getPublicSettings } from "@/lib/settings";
 import { modelStudioConfigSummary } from "@/lib/video/modelstudio";
 import { yikeConfigSummary } from "@/lib/yike/client";
-import { PLANS } from "@/lib/membership";
+import { catalogPlans } from "@/lib/membership";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       settings: getPublicSettings(),
       providers: { modelStudio: modelStudioConfigSummary(), yike: yikeConfigSummary() },
-      plans: Object.values(PLANS),
+      plans: catalogPlans({ includeArchived: true }),
       runtime: {
         node: process.version,
         dbPath: process.env.WANKE_DB_PATH || "./data/wanke.db",

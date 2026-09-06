@@ -42,11 +42,12 @@ export async function POST(request: Request) {
       recordAttempt(input.email, ip, false);
       throw new HttpError(401, "BAD_CREDENTIALS", "邮箱或密码不正确");
     }
-    if (user.status !== "active") throw new HttpError(403, "USER_DISABLED", "账号已被停用，请联系管理员");
+    if (user.status === "closed") throw new HttpError(403, "USER_CLOSED", "该账号已经注销，如需继续使用请重新注册");
+    if (user.status !== "active") throw new HttpError(403, "USER_DISABLED", "账号已被暂停使用，请联系客服");
     recordAttempt(input.email, ip, true);
     db.prepare("UPDATE users SET last_login_at=?, updated_at=? WHERE id=?")
       .run(new Date().toISOString(), new Date().toISOString(), user.id);
-    const token = createSession(user.id);
+    const token = createSession(user.id, { userAgent: request.headers.get("user-agent"), ip });
     const response = NextResponse.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role } });
     response.cookies.set("wanke_session", token, sessionCookieOptions(request));
     return response;
