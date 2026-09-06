@@ -16,6 +16,7 @@ import {
   ListVideo,
   LoaderCircle,
   LogOut,
+  MailCheck,
   Menu,
   Mic2,
   MoreHorizontal,
@@ -530,6 +531,12 @@ export default function Studio() {
         </header>
 
         {notice && <div className={styles.notice}><WandSparkles size={15} />{notice}</div>}
+        {me?.account?.blocked && (
+          <div className={styles.noticeWarning}>
+            <MailCheck size={15} />
+            <span>{me.account.message}。<Link href="/account?section=settings">去验证邮箱</Link>{me.account.hint ? `（${me.account.hint}）` : ""}</span>
+          </div>
+        )}
         {tab === "generate" && activeShot && (
           <div className={styles.notice}>
             <Clapperboard size={15} />

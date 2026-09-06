@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { getPageUser } from "@/lib/auth";
 import { catalogPlans } from "@/lib/membership";
+import { getSetting } from "@/lib/system-settings";
 
 export const metadata: Metadata = {
   title: "Wanke · AI 视频生产平台",
@@ -42,6 +43,8 @@ export default async function LandingPage() {
   const user = await getPageUser();
   const plans = catalogPlans({ kind: "membership" });
   const recommendedId = plans.find(plan => plan.recommended)?.id || plans[0]?.id;
+  const siteName = getSetting("site_name") || "Wanke";
+  const contactEmail = getSetting("contact_email").trim();
 
   return <div className="landing">
     <header className="landing-nav">
@@ -65,7 +68,7 @@ export default async function LandingPage() {
     </header>
 
     <section className="landing-hero">
-      <p className="eyebrow">万镜一刻 · 商业级 AI 视频 SaaS</p>
+      <p className="eyebrow">{siteName} · 商业级 AI 视频创作平台</p>
       <h1>把创意变成成片，<br/>一个工作台完成全部 AI 视频生产</h1>
       <p className="landing-sub">Wanke 面向创作者与小团队，覆盖描述生成、图生视频、人物一致、复刻、数字人口播、故事板与多语言翻译。创作进度随时可查，作品、素材与项目统一保存。</p>
       <div className="landing-cta center">
@@ -125,8 +128,12 @@ export default async function LandingPage() {
     </section>
 
     <footer className="landing-footer">
-      <span>Wanke · 万镜一刻 AI 视频平台</span>
-      <span className="muted">注册即代表同意《用户协议》与《隐私政策》</span>
+      <span>{siteName} · AI 视频创作平台</span>
+      <span className="muted landing-legal">
+        <Link href="/legal/terms">用户协议</Link>
+        <Link href="/legal/privacy">隐私政策</Link>
+        {contactEmail ? <span>客服 {contactEmail}</span> : null}
+      </span>
     </footer>
   </div>;
 }

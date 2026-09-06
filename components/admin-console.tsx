@@ -123,6 +123,13 @@ function Dashboard() {
         <dl className="kv-list">
           <div><dt>支付异常订单</dt><dd>{stats.revenue.abnormalOrders > 0 ? <span className="error-text">{stats.revenue.abnormalOrders} 个需要人工确认</span> : "无"}</dd></div>
           <div><dt>未验签支付通知</dt><dd>{stats.revenue.unverifiedNotifications > 0 ? <span className="error-text">{stats.revenue.unverifiedNotifications} 条</span> : "无"}</dd></div>
+          <div><dt>邮件发送失败（24 小时）</dt><dd>{stats.email?.failed24h > 0
+            ? <span className="error-text">{stats.email.failed24h} 封失败{stats.email.lastFailure?.error ? `：${String(stats.email.lastFailure.error).slice(0, 60)}` : ""}</span>
+            : stats.email?.sent24h ? `无（24 小时发出 ${stats.email.sent24h} 封）` : "无"}</dd></div>
+          <div><dt>邮件服务</dt><dd>{stats.email?.configured
+            ? (stats.email.enabled ? "已开启" : <span className="error-text">已配置但没有开启，验证与找回密码邮件不会送达</span>)
+            : <span className="error-text">{stats.email?.enabled ? `未配置完整：缺少 ${(stats.email?.missing || []).join("、")}` : "未配置，验证与找回密码邮件只能留档"}</span>}</dd></div>
+          <div><dt>未验证邮箱账号</dt><dd>{stats.users.unverifiedEmails || 0}{stats.email?.stuckQueued > 0 ? <span className="error-text"> · {stats.email.stuckQueued} 封卡在发送中（进程中断）</span> : null}</dd></div>
           <div><dt>暂停使用账号</dt><dd>{stats.users.suspended}</dd></div>
           <div><dt>已注销账号</dt><dd>{stats.users.closed}</dd></div>
           <div><dt>历史遗留任务</dt><dd>{stats.jobs.legacy}（商业化迁移前创建，仅后台可见）</dd></div>
@@ -667,6 +674,9 @@ function SystemSettingsSection() {
                     </select>
                   ) : item.secret ? (
                     <input type="password" autoComplete="new-password" placeholder={item.configured ? "留空保持现有配置" : item.help}
+                      onChange={event => setValues(state => ({ ...state, [item.key]: event.target.value }))} />
+                  ) : item.type === "textarea" ? (
+                    <textarea rows={5} value={values[item.key] ?? ""} placeholder={item.help}
                       onChange={event => setValues(state => ({ ...state, [item.key]: event.target.value }))} />
                   ) : (
                     <input value={values[item.key] ?? ""} placeholder={item.help}

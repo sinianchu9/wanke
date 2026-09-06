@@ -125,7 +125,7 @@ export function listSessions(userId: string, currentToken: string): SessionInfo[
   return rows.map((row, index) => ({
     id: `session-${index}-${row.token_hash.slice(0, 8)}`,
     userAgent: row.user_agent || "",
-    ip: row.ip || "",
+    ip: normalizeIp(row.ip || ""),
     createdAt: row.created_at,
     lastSeenAt: row.last_seen_at,
     expiresAt: row.expires_at,
@@ -155,7 +155,13 @@ function parseCookies(header: string | null): Record<string, string> {
 
 export function requestIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for") || "";
-  return forwarded.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
+  return normalizeIp(forwarded.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "");
+}
+
+/** `::ffff:203.0.113.7` is how a dual-stack socket spells an IPv4 peer; members see plain IPv4. */
+export function normalizeIp(ip: string): string {
+  const value = (ip || "").trim();
+  return value.replace(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i, "$1");
 }
 
 function requestIsSecure(request: Request): boolean {

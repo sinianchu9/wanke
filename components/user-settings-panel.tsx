@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, KeyRound, LoaderCircle, LogOut, MonitorSmartphone, Save, ShieldAlert, UserRound } from "lucide-react";
+import { CheckCircle2, KeyRound, LoaderCircle, LogOut, MailCheck, MonitorSmartphone, Save, ShieldAlert, UserRound } from "lucide-react";
 
 type Preferences = {
   creation: {
@@ -39,6 +39,7 @@ async function call(path: string, init?: RequestInit) {
 export default function UserSettingsPanel({ onChanged }: { onChanged: () => Promise<void> | void }) {
   const [profile, setProfile] = useState<any>(null);
   const [preferences, setPreferences] = useState<Preferences | null>(null);
+  const [site, setSite] = useState<{ requireEmailVerification?: boolean; emailEnabled?: boolean } | null>(null);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [name, setName] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
@@ -62,6 +63,7 @@ export default function UserSettingsPanel({ onChanged }: { onChanged: () => Prom
     setAvatarUrl(profileBody.profile.avatarUrl || "");
     setPreferences(preferenceBody.preferences);
     setSessions(sessionBody.sessions || []);
+    setSite(profileBody.site || null);
   }, []);
 
   useEffect(() => {
@@ -141,6 +143,13 @@ export default function UserSettingsPanel({ onChanged }: { onChanged: () => Prom
     });
   }
 
+  async function sendVerification() {
+    await run("verify-email", async () => {
+      const body = await call("/api/account/verify-email", { method: "POST" });
+      setNotice(body.notice || "验证邮件已经发送，请到邮箱点击链接完成验证。");
+    });
+  }
+
   async function closeAccount() {
     if (!closePassword.trim()) {
       setError("注销账号需要输入登录密码确认");
@@ -180,6 +189,11 @@ export default function UserSettingsPanel({ onChanged }: { onChanged: () => Prom
 
     {notice && <div className="notice" style={{ margin: 0 }}><CheckCircle2 size={16} />{notice}</div>}
     {error && <div className="error-banner">{error}</div>}
+    {!profile.emailVerified && site?.requireEmailVerification && (
+      <div className="error-banner warning">
+        <MailCheck size={16} />邮箱还没有验证，验证通过之前不能开始新的创作。发送验证邮件后点击邮件中的链接即可完成。
+      </div>
+    )}
 
     <section className="panel">
       <div className="panel-title"><div><h3>个人资料</h3><p>昵称和头像会显示在你的工作台里。</p></div></div>
@@ -208,6 +222,27 @@ export default function UserSettingsPanel({ onChanged }: { onChanged: () => Prom
           {busy === "profile" ? <LoaderCircle className="spin" size={14} /> : <Save size={14} />}保存资料
         </button>
       </div>
+    </section>
+
+    <section className="panel">
+      <div className="panel-title">
+        <div>
+          <h3><MailCheck size={15} style={{ verticalAlign: "-2px" }} /> 验证邮箱</h3>
+          <p>验证后可以用于找回密码{site?.requireEmailVerification ? "，验证通过之前不能开始新的创作" : ""}。</p>
+        </div>
+        <div className="inline-actions">
+          {profile.emailVerified
+            ? <span className="stage-state succeeded">已验证</span>
+            : <button className="primary" disabled={busy === "verify-email"} onClick={sendVerification}>
+                {busy === "verify-email" ? <LoaderCircle className="spin" size={14} /> : <MailCheck size={14} />}发送验证邮件
+              </button>}
+        </div>
+      </div>
+      <p className="muted mini" style={{ margin: "10px 0 0" }}>
+        {profile.emailVerified
+          ? `验证邮箱 ${profile.email}${profile.emailVerifiedAt ? ` · 验证于 ${new Date(profile.emailVerifiedAt).toLocaleString("zh-CN")}` : ""}`
+          : `验证邮件会发送到 ${profile.email}。没有收到时请先检查垃圾邮件箱，1 分钟后可以再发送一次。`}
+      </p>
     </section>
 
     <section className="panel">

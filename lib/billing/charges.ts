@@ -6,6 +6,7 @@ import {
   reserveForJob, settleCharge, voidCharge, writeTransaction, type TaskCharge,
 } from "@/lib/billing/quota";
 import { classifyFailure, resolveFailureChargeAction, userMessageFor, type FailureClass, type FailureStage } from "@/lib/billing/failures";
+import { assertCanCreate } from "@/lib/account-status";
 
 /**
  * Creation charging lifecycle, used by every submit path (single, batch, retry,
@@ -43,6 +44,9 @@ export function existingChargeForRequest(userId: string, clientRequestId?: strin
 }
 
 export function beginSubmitCharge(input: SubmitChargeInput): { charge: TaskCharge; quote: CreditQuote } {
+  // Single choke point for §13「注册后必须验证邮箱」: every submit path (single, batch,
+  // retry, continue-creation, quick wizard) reserves through here, so none can forget it.
+  assertCanCreate(input.userId);
   const quote = quoteSubmit(input);
   const idempotencyKey = input.clientRequestId
     ? submitIdempotencyKey(input.userId, input.clientRequestId)
@@ -124,6 +128,7 @@ export function chargeSummaryForUser(userId: string) {
 }
 
 export function assertBatchAffordable(userId: string, kind: string, jobInput: Record<string, unknown>, quantity: number): CreditQuote {
+  assertCanCreate(userId);
   const quote = quoteForJob(kind, { ...jobInput, count: Math.max(1, Math.floor(quantity)) });
   ensureSufficientCredits(userId, quote.credits, `本次需要 ${quote.credits} 个创作额度，当前额度不足`);
   return quote;

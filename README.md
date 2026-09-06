@@ -21,7 +21,9 @@ npm install && npm run build && npm start
 2. 新用户默认免费套餐，可在「会员中心」下单购买套餐或创作额度加油包；支付走支付宝电脑/手机网站支付，权益以服务器确认的支付结果为准（后台「系统设置 → 支付设置」配置并做支付测试）。
 3. 提交生成任务前校验登录 + 会员状态 + 配额；提交成功计 1 条，远端同步拒绝自动退回。
 4. 成功的任务结果可在任务中心一键「保存到作品」，进入作品库长期管理。
-5. 管理员在 `/admin` 管理用户套餐/启停、监管全站任务与作品，所有关键写操作写入审计日志。
+5. 注册时会自动发送邮箱验证邮件；`/reset-password` 提供找回密码，链接一次性且旧链接立即失效。邮件在后台「系统设置 → 邮件」配置（未配置时留档到 `data/mail-outbox`，不会谎报已发送）。
+6. 后台开启「注册后必须验证邮箱」后，未验证会员仍可登录与查看订单，但不能开始创作，工作台会给出验证入口。
+7. 管理员在 `/admin` 管理用户套餐/启停、监管全站任务与作品，所有关键写操作写入审计日志；「经营概览 → 异常与风险」包含邮件发送失败与未验证邮箱账号数。
 
 端到端验收剧本（一次性数据库 + 生产构建，脚本自己拉起服务）：
 
@@ -30,11 +32,17 @@ npm run build
 ./scripts/e2e-run.sh scripts/saas-e2e.mjs       # 账号、隔离、权限、后台
 ./scripts/e2e-run.sh scripts/commerce-e2e.mjs   # 套餐真值、订单、额度账本、密钥
 ./scripts/e2e-run.sh scripts/payment-e2e.mjs    # 支付宝专项（scripts/alipay-mock.mjs 作为本地网关）
+./scripts/e2e-run.sh scripts/account-e2e.mjs    # 账号专项（scripts/smtp-mock.mjs 作为本地邮件服务器）
 ```
 
 `scripts/alipay-mock.mjs` 是协议级本地网关：它会用商户公钥校验我们的签名，并用支付宝私钥
 签名自己的响应与异步通知，因此验签、金额核对、重复通知、过期订单、主动查单与退款都是真实链路，
 不产生任何真实资金流动。
+
+`scripts/smtp-mock.mjs` 同样是协议级本地服务器：严格状态机、真实校验登录账号密码、真实收取
+DATA 内容，并能按剧本拒绝收件人、卡住不回或拒绝服务，因此邮箱验证、找回密码、SSL/STARTTLS、
+限流与「发送失败不谎报成功」都是真实链路。`scripts/e2e-run.sh` 会用 openssl 现生成一张仅用于
+localhost 的自签证书（写入 `data/`，不提交）来跑真实的证书校验。
 
 ## Phase 1：视频生成优先
 
@@ -176,8 +184,20 @@ cp .env.example .env.local
 SaaS 必填项：
 
 ```env
-AUTH_SECRET=          # openssl rand -hex 32；会话 token 哈希盐，轮换会使所有会话失效
+AUTH_SECRET=          # openssl rand -hex 32；会话 token 哈希盐 + 一次性链接摘要盐，轮换会使所有会话与未使用的验证/重置链接失效
 ADMIN_EMAIL=          # 该邮箱注册的账号自动成为管理员（种子管理员）
+```
+
+账号与邮件（也可全部在后台「系统设置」里配置，数据库优先）：
+
+```env
+WANKE_SITE_URL=       # 邮件里的验证/找回密码链接使用的网站地址，上线必填
+WANKE_EMAIL_HOST=     # SMTP 服务器地址
+WANKE_EMAIL_PORT=465  # 465 配 SSL，587 配 STARTTLS
+WANKE_EMAIL_SECURE=true
+WANKE_EMAIL_FROM=     # 例如 Wanke <no-reply@example.com>
+WANKE_EMAIL_USERNAME=
+WANKE_EMAIL_PASSWORD= # 数据库中以主密钥加密存储，界面只显示掩码
 ```
 
 基础视频生成推荐配置：
@@ -225,9 +245,13 @@ SQLite、本地输入和结果归档都位于 `./data`，Docker Compose 已挂�
 ## 验证状态
 
 - `npm run typecheck` 与 `npm run build` 已通过。
-- SaaS 验收剧本 `scripts/saas-e2e.mjs` 覆盖：注册/登录/限流、未登录拦截、
-  配额预扣与回滚、超额 402、套餐切换、跨用户隔离（404 不泄露）、作品库、
-  管理员后台与审计日志（34 项断言）。
+- 验收剧本（一次性数据库 + 生产构建）当前状态：
+  `scripts/saas-e2e.mjs` 63 项、`scripts/commerce-e2e.mjs` 80 项、
+  `scripts/payment-e2e.mjs` 110 项、`scripts/account-e2e.mjs` 187 项，全部通过。
+- 账号剧本覆盖：注册与协议确认、验证邮件真实投递、链接一次性/过期/重放/跨用途、
+  旧链接立即失效、60 秒节流、强制验证只限制创作不限制登录、找回密码反枚举、
+  重置后全部退出、改密与会话管理、账号状态业务文案、邮件未开启与发送失败不谎报成功、
+  SSL/STARTTLS/AUTH LOGIN、邮件模板可配置、越权与技术信息泄露扫描。
 - 真实付费生成需使用实际新加坡百炼 Key 对四种生成入口完成最小 smoke test；
   真实 Key 只放 `.env.local`，不要提交或分享。
 

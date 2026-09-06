@@ -49,7 +49,7 @@ function queryOne(sql, ...params) { return query(sql, ...params)[0] || null; }
 function execute(sql, ...params) { return withDb(db => db.prepare(sql).run(...params)); }
 
 async function register(email, name, password = "payment-pass-123") {
-  const result = await call("/api/auth/register", { method: "POST", body: { email, name, password } });
+  const result = await call("/api/auth/register", { method: "POST", body: { email, name, password, termsAccepted: true } });
   if (result.status !== 201) throw new Error(`register ${email} failed: ${result.status} ${result.text}`);
   return { cookie: result.session, id: result.json.user.id, email };
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, Coins, Crown, LoaderCircle, Receipt, Settings2 } from "lucide-react";
+import { ArrowLeft, Check, Coins, Crown, LoaderCircle, MailCheck, Receipt, Settings2 } from "lucide-react";
 import UserSettingsPanel from "@/components/user-settings-panel";
 
 type Section = "membership" | "credits" | "orders" | "settings";
@@ -49,6 +49,7 @@ function yuan(cents: number) {
 export default function AccountCenter() {
   const [section, setSection] = useState<Section>("membership");
   const [user, setUser] = useState<any>(null);
+  const [account, setAccount] = useState<{ blocked?: boolean; message?: string; hint?: string } | null>(null);
   const [membership, setMembership] = useState<Membership | null>(null);
   const [plans, setPlans] = useState<CatalogPlan[]>([]);
   const [packs, setPacks] = useState<CatalogPlan[]>([]);
@@ -72,6 +73,7 @@ export default function AccountCenter() {
     setPlans(membershipBody.plans || []);
     setPacks(membershipBody.packs || []);
     setUser(meBody.user);
+    setAccount(meBody.account || null);
     setLedger({ total: ledgerBody.total || 0, entries: ledgerBody.entries || [] });
     setOrders(orderBody.orders || []);
     setPaymentAvailable(Boolean(profileBody.site?.paymentEnabled));
@@ -82,6 +84,12 @@ export default function AccountCenter() {
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
   }, [load]);
+
+  // Deep link from the workspace banner: /account?section=settings lands on 账号设置.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("section") as Section | null;
+    if (requested && SECTIONS.some(item => item.id === requested)) setSection(requested);
+  }, []);
 
   /**
    * Hand the browser to the Alipay cashier. Nothing about the membership changes here:
@@ -211,6 +219,12 @@ export default function AccountCenter() {
 
     {notice && <div className="notice" style={{ margin: 0 }}>{notice}</div>}
     {error && <div className="error-banner">{error}</div>}
+    {account?.blocked && (
+      <div className="error-banner warning">
+        <MailCheck size={16} />
+        <span>{account.message}。<button className="link-button" style={{ padding: 0, fontSize: 12, fontWeight: 650 }} onClick={() => setSection("settings")}>现在去验证邮箱</button></span>
+      </div>
+    )}
 
     <div className="member-layout">
       <nav className="member-nav">

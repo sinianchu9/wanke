@@ -42,7 +42,7 @@ function queryOne(sql, ...params) {
 }
 
 async function register(email, name, password = "commerce-pass-123") {
-  const result = await call("/api/auth/register", { method: "POST", body: { email, name, password } });
+  const result = await call("/api/auth/register", { method: "POST", body: { email, name, password, termsAccepted: true } });
   if (result.status !== 201) throw new Error(`register ${email} failed: ${result.status} ${result.text}`);
   return { cookie: result.session, id: result.json.user.id, role: result.json.user.role };
 }

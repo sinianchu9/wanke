@@ -4,21 +4,33 @@ import { db } from "@/lib/db";
 import { createSession, errorResponse, getUserByEmail, hashPassword, HttpError, requestIp, sessionCookieOptions } from "@/lib/auth";
 import { ensureMembership } from "@/lib/membership";
 import { getFreePlan } from "@/lib/billing/catalog";
+import { sendVerificationEmail } from "@/lib/account-emails";
+import { verificationRequired } from "@/lib/account-status";
+import { getBooleanSetting } from "@/lib/system-settings";
 import { describeError } from "@/lib/errors";
 import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const TERMS_MESSAGE = "请先阅读并同意《用户协议》和《隐私政策》";
+
 const schema = z.object({
   email: z.string().trim().toLowerCase().email("邮箱格式不正确").max(254),
   name: z.string().trim().min(1, "请填写昵称").max(60),
   password: z.string().min(8, "密码至少 8 位").max(200),
+  // §13 注册必须确认用户协议与隐私政策；前端复选框只是入口，真正的判定在服务器。
+  termsAccepted: z
+    .boolean({ error: TERMS_MESSAGE })
+    .refine(value => value === true, TERMS_MESSAGE),
 });
 
 export async function POST(request: Request) {
   try {
     const input = schema.parse(await request.json());
+    if (!getBooleanSetting("registration_enabled")) {
+      throw new HttpError(403, "REGISTRATION_CLOSED", "当前没有开放注册，请联系客服");
+    }
     if (getUserByEmail(input.email)) throw new HttpError(409, "EMAIL_TAKEN", "该邮箱已注册，请直接登录");
     const now = new Date().toISOString();
     const id = randomUUID();
@@ -32,9 +44,20 @@ export async function POST(request: Request) {
     ensureMembership(id);
     const token = createSession(id, { userAgent: request.headers.get("user-agent"), ip: requestIp(request) });
     const user = getUserByEmail(input.email)!;
+    // Verification mail is best effort: a broken mail transport must not lose the account,
+    // and the member is told the truth about whether the mail really left the server.
+    const requiresVerification = verificationRequired();
+    let emailDelivered = false;
+    try {
+      const result = await sendVerificationEmail(id, request);
+      emailDelivered = result.delivered;
+    } catch {
+      emailDelivered = false;
+    }
     const response = NextResponse.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
       plan: getFreePlan().id,
+      emailVerification: { required: requiresVerification, delivered: emailDelivered },
     }, { status: 201 });
     response.cookies.set("wanke_session", token, sessionCookieOptions(request));
     return response;

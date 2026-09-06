@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/auth";
 import type { MembershipView } from "@/lib/membership";
 import { getMembership } from "@/lib/membership";
+import { emailHealth, mailConfiguration } from "@/lib/mailer";
 
 export interface AdminUserRow {
   user: SessionUser & { lastLoginAt: string | null };
@@ -77,12 +78,15 @@ export function adminStats() {
   const now = new Date();
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
   const planRows = db.prepare(`SELECT m.plan_id, COALESCE(p.name, m.plan) AS name, COUNT(*) AS c
     FROM memberships m LEFT JOIN plans p ON p.id = COALESCE(m.plan_id, m.plan)
     GROUP BY COALESCE(m.plan_id, m.plan) ORDER BY c DESC`).all() as any[];
   const paidUserIds = db.prepare("SELECT DISTINCT user_id FROM orders WHERE status IN ('paid','partial_refund','refunded')").all() as Array<{ user_id: string }>;
   const activeToday = q(`SELECT COUNT(DISTINCT user_id) AS c FROM jobs WHERE created_at >= ?`, dayStart);
+  const mail = mailConfiguration();
+  const unverifiedEmails = q("SELECT COUNT(*) AS c FROM users WHERE status='active' AND email_verified=0");
 
   return {
     users: {
@@ -94,6 +98,7 @@ export function adminStats() {
       newToday: q("SELECT COUNT(*) AS c FROM users WHERE created_at >= ?", dayStart),
       activeToday,
       paid: paidUserIds.length,
+      unverifiedEmails,
     },
     plans: planRows.map(row => ({ id: row.plan_id, name: row.name || row.plan_id, count: Number(row.c || 0) })),
     revenue: {
@@ -122,6 +127,13 @@ export function adminStats() {
     },
     works: { total: q("SELECT COUNT(*) AS c FROM works") },
     assets: { total: q("SELECT COUNT(*) AS c FROM assets") },
+    // §46「邮件异常」: a broken mail transport must be visible here, not only in server logs.
+    email: {
+      ...emailHealth(last24h),
+      enabled: mail.enabled,
+      configured: mail.ready,
+      missing: mail.missing,
+    },
     support: {
       openTickets: q("SELECT COUNT(*) AS c FROM support_tickets WHERE status IN ('open','processing','waiting_user')"),
       pendingInvoices: q("SELECT COUNT(*) AS c FROM invoice_requests WHERE status='pending'"),

@@ -19,7 +19,7 @@ interface SettingDefinition {
   label: string;
   help: string;
   technicalKey?: string;
-  type: "text" | "number" | "boolean" | "url" | "select";
+  type: "text" | "textarea" | "number" | "boolean" | "url" | "select";
   options?: Array<{ value: string; label: string }>;
   default?: string;
   env?: string;
@@ -29,6 +29,7 @@ interface SettingDefinition {
 export const SETTING_DEFINITIONS: SettingDefinition[] = [
   { key: "site_name", scope: "site", label: "网站名称", help: "显示在页面标题、邮件和通知中。", type: "text", default: "Wanke", env: "WANKE_SITE_NAME" },
   { key: "site_logo_url", scope: "site", label: "网站 Logo 地址", help: "建议使用正方形图片，留空则显示文字标识。", type: "url", default: "", env: "WANKE_SITE_LOGO_URL" },
+  { key: "site_url", scope: "site", label: "网站访问地址", help: "邮件里的验证与找回密码链接使用这个地址，例如 https://wanke.example.com。留空时使用用户当前访问的地址。", type: "url", default: "", env: "WANKE_SITE_URL" },
   { key: "contact_email", scope: "site", label: "客服邮箱", help: "用户遇到问题时看到的联系方式。", type: "text", default: "", env: "WANKE_CONTACT_EMAIL" },
   { key: "registration_enabled", scope: "site", label: "开放注册", help: "关闭后新用户无法注册，已登录用户不受影响。", type: "boolean", default: "true" },
   { key: "order_ttl_minutes", scope: "payment", label: "订单有效时间（分钟）", help: "超过这个时间未支付的订单会自动关闭。", technicalKey: "order_ttl_minutes", type: "number", default: "30" },
@@ -54,6 +55,8 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   { key: "email_from", scope: "email", label: "发件人地址", help: "用户收到邮件时看到的发件人。", technicalKey: "from", type: "text", default: "", env: "WANKE_EMAIL_FROM" },
   { key: "email_username", scope: "email", label: "邮件登录账号", help: "留空表示不使用账号密码登录。", technicalKey: "user", type: "text", default: "", env: "WANKE_EMAIL_USERNAME" },
   { key: "email_password", scope: "email", label: "邮件登录密码", help: "只保存在服务器，不会返回浏览器。", secret: true, type: "text", env: "WANKE_EMAIL_PASSWORD" },
+  { key: "email_verify_body", scope: "email", label: "验证邮箱邮件模板", help: "可用占位符：{name} {site} {link} {minutes} {contact}。留空使用内置模板。", type: "textarea" },
+  { key: "email_reset_body", scope: "email", label: "找回密码邮件模板", help: "可用占位符：{name} {site} {link} {minutes} {contact}。留空使用内置模板。", type: "textarea" },
   { key: "require_email_verification", scope: "security", label: "注册后必须验证邮箱", help: "开启后未验证邮箱的账号不能创作，但可以登录补验证。", type: "boolean", default: "false" },
   { key: "worker_enabled", scope: "worker", label: "启用后台任务调度", help: "关闭后创作任务只能由用户手动刷新推进，正式运营必须开启。", type: "boolean", default: "true" },
   { key: "worker_interval_seconds", scope: "worker", label: "后台调度间隔（秒）", help: "建议 20 到 60 秒。", type: "number", default: "30" },

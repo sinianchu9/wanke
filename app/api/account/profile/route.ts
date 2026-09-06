@@ -19,6 +19,7 @@ export async function GET(request: Request) {
   try {
     const user = requireUser(request);
     const profile = getUserById(user.id)!;
+    const verification = db.prepare("SELECT email_verified_at FROM users WHERE id=?").get(user.id) as { email_verified_at?: string | null } | undefined;
     return NextResponse.json({
       profile: {
         id: profile.id,
@@ -26,6 +27,7 @@ export async function GET(request: Request) {
         email: profile.email,
         avatarUrl: profile.avatarUrl,
         emailVerified: profile.emailVerified,
+        emailVerifiedAt: verification?.email_verified_at || null,
         statusText: ACCOUNT_STATUS_COPY[profile.status] || "正常",
         createdAt: profile.createdAt,
       },

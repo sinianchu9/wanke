@@ -3,6 +3,7 @@ import { z } from "zod";
 import { errorResponse, requireUser } from "@/lib/auth";
 import { quoteSubmit } from "@/lib/billing/charges";
 import { readBalance } from "@/lib/billing/quota";
+import { accountReadiness } from "@/lib/account-status";
 import { JOB_KINDS } from "@/lib/types";
 import { describeError } from "@/lib/errors";
 
@@ -22,6 +23,7 @@ export async function POST(request: Request) {
     const input = schema.parse(await request.json());
     const quote = quoteSubmit({ userId: user.id, kind: input.kind, jobInput: input.input || {}, quantity: input.quantity });
     const balance = readBalance(user.id);
+    const account = accountReadiness(user.id);
     return NextResponse.json({
       quote: {
         credits: quote.credits,
@@ -31,6 +33,9 @@ export async function POST(request: Request) {
       },
       available: balance?.available ?? 0,
       sufficient: (balance?.available ?? 0) >= quote.credits,
+      // An unverified mailbox blocks the submit that follows this quote, so the creation
+      // surface can say so before the member presses the button instead of after.
+      account: { blocked: account.blocked, message: account.message, hint: account.hint, emailVerified: account.emailVerified },
     });
   } catch (error) {
     const handled = errorResponse(error);

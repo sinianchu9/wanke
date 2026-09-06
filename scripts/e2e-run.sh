@@ -18,6 +18,24 @@ export ADMIN_EMAIL="${ADMIN_EMAIL:-admin@wanke.test}"
 export AUTH_SECRET="${AUTH_SECRET:-e2e-secret-0123456789abcdef0123456789abcdef}"
 export NODE_ENV=production
 
+# Acceptance harness only: a throwaway self-signed localhost certificate lets the SMTP
+# mock exercise the real SSL and STARTTLS code paths, including certificate verification.
+# Regenerated every run so it can never expire, and never used by a real deployment.
+SMTP_TEST_CERT="${SMTP_TEST_CERT:-$PWD/data/e2e-smtp-cert.pem}"
+SMTP_TEST_KEY="${SMTP_TEST_KEY:-$PWD/data/e2e-smtp-key.pem}"
+export WANKE_SMTP_TEST_CERT="$SMTP_TEST_CERT"
+export WANKE_SMTP_TEST_KEY="$SMTP_TEST_KEY"
+if command -v openssl >/dev/null 2>&1; then
+  mkdir -p "$(dirname "$SMTP_TEST_CERT")"
+  openssl req -x509 -newkey rsa:2048 -nodes -keyout "$SMTP_TEST_KEY" -out "$SMTP_TEST_CERT" \
+    -days 2 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1 || true
+fi
+if [ -f "$SMTP_TEST_CERT" ]; then
+  export NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$SMTP_TEST_CERT}"
+else
+  echo "== openssl unavailable: SMTP TLS/STARTTLS checks will be reported as skipped =="
+fi
+
 node_modules/.bin/next start -p "$PORT" > /tmp/wanke-e2e-server.log 2>&1 &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT

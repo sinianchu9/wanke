@@ -338,6 +338,26 @@ function migrateCommercialSchema(db: Database) {
       updated_at TEXT NOT NULL
     );
 
+    -- Outbound mail journal. Every message is recorded with its final transport state so
+    -- "email is broken" is visible in the backoffice instead of only in server logs.
+    CREATE TABLE IF NOT EXISTS email_messages (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      kind TEXT NOT NULL DEFAULT 'notification',
+      to_address TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      body_text TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','sent','outbox','failed')),
+      transport TEXT NOT NULL DEFAULT 'outbox',
+      error TEXT,
+      ref_id TEXT,
+      created_at TEXT NOT NULL,
+      sent_at TEXT,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_email_messages_user ON email_messages(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_email_messages_status ON email_messages(status, created_at DESC);
+
     -- One token table for every single-use account link (email verification and
     -- password reset). A purpose column keeps them apart instead of modelling the
     -- same concept twice.

@@ -203,6 +203,21 @@
   font-size: 11px;
 }
 
+.noticeWarning {
+  width: min(1180px,calc(100% - 48px));
+  margin: 9px auto 0;
+  padding: 9px 11px;
+  border: 1px solid #ecd3a8;
+  border-radius: 10px;
+  background: #fdf7ec;
+  color: #9b5a00;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+}
+.noticeWarning a { color: #9b5a00; font-weight: 700; text-decoration: underline; }
+
 .homeStage {
   width: min(840px,100%);
   min-height: calc(100vh - 60px);

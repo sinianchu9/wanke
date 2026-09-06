@@ -45,21 +45,24 @@ check("orders blocked", (await call("/api/orders")).status === 401);
 check("admin blocked", (await call("/api/admin/stats")).status === 401);
 
 console.log("== registration ==");
-const admin = await call("/api/auth/register", { method: "POST", body: { email: ADMIN_EMAIL, name: "Operator", password: "admin-pass-123" } });
+const admin = await call("/api/auth/register", { method: "POST", body: { email: ADMIN_EMAIL, name: "Operator", password: "admin-pass-123", termsAccepted: true } });
 check("admin registers", admin.status === 201, JSON.stringify(admin.json));
 check("admin promoted via ADMIN_EMAIL", admin.json?.user?.role === "admin");
 const adminCookie = admin.session;
 
-const alice = await call("/api/auth/register", { method: "POST", body: { email: "alice@wanke.test", name: "Alice", password: "alice-pass-123" } });
+const alice = await call("/api/auth/register", { method: "POST", body: { email: "alice@wanke.test", name: "Alice", password: "alice-pass-123", termsAccepted: true } });
 check("user registers", alice.status === 201);
 check("new user defaults to free", alice.json?.plan === "free");
 const aliceCookie = alice.session;
-const dup = await call("/api/auth/register", { method: "POST", body: { email: "alice@wanke.test", name: "Alice2", password: "whatever-123" } });
+const dup = await call("/api/auth/register", { method: "POST", body: { email: "alice@wanke.test", name: "Alice2", password: "whatever-123", termsAccepted: true } });
 check("duplicate email rejected", dup.status === 409);
-const weak = await call("/api/auth/register", { method: "POST", body: { email: "weak@wanke.test", name: "Weak", password: "short" } });
+const weak = await call("/api/auth/register", { method: "POST", body: { email: "weak@wanke.test", name: "Weak", password: "short", termsAccepted: true } });
 check("weak password rejected", weak.status === 400);
+const noTerms = await call("/api/auth/register", { method: "POST", body: { email: "noterms@wanke.test", name: "NoTerms", password: "noterms-pass-123" } });
+check("agreement must be accepted", noTerms.status === 400 && /协议/.test(noTerms.json?.error || ""), JSON.stringify(noTerms.json));
+check("rejected signup creates no account", (await call("/api/auth/login", { method: "POST", body: { email: "noterms@wanke.test", password: "noterms-pass-123" } })).status === 401);
 
-const bob = await call("/api/auth/register", { method: "POST", body: { email: "bob@wanke.test", name: "Bob", password: "bob-pass-123" } });
+const bob = await call("/api/auth/register", { method: "POST", body: { email: "bob@wanke.test", name: "Bob", password: "bob-pass-123", termsAccepted: true } });
 const bobCookie = bob.session;
 
 console.log("== membership defaults ==");

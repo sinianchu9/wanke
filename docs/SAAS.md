@@ -12,8 +12,10 @@
 
 | 表 | 说明 |
 |---|---|
-| `users` | id, email(唯一，NOCASE), name, password_hash(scrypt), role(user/admin), status(active/disabled), avatar_url, created_at, updated_at, last_login_at |
-| `sessions` | token_hash(SHA-256(AUTH_SECRET+token)), user_id, expires_at(30 天滑动), last_seen_at |
+| `users` | id, email(唯一，NOCASE), name, password_hash(scrypt), role(user/admin), status(active/disabled/closed), avatar_url, email_verified, email_verified_at, closed_at, created_at, updated_at, last_login_at |
+| `sessions` | token_hash(SHA-256(AUTH_SECRET+token)), user_id, expires_at(30 天滑动), last_seen_at, user_agent, ip |
+| `account_tokens` | 邮箱验证与找回密码共用的一次性链接：purpose, token_hash(唯一), expires_at, consumed_at |
+| `email_messages` | 出站邮件流水：kind, to_address, subject, status(queued/sent/outbox/failed), transport, error |
 | `memberships` | user_id(PK), plan(free/pro/studio), status, quota_limit_videos, quota_used_videos, period_start, period_end |
 | `works` | id, user_id, title, description, cover_url, video_url, archived_file, job_ids_json, status(active/archived), visibility(private) |
 | `admin_audit_logs` | id, admin_user_id, action, target_type, target_id, meta_json, created_at |
@@ -36,7 +38,17 @@
 - CSRF：SameSite=Lax 为主，写接口附加 Origin/Host 一致性校验。
 - 登录限流：同一邮箱+IP 15 分钟内失败 5 次后拒绝（429）。
 - 客户端从不携带 role / userId 做决策，全部以服务端会话为准。
-- 扩展点（结构已预留）：邮箱验证、找回密码、OAuth（users 表字段与 sessions 模型兼容）。
+- 邮箱验证：注册即发送；`account_tokens` 只存 `sha256(AUTH_SECRET+token)`，一次性消费，
+  重新签发会让旧链接立即失效；验证链接 24 小时有效，找回密码链接 30 分钟有效。
+- 强制验证：后台开启「注册后必须验证邮箱」后，未验证账号**仍可登录**，但不能开始创作。
+  判定挂在 `beginSubmitCharge()` / `assertBatchAffordable()` 这两个唯一扣费入口
+  （`lib/account-status.ts`），单条、批量、续创、快速向导都无法绕过。
+- 找回密码：请求接口对存在/不存在/格式错误的邮箱返回完全相同的响应，无法枚举账号；
+  确认接口先消费链接再改密码，并 `revokeAllSessions()`。
+- 出站邮件：`lib/mailer.ts` 用 `node:net`/`node:tls` 直接实现 SMTP（SSL / STARTTLS /
+  AUTH PLAIN / AUTH LOGIN），未开启或配置不完整时留档到 `data/mail-outbox`，
+  发送失败如实记录，任何情况下都不会向会员谎报「已发送」。
+- 扩展点（结构已预留）：OAuth 第三方登录（users 表字段与 sessions 模型兼容，需加 identities 表）。
 
 ## 3. 套餐与配额
 
@@ -99,10 +111,19 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | /api/auth/register | 注册并自动登录（默认 free） |
+| POST | /api/auth/register | 注册并自动登录（默认 free；必须同意协议，尊重开放注册开关，注册即发送验证邮件） |
 | POST | /api/auth/login | 登录（限流保护） |
 | POST | /api/auth/logout | 登出 |
-| GET | /api/auth/me | 当前用户 + 会员信息 |
+| GET | /api/auth/me | 当前用户 + 会员信息 + 账号可用状态 |
+| POST | /api/auth/verify-email | 消费邮箱验证链接（公开，一次性） |
+| POST | /api/auth/password-reset | 请求找回密码链接（反枚举，响应恒定） |
+| POST | /api/auth/password-reset/confirm | 用一次性链接设置新密码并退出全部登录 |
+| POST | /api/account/verify-email | 重新发送验证邮件（登录态，60 秒节流） |
+| GET/PATCH | /api/account/profile | 账号资料（昵称、头像、验证状态、账号状态文案） |
+| POST | /api/account/password | 修改密码（需当前密码，可退出其他设备） |
+| GET/DELETE | /api/account/sessions | 登录状态列表 / 退出其他登录或全部退出 |
+| GET/PATCH | /api/account/preferences | 创作偏好与通知偏好 |
+| POST | /api/account/close | 注销账号（需密码确认，存在未完成订单或反馈时拒绝） |
 | GET | /api/membership | 会员详情 + 套餐目录 |
 | GET/POST | /api/orders | 我的订单 / 创建订单（`clientToken` 幂等） |
 | POST | /api/orders/[id]/pay | 发起支付宝收银台（返回签名后的支付地址） |
@@ -133,7 +154,8 @@
 - 支付：支付宝电脑/手机网站支付已接入（验签、主动查单、超时关闭、退款）；
   微信/Stripe 与自动开票仍待接入，发票目前为人工处理入口。
 - 支付密钥模式：仅支持支付宝「公钥模式」，证书模式尚未实现。
-- 邮件：邮箱验证、找回密码、配额告警通知（结构已预留，未实现完整流程）。
+- 邮件：邮箱验证与找回密码已完整实现；业务通知（任务完成、额度提醒、订单与退款）目前只走
+  站内通知，通知偏好里的 `email` 通道还没有发信场景，邮件流水查询页面属后台完整化阶段。
 - OAuth：微信/Google 登录（users/sessions 模型兼容，需加 identities 表）。
 - Postgres：当前 SQLite + WAL 满足单机；表结构与 SQL 均使用标准语法，
   迁移时替换 `lib/db.ts` 驱动并复核 `LIKE`/JSON 字段即可。
