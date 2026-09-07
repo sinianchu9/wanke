@@ -90,27 +90,110 @@ export function getJobForUser(id: string, userId: string, isAdmin = false): Stor
   return job;
 }
 
+/** A job still in flight, plus the server-side poll bookkeeping the worker owns. */
+export type PollableJob = StoredJob & { attempts: number; lastPollAt: string | null };
+
+function rowToPollableJob(row: any): PollableJob {
+  return { ...rowToJob(row), attempts: Number(row.attempts || 0), lastPollAt: row.last_poll_at || null };
+}
+
+const IN_FLIGHT_STATUSES = "('queued','running','unknown')";
+
+/** Minimum gap between two upstream status queries for one job. */
+export function pollIntervalMs(job: StoredJob, now = Date.now()) {
+  const ageMs = Math.max(0, now - new Date(job.createdAt).getTime());
+  const isModelStudio = job.details?.engine === "modelstudio";
+  // Alibaba recommends roughly 15s polling for async video jobs. Keep the faster 6s cadence
+  // only for legacy Yike jobs, which already used that behavior before the provider split.
+  let minInterval = isModelStudio
+    ? (ageMs < 5 * 60_000 ? 15_000 : 30_000)
+    : (ageMs < 60_000 ? 6_000 : ageMs < 5 * 60_000 ? 15_000 : 30_000);
+  if (job.status === "unknown") minInterval = Math.max(minInterval, 30_000);
+  return minInterval;
+}
+
+function dueForPoll(job: PollableJob, now: number) {
+  if (job.details?.pollable === false) return false;
+  const sinceUpdateMs = Math.max(0, now - new Date(job.updatedAt).getTime());
+  return sinceUpdateMs >= pollIntervalMs(job, now);
+}
+
 export function listActiveJobs(limit = 20, userId?: string): StoredJob[] {
+  return listPollableJobs({ limit, userId });
+}
+
+/**
+ * Jobs the server worker should query now. A provider can temporarily return a status
+ * Wanke does not recognize yet, so pollable `unknown` jobs stay in the recovery loop
+ * instead of being silently dropped.
+ */
+export function listPollableJobs(options: { limit?: number; userId?: string; ignoreInterval?: boolean } = {}): PollableJob[] {
+  const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
   const now = Date.now();
-  // A provider can temporarily introduce/return a status Wanke does not recognize yet.
-  // Keep pollable `unknown` jobs in the recovery loop instead of silently dropping them.
-  const rows = userId
-    ? db.prepare("SELECT * FROM jobs WHERE status IN ('queued','running','unknown') AND provider_job_id IS NOT NULL AND user_id = ? ORDER BY updated_at ASC LIMIT 100").all(userId)
-    : db.prepare("SELECT * FROM jobs WHERE status IN ('queued','running','unknown') AND provider_job_id IS NOT NULL ORDER BY updated_at ASC LIMIT 100").all();
-  const candidates = (rows as any[]).map(rowToJob);
-  return candidates.filter(job => {
-    if (job.details?.pollable === false) return false;
-    const ageMs = Math.max(0, now - new Date(job.createdAt).getTime());
-    const sinceUpdateMs = Math.max(0, now - new Date(job.updatedAt).getTime());
-    const isModelStudio = job.details?.engine === "modelstudio";
-    // Alibaba recommends roughly 15s polling for async video jobs. Keep the faster 6s cadence
-    // only for legacy Yike jobs, which already used that behavior before the provider split.
-    let minInterval = isModelStudio
-      ? (ageMs < 5 * 60_000 ? 15_000 : 30_000)
-      : (ageMs < 60_000 ? 6_000 : ageMs < 5 * 60_000 ? 15_000 : 30_000);
-    if (job.status === "unknown") minInterval = Math.max(minInterval, 30_000);
-    return sinceUpdateMs >= minInterval;
-  }).slice(0, limit);
+  const rows = options.userId
+    ? db.prepare(`SELECT * FROM jobs WHERE status IN ${IN_FLIGHT_STATUSES} AND provider_job_id IS NOT NULL AND user_id = ? ORDER BY updated_at ASC LIMIT 100`).all(options.userId)
+    : db.prepare(`SELECT * FROM jobs WHERE status IN ${IN_FLIGHT_STATUSES} AND provider_job_id IS NOT NULL ORDER BY updated_at ASC LIMIT 100`).all();
+  const candidates = (rows as any[]).map(rowToPollableJob);
+  const due = options.ignoreInterval ? candidates : candidates.filter(job => dueForPoll(job, now));
+  return due.slice(0, limit);
+}
+
+/**
+ * In-flight jobs the worker must close (§20 超时任务处理), on either of two grounds:
+ *
+ *   created_at < cutoff  the creation has been alive longer than the operator's timeout,
+ *                        even though we keep querying it successfully;
+ *   updated_at < cutoff  it simply stopped moving — no upstream id, an upstream with no
+ *                        query API, or nothing new for a long time.
+ *
+ * `updated_at` alone is not enough: every status query refreshes it, so a creation that
+ * is polled forever but never finishes would never time out and the member's credits
+ * would stay frozen forever. `created_at` is the age of the creation itself.
+ */
+export function listStalledJobs(cutoffIso: string, options: { limit?: number; userId?: string } = {}): PollableJob[] {
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+  const rows = options.userId
+    ? db.prepare(`SELECT * FROM jobs WHERE status IN ${IN_FLIGHT_STATUSES} AND (created_at < ? OR updated_at < ?) AND user_id = ? ORDER BY updated_at ASC LIMIT ?`).all(cutoffIso, cutoffIso, options.userId, limit)
+    : db.prepare(`SELECT * FROM jobs WHERE status IN ${IN_FLIGHT_STATUSES} AND (created_at < ? OR updated_at < ?) ORDER BY updated_at ASC LIMIT ?`).all(cutoffIso, cutoffIso, limit);
+  return (rows as any[]).map(rowToPollableJob);
+}
+
+/**
+ * Optimistic claim for one worker pass. Two schedulers (the in-process timer and an
+ * operator/cron tick) can look at the same job; only the one whose `updated_at` still
+ * matches owns it, so a job is never queried and finalized twice in parallel.
+ */
+export function claimJobForPoll(id: string, expectedUpdatedAt: string, claimedAt: string): boolean {
+  const result = db.prepare(`UPDATE jobs SET last_poll_at=?, updated_at=?
+    WHERE id=? AND updated_at=? AND status IN ${IN_FLIGHT_STATUSES}`)
+    .run(claimedAt, claimedAt, id, expectedUpdatedAt);
+  return result.changes === 1;
+}
+
+/** Bookkeeping for one upstream query that did not change the business status. */
+export function recordJobPoll(id: string, patch: { attempts?: number; error?: string | null; details?: Record<string, unknown> | null } = {}): void {
+  const current = getJob(id);
+  if (!current) return;
+  db.prepare(`UPDATE jobs SET attempts = attempts + 1, last_poll_at=?, details_json=? WHERE id=?`)
+    .run(new Date().toISOString(), JSON.stringify(patch.details ?? current.details), id);
+}
+
+/** How many creations a member currently has in flight (§48 每用户同时任务数). */
+export function countInFlightJobs(userId: string): number {
+  const row = db.prepare(`SELECT COUNT(*) AS c FROM jobs WHERE user_id=? AND status IN ${IN_FLIGHT_STATUSES}`).get(userId) as any;
+  return Number(row?.c || 0);
+}
+
+/** Platform-wide backlog, for the operations dashboard (§46 任务积压). */
+export function countInFlightJobsTotal(): number {
+  const row = db.prepare(`SELECT COUNT(*) AS c FROM jobs WHERE status IN ${IN_FLIGHT_STATUSES}`).get() as any;
+  return Number(row?.c || 0);
+}
+
+/** Jobs whose upstream query has been failing repeatedly, for the risk panel. */
+export function countStrugglingJobs(minAttempts: number): number {
+  const row = db.prepare(`SELECT COUNT(*) AS c FROM jobs WHERE status IN ${IN_FLIGHT_STATUSES} AND attempts >= ?`).get(minAttempts) as any;
+  return Number(row?.c || 0);
 }
 
 export function updateJobRemote(id: string, patch: {

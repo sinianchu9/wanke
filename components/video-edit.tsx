@@ -170,7 +170,7 @@ function discardLocalImage(ref: string) {
 
 function resolveSourceDuration(job: StoredJob) {
   const usage = job.details?.usage as Record<string, unknown> | undefined;
-  const candidates = [usage?.output_video_duration, job.details?.targetDuration, job.details?.effectiveDuration, job.request.targetDuration, job.request.sourceDuration, job.request.duration];
+  const candidates = [job.details?.durationSeconds, usage?.output_video_duration, job.details?.targetDuration, job.details?.effectiveDuration, job.request.targetDuration, job.request.sourceDuration, job.request.duration];
   for (const value of candidates) {
     const number = Number(value);
     if (Number.isFinite(number) && number > 0) return Math.round(number);

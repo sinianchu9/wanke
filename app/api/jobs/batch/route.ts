@@ -57,6 +57,7 @@ export async function POST(request: Request) {
         kind: "video_generation",
         jobInput: payload.input,
         clientRequestId: payload.clientRequestId ? `${payload.clientRequestId}:${index}` : undefined,
+        guard: "batch_member",
       });
       let job = createJob({ kind: "video_generation", title: `${baseTitle} · 版本 ${index}/${payload.count}`, request: requestInput, userId: user.id });
       attachJobToCharge(charge.id, job.id);

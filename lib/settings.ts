@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { clearSecret, readSecret, writeSecret } from "@/lib/secrets";
 
 // Keep this guard here as well as in db.ts so a dev hot reload can pick up the
 // settings feature without requiring the existing SQLite connection to restart.
@@ -39,15 +40,45 @@ type UpdateInput = {
 const TOKEN_PLAN_BLOCK = "Token Plan / Coding Plan 专属 Key 不能直接用于 Wanke 应用后端。阿里云当前仅允许这类套餐在受支持的 AI 编程工具或 Agent 中交互式使用；Wanke 直连视频请使用 Pay-As-You-Go API Key。";
 const COMPATIBLE_URL_BLOCK = "这里需要百炼原生视频 API Root，不是 /compatible-mode/v1 或 /apps/anthropic。Wanke 会自动追加 /api/v1/services/aigc/video-generation/video-synthesis。";
 
-function storedValue(key: SettingKey) {
+/**
+ * Provider credentials live encrypted in `secrets` (see `migrateLegacyPlainSecrets`).
+ * Reading them from the plain `settings` table only would silently drop the key the
+ * moment that migration runs, which reads to a member as "还没有配置 API Key" and stops
+ * every creation. So these keys are stored and read from the secret store, and the plain
+ * row is only kept as a fallback for a database that has not been migrated yet.
+ */
+const SECRET_BACKED_KEYS: ReadonlySet<SettingKey> = new Set<SettingKey>([
+  "modelstudio_api_key",
+  "yike_access_key_id",
+  "yike_access_key_secret",
+]);
+
+function plainStoredValue(key: SettingKey) {
   const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value?: string } | undefined;
   return row?.value?.trim() || "";
 }
 
+function dropPlainValue(key: SettingKey) {
+  db.prepare("DELETE FROM settings WHERE key = ?").run(key);
+}
+
+function storedValue(key: SettingKey) {
+  if (!SECRET_BACKED_KEYS.has(key)) return plainStoredValue(key);
+  const secret = readSecret(key).trim();
+  return secret || plainStoredValue(key);
+}
+
 function writeValue(key: SettingKey, value: string) {
   const clean = value.trim();
+  if (SECRET_BACKED_KEYS.has(key)) {
+    if (clean) writeSecret(key, clean);
+    else clearSecret(key);
+    // Never keep the same credential in two places, plain text least of all.
+    dropPlainValue(key);
+    return;
+  }
   if (!clean) {
-    db.prepare("DELETE FROM settings WHERE key = ?").run(key);
+    dropPlainValue(key);
     return;
   }
   db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
@@ -56,7 +87,8 @@ function writeValue(key: SettingKey, value: string) {
 }
 
 function removeValue(key: SettingKey) {
-  db.prepare("DELETE FROM settings WHERE key = ?").run(key);
+  if (SECRET_BACKED_KEYS.has(key)) clearSecret(key);
+  dropPlainValue(key);
 }
 
 function effective(stored: string, env: string | undefined, fallback = "") {

@@ -187,7 +187,18 @@ export const INVOICE_STATUS_COPY: Record<string, string> = {
   rejected: "未通过",
 };
 
-const TECHNICAL_PATTERN = /Provider|Endpoint|RequestId|Request Id|MediaId|API\b|API Root|JSON|SDK|Token Plan|Model Studio|Workspace|workspace|Throttling|InvalidParameter|DataInspection|InternalError|ServiceUnavailable|ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|socket hang up|fetch failed|SQLITE|better-sqlite3|next\/server|at [A-Za-z0-9_$.]+\s*\(|\b[45]\d{2}\b|undefined|null is not|stack/i;
+const TECHNICAL_PATTERN = /Provider|Endpoint|RequestId|Request Id|MediaId|API\b|API Root|JSON|SDK|Token Plan|Model Studio|Workspace|workspace|Throttling|InvalidParameter|DataInspection|InternalError|ServiceUnavailable|ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|socket hang up|fetch failed|SQLITE|better-sqlite3|next\/server|WORKER_[A-Z_]+|at [A-Za-z0-9_$.]+\s*\(|\b[45]\d{2}\b|undefined|null is not|stack/i;
+
+/**
+ * Closure markers the server worker writes on the stored error (§20). The marker and the
+ * technical detail behind it stay in the database and the backoffice; the member gets the
+ * business sentence for the same event. Anything marked but not listed here degrades to
+ * the generic service message through `TECHNICAL_PATTERN`, never to the raw marker.
+ */
+const WORKER_MARKER_COPY: Array<[RegExp, string]> = [
+  [/^WORKER_TIMEOUT\b/, "这次创作超时没有完成，你可以重新尝试。"],
+  [/^WORKER_POLL_FAILED\b/, "创作状态长时间无法确认，本次没有完成，你可以重新尝试。"],
+];
 
 /**
  * Schema-validation output (`jobType: Invalid option: expected one of "text_to_video"|…`).
@@ -213,6 +224,7 @@ export function publicErrorMessage(error: unknown): string {
   const message = typeof error === "string" ? error : (error as Error)?.message || String(error);
   const trimmed = message.trim();
   if (!trimmed) return "";
+  for (const [marker, copy] of WORKER_MARKER_COPY) if (marker.test(trimmed)) return copy;
   if (TECHNICAL_PATTERN.test(trimmed)) return GENERIC_SERVICE_MESSAGE;
   if (isValidationMessage(trimmed)) return INPUT_INCOMPLETE_MESSAGE;
   // Anything with a stack trace or long latin run is engineering output.

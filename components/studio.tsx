@@ -196,7 +196,7 @@ export default function Studio() {
   }, [projects, activeShotId]);
 
   useEffect(() => {
-    const hasActive = jobs.some(j => ["queued", "running", "unknown"].includes(j.status) && j.providerJobId && j.details?.pollable !== false);
+    const hasActive = jobs.some(j => ["queued", "running", "unknown"].includes(j.status) && j.tracked && j.details?.pollable !== false);
     if (!hasActive) return;
     let inFlight = false;
     const tick = async () => {

@@ -7,6 +7,7 @@ import {
 } from "@/lib/billing/quota";
 import { classifyFailure, resolveFailureChargeAction, userMessageFor, type FailureClass, type FailureStage } from "@/lib/billing/failures";
 import { assertCanCreate } from "@/lib/account-status";
+import { assertSubmitAllowed } from "@/lib/guardrails";
 
 /**
  * Creation charging lifecycle, used by every submit path (single, batch, retry,
@@ -27,6 +28,12 @@ export interface SubmitChargeInput {
   jobInput: Record<string, unknown>;
   clientRequestId?: string | null;
   quantity?: number;
+  /**
+   * `batch_member` means the whole submission was already approved as one unit by
+   * `assertBatchAffordable` (batch versions, quick-creation shots). Re-checking the
+   * concurrency and rate limits per version would block the batch it just approved.
+   */
+  guard?: "single" | "batch_member";
 }
 
 export function submitIdempotencyKey(userId: string, clientRequestId: string) {
@@ -47,6 +54,8 @@ export function beginSubmitCharge(input: SubmitChargeInput): { charge: TaskCharg
   // Single choke point for §13「注册后必须验证邮箱」: every submit path (single, batch,
   // retry, continue-creation, quick wizard) reserves through here, so none can forget it.
   assertCanCreate(input.userId);
+  // §48 成本保护: refuse runaway submits before a single credit is reserved.
+  if (input.guard !== "batch_member") assertSubmitAllowed(input.userId, { quantity: input.quantity ?? 1, kind: input.kind });
   const quote = quoteSubmit(input);
   const idempotencyKey = input.clientRequestId
     ? submitIdempotencyKey(input.userId, input.clientRequestId)
@@ -73,6 +82,11 @@ export function completeJobCharge(jobId: string, input: {
   stage?: FailureStage;
   provider?: string;
   actualCostCents?: number | null;
+  /**
+   * Set when the caller already knows the business reason (a worker timeout on an
+   * unresolved upstream state, for example) and keyword matching would guess wrong.
+   */
+  failureClass?: FailureClass;
 }): { charge: TaskCharge | null; failureClass: FailureClass | null; refunded: number; userMessage: string } {
   const charge = getChargeByJob(jobId);
   if (!charge) return { charge: null, failureClass: null, refunded: 0, userMessage: "" };
@@ -84,7 +98,9 @@ export function completeJobCharge(jobId: string, input: {
     return { charge: getCharge(charge.id), failureClass: null, refunded: 0, userMessage: "" };
   }
 
-  const failureClass = input.status === "canceled" ? "user_cancel" : classifyFailure(input.errorText, input.stage || "processing");
+  const failureClass = input.status === "canceled"
+    ? "user_cancel"
+    : input.failureClass || classifyFailure(input.errorText, input.stage || "processing");
   const action = resolveFailureChargeAction(failureClass);
   let refunded = 0;
   if (action === "void") {
@@ -129,8 +145,12 @@ export function chargeSummaryForUser(userId: string) {
 
 export function assertBatchAffordable(userId: string, kind: string, jobInput: Record<string, unknown>, quantity: number): CreditQuote {
   assertCanCreate(userId);
-  const quote = quoteForJob(kind, { ...jobInput, count: Math.max(1, Math.floor(quantity)) });
+  const count = Math.max(1, Math.floor(quantity));
+  const quote = quoteForJob(kind, { ...jobInput, count });
+  // Insufficient credits is the more actionable answer, so it is decided first; the cost
+  // guard then approves the whole submission as one unit.
   ensureSufficientCredits(userId, quote.credits, `本次需要 ${quote.credits} 个创作额度，当前额度不足`);
+  assertSubmitAllowed(userId, { quantity: count, kind });
   return quote;
 }
 

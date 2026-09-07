@@ -43,6 +43,12 @@ export interface StoredJob {
   createdAt: string;
   updatedAt: string;
   finishedAt: string | null;
+  /**
+   * View-layer flag added by `memberJobView` (§20): the server worker has an upstream
+   * creation to follow. Members never receive `providerJobId`, so the studio reads this
+   * instead of testing for an internal identifier.
+   */
+  tracked?: boolean;
 }
 
 export interface StoredAsset {

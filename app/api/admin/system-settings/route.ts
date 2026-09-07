@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { errorResponse, requireAdmin } from "@/lib/auth";
 import { writeAudit } from "@/lib/admin";
-import { applySettingUpdate, describeSystemSettings, type SettingScope } from "@/lib/system-settings";
+import { applySettingUpdate, describeSystemSettings, SETTING_SCOPES, type SettingScope } from "@/lib/system-settings";
 import { describeError } from "@/lib/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const SCOPES: SettingScope[] = ["site", "payment", "storage", "email", "security", "worker"];
+const SCOPES: SettingScope[] = SETTING_SCOPES;
 
 const schema = z.object({
   values: z.record(z.string(), z.union([z.string().max(8192), z.number(), z.boolean(), z.null()])).optional(),

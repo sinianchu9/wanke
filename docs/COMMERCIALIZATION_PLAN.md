@@ -110,7 +110,7 @@
 - [x] Phase 1：商业数据基础（详见 §4；typecheck/build 通过，SaaS E2E 60 项 + 商业 E2E 78 项全绿）
 - [x] Phase 2：支付宝（详见 §5；typecheck/build 通过，SaaS E2E 61 项 + 商业 E2E 80 项 + 支付宝专项 110 项全绿）
 - [x] Phase 3：账号完整化（详见 §6；typecheck/build 通过，账号 E2E 187 项 + SaaS 63 项 + 商业 80 项 + 支付宝 110 项全绿）
-- [ ] Phase 4：视频任务商业化
+- [x] Phase 4：视频任务商业化（详见 §7；typecheck/build 通过，Worker 专项 241 项 + 账号 187 项 + 支付宝 110 项 + 商业 80 项 + SaaS 63 项全绿）
 - [ ] Phase 5：作品与存储商业化
 - [ ] Phase 6：管理后台完整化
 - [ ] Phase 7：前台与 Studio 产品化
@@ -357,3 +357,133 @@ Phase 3 边界：会员中心仍缺「发票」与「帮助与反馈」两个入
 邮件后台只有「异常与风险」计数，流水查询页面同属 Phase 6；
 修改登录邮箱未实现（改邮箱需要一整套重新验证与冷静期流程，资料页只展示当前邮箱）；
 OAuth 第三方登录未实现。
+
+---
+
+## 7. Phase 4 完成记录（视频任务商业化）
+
+### 7.1 落地内容
+
+- **服务端 Worker** `lib/worker.ts`：创作任务从此不依赖浏览器。一轮推进做四件事——
+  查询在飞任务 → 写回真实状态与结果 → 终态时**只一次**确认或退回额度 → 通知/邮件/归档。
+  `runJobWorker()` 用进程内 `activeTick` 串行化：浏览器加速、进程内定时器、cron 与管理员手动推进
+  可以同时请求，但同一进程里只会有一轮在跑，上游不会被重叠轮询打满。
+  `advanceJob()` 先做**乐观锁认领**（`claimJobForPoll` 条件更新 `updated_at`），认领失败直接退出，
+  所以多进程部署（验收里真的起了第二、第三个 `next start` 进程共用同一个库）也不会重复查询与重复结算。
+  `startJobWorkerLoop()` 是 `setTimeout` 链、`unref()`、**每轮重新读取系统设置**，
+  运营在后台改节奏或暂停调度不需要重启服务。
+- **绝不自动重投生成**：Worker 只重试**状态查询**。上游提交状态未知时不重投、不自动退款
+  （一次重投等于真实花两次钱），`unknown` 一律保留额度转人工确认，后台「异常与风险」里可见。
+  「重试」始终是成员的显式动作，走完整报价与扣费。
+- **推进入口**（同一份 Worker 代码，四种触发方式）：
+  `instrumentation.ts` 进程内定时调度（`NEXT_RUNTIME=nodejs`、非构建阶段、`WANKE_DISABLE_WORKER!=true` 才启动）；
+  `POST /api/internal/worker`（Bearer `worker_token`，常量时间比较；**未配置令牌直接 404 失败关闭**）+
+  `scripts/worker-tick.mjs`（cron 入口，无令牌/令牌错误退出码 1）；
+  `POST /api/admin/worker`（管理员手动推进，`GET` 返回健康状态）；
+  `POST /api/jobs/refresh` 与单任务刷新（**只是浏览器加速器**，按 `pollIntervalMs` 节流，不承担调度职责）。
+- **§21 业务状态层**：`lib/job-view.ts` 新增 `businessView()`，`GET /api/jobs/{id}` 与刷新接口
+  **每一条应答**都带业务状态（含被节流的那一条），成员只拿到 `code/label/hint/tone`，
+  管理员额外保留 `internalStatus`（§31 任务监管需要原始真值）。
+- **§23 成本与毛利** `lib/billing/costs.ts`：`task_charges` 增加
+  `user_value_cents` / `cost_source` / `duration_seconds`；`cost_source` 是**诚实开关**——
+  只有「创作成功 + 上游返回真实时长 + 运营填了每秒内部成本」才记 `actual`，
+  只有提交前报价时记 `estimated`，两者都没有就如实记 `unknown`，预估永远不伪装成实际成本。
+  `creditUnitValueCents()` 从商品目录推导（当前可购买的最低单额度价格），**没有写死任何价格**，
+  改目录就跟着变，并把换算依据（哪个加油包/套餐）一起返回给后台。
+- **§48 创作成本保护** `lib/guardrails.ts`：单次批量数量 → 同时创作数 → 异常高速 → 每分钟提交，
+  全部在**预扣第一笔额度之前**拦截（额度不足的 402 优先于门禁的 429，先讲清楚是没额度还是太快）。
+  同时创作数由套餐决定、再被 `guard_min/max_concurrent_jobs` 夹住，避免运营一次配置错误
+  把所有人锁死或把成本保护彻底关掉；免费与付费用户分别用 `guard_free_max_submits_per_minute` /
+  `guard_max_submits_per_minute`。被拦的提交不会留下计费行，所以新增 `guard_events` 表记录每一次拦截，
+  否则后台根本看不见一次刷量。批量成员走 `guard:"batch_member"`：整批已经作为一个整体审过，
+  不再逐版本重复限流把刚批准的批量拦腰截断。另有单用户当日成本报警（阈值 0 表示关闭）。
+- **后台可运营**：系统设置新增 `worker` / `guard` / `cost` 三个分组共 17 项（`worker_token` 走密文存储，
+  只回掩码）；管理后台首页新增经营 KPI 与「异常与风险」（Worker 停止、任务积压、连续查询失败、
+  24 小时超时、待人工确认额度、拦截次数与被拦最多的用户、连续失败的创作类型）、
+  Worker 面板（健康 + 手动推进一轮）、任务成本面板；`GET /api/admin/business` 一次性给出
+  收入/退款/成功率、用户、创作量与额度消耗、成本与毛利（含 `basis` 口径与 `measuredToday` 实测比例）、
+  最近成本明细与风险。
+- **数据层**：新增 `guard_events`；`task_charges` 加成本三列；`jobs` 加 `attempts` / `last_poll_at`
+  与 `idx_jobs_user_status`；`lib/repository.ts` 新增 `listPollableJobs` / `listStalledJobs` /
+  `claimJobForPoll` / `recordJobPoll` / `countInFlightJobs*` / `pollIntervalMs`（百炼按官方建议 15s，
+  旧的万镜一刻任务保留 6s）。
+- **成员侧文案**：任务中心明确写出「创作在服务器后台继续进行，关闭页面或断网都不会中断」，
+  让 §20 的能力对用户可见，而不是只在代码里成立。
+
+### 7.2 本轮修掉的真实缺陷
+
+| 缺陷 | 影响 | 处理 |
+|---|---|---|
+| `settleCharge` / `refundCharge` 的 UPDATE 写了 `updated_at=?` 却没给对应的值（占位符 5/4、4/3） | better-sqlite3 抛 `RangeError: Too few parameter values were provided`，**确认扣费与退回额度全部失败**：计费单永远停在 `reserved`，成员的额度既没被确认也没被退回。Phase 1（`929b671`）就存在，因为当时没人调用结算路径而一直没暴露 | 补上 `nowIso()`；新增一次性脚本扫描全仓 `prepare(...).run/get/all` 的占位符与实参数量，确认其余不一致只有命名参数与动态 `WHERE` 两类误报 |
+| `completeJobCharge()` 在 HEAD 里**没有任何调用方**（只有定义） | 「完成确认 / 失败退回」是纸面能力：创作成功后额度永远处于预扣，失败后也不会退回 | Worker 终态统一走 `completeJobCharge()`，由计费单当前状态保证 exactly-once |
+| `migrateLegacyPlainSecrets()` 把 `modelstudio_api_key` / `yike_access_key_*` 搬进密文 `secrets` 并删掉明文行，但 `lib/settings.ts` 只读 `settings` 表 | 迁移一跑完，**全部视频创作立刻失败**并报「还没有配置 Pay-As-You-Go API Key」，后台看起来还是「已配置」。这是会直接打穿生产的缺陷 | `lib/settings.ts` 对这三个键改为读写密文存储（明文行只作为未迁移库的回退），写入后立刻删除明文行，同一份凭据不会同时存在两处 |
+| 超时清扫只看 `updated_at` | 每次状态查询都会刷新 `updated_at`，于是「一直在查但永远不结束」的创作**永远不会超时**，成员额度无限期冻结——恰好是超时机制要解决的那一类 | `listStalledJobs()` 改为 `created_at < cutoff OR updated_at < cutoff`：前者管「活得太久」，后者管「彻底不动」 |
+| `createNotification()` 命中重复 `dedupe_key` 时直接抛唯一约束错误 | Worker 重跑、成员刷新、回调重放会让「通知」把整轮推进打断 | 改 `INSERT OR IGNORE`，重复即安静无操作（返回 `null`），E2E 断言同一任务只有一条通知 |
+| 成员任务 payload 里带着 `providerJobId`、`requestId`、`provider` 三个键，以及 `details` 里的 `endpoint`（内网地址）、`engine`、`model`、`route`、`routeReason`、`taskStatus`、`usage`、`apiVersion`、`remoteStatus`、`quickArchiveError`、`requestedProviderMode` 与 `outputs[].mediaId/editingProjectId` | §3.1/§47/§54 的硬边界被穿透：上游任务编号、内部 Endpoint、供应商与模型路由、原始错误文本都能被任何页面直接渲染出来 | `memberJobView()` 从「置空个别字段」改成**白名单构造**：删掉内部标识键（不是置 null，键名本身就是内部词汇），`details` 只保留界面真正渲染的键，结果项只保留播放/归档所需字段；界面需要的两个信号改由业务字段表达——`tracked`（是否有上游创作在跟进，替代 `providerJobId` 真值判断）与 `durationSeconds`（替代原始 `usage`） |
+| Worker 写入的内部标记 `WORKER_TIMEOUT:` / `WORKER_POLL_FAILED:` 原样出现在站内通知与成员任务详情里 | 成员看到工程腔标记，`WORKER_POLL_FAILED` 后面还跟着原始技术错误 | `publicErrorMessage()` 增加标记→业务文案映射，并把 `WORKER_[A-Z_]+` 加进技术词兜底：将来新增标记若忘了配文案，只会退化成通用业务提示，绝不会泄露原文 |
+| 单任务刷新在「被节流」与「该类型没有查询接口」两条分支上不返回 `business` | 成员刷新一下，页面上的业务状态标签就没了（§21 要求状态口径统一且始终可用） | 三条分支共用同一个 `refreshPayload()`，任何应答都带业务状态 |
+| `app/api/admin/system-settings` 里手写了一份 `SCOPES` 常量 | 新增 `guard` / `cost` 分组后这份常量立刻过期，按分组读取后台设置会静默退化成「全部分组」 | 改为复用 `lib/system-settings.ts` 导出的 `SETTING_SCOPES`，单一真值 |
+| 管理后台 `JobsSection` 自己写了一份状态文案映射（与 `JOB_STATUS_COPY` 重复且用词不一致：`failed` 一处「未完成」一处「需要重新尝试」） | §44 双真值：改一处文案，两个页面说法不同 | 统一使用 `lib/copy.ts` 的 `JOB_STATUS_COPY` |
+
+### 7.3 验收证据
+
+```
+node_modules/.bin/tsc --noEmit                     # 通过
+node_modules/.bin/next build                       # 通过
+./scripts/e2e-run.sh scripts/worker-e2e.mjs        # PASS — worker-e2e: 0 项失败（241 项）
+./scripts/e2e-run.sh scripts/account-e2e.mjs       # ALL ACCOUNT CHECKS PASSED（187 项）
+./scripts/e2e-run.sh scripts/payment-e2e.mjs       # ALL PAYMENT CHECKS PASSED（110 项）
+./scripts/e2e-run.sh scripts/commerce-e2e.mjs      # ALL COMMERCE CHECKS PASSED（80 项）
+./scripts/e2e-run.sh scripts/saas-e2e.mjs          # ALL E2E CHECKS PASSED（63 项）
+```
+
+Worker 专项逐条对应 §20 / §21 / §23 / §48 / §52。它不用桩函数断言，而是起两个真实的协议级 Mock
+（`scripts/modelstudio-mock.mjs` 完整实现异步任务信封、鉴权校验、`X-DashScope-Async` 校验、
+FAILED / SUSPENDED / 卡住 / 连接中断 / HTTP 500 注入，并真的提供可下载的 MP4；
+`scripts/smtp-mock.mjs` 真的走完 SMTP 投递）， untouched 的供应商代码与 Worker 真的走 HTTP：
+
+| 场景 | 证据 |
+|---|---|
+| §52-1 提交一次只扣一次 | 提交前报价 = 实际扣费；只有一条计费单（`reserved`）、一条 `job_reserve` 流水；重复 `clientRequestId` 返回同一条任务，不二次扣费，上游投递次数仍为 1 |
+| §52-2 完成只确认一次 | 三轮推进真的经过 排队 → 生成中 → 完成（Mock 三次轮询），进行中既不结算也不退回；完成后计费单 `settled`、额度不再变动、无退回流水、只有一条站内通知 |
+| §52-3 失败只退回一次 | 上游 `Throttling` → 分类为创作服务异常 → 计费单 `refunded`、额度回到账户、只有一条 `job_refund` 流水；之后重复推进 5 次 + 成员刷新都不再退回，通知仍只有一条 |
+| 内容无法生成不自动退款 | `DataInspectionFailed` → 分类为内容无法生成 → 计费单**保持** `reserved`、无退回流水，转人工确认并通知成员 |
+| §20 超时 | 把任务时间改到 2 小时前 → 一轮推进关闭为失败、内部原因 `WORKER_TIMEOUT`、按平台原因退回且只退一次；成员看到的是业务文案，不是内部标记 |
+| §20 上游状态无法识别 | `SUSPENDED` → 任务保留 `unknown`（状态确认中）、不结算、不退款；长期无法确认才关闭，失败分类为 `unknown`，后台「待人工确认额度」≥ 1 |
+| §20 只重试查询，绝不重投生成 | 注入一次连接中断：任务不被判死、`attempts` 递增、额度保持冻结、恢复后正常完成且只确认一次扣费；整个过程上游**投递次数只加 1**，Mock 侧 `transientInjected ≥ 1` 证明确实抖动过 |
+| 查询连续失败达上限 | 连续 HTTP 500 达到 `job_poll_max_errors` → 按平台异常关闭（内部 `WORKER_POLL_FAILED`）并退回额度，成员视图只有业务文案 |
+| §52-4 轮询 100 次 | 100 次读取任务详情：流水条数不变、计费单数量不变、**上游零调用** |
+| §52-6 用户反复刷新 | 20 次 `/api/jobs/refresh` + 单任务刷新：不重复扣费、不重复通知；刷新接口只汇报推进结果 |
+| §52-5 并发推进 | 管理员手动推进 ×2 + 内部令牌推进 + 成员刷新四个请求并发：都被受理，只有一条计费单、额度不重复扣、上游不重复投递，任务照常完成 |
+| §20 关闭浏览器续跑 | **另起一个 `next start` 进程**（同库、不同端口），此后脚本不再发任何成员/管理员请求，只读数据库：创作仍然完成，`worker_runs` 里出现 `trigger='scheduler'` 的推进记录，只确认一次扣费、无额外流水、上游无重复投递、通知只有一条 |
+| §20/§52-5 Worker 重启 | `SIGKILL` 掉调度进程后不再自动推进（`worker_runs` 条数不变），任务仍在库里等待，期间管理员仍可手动推进（同一份 Worker 代码）；重启后任务继续完成，不重复扣费、不重复退回、不重复投递、通知仍只有一条 |
+| 调度接口权限 | 未配置 `worker_token` 时 `/api/internal/worker` 回 404（失败关闭）；配置后错误令牌 401、正确令牌 200 且 `trigger='cron'` 落库；成员访问一律 403；管理员手动推进可用 |
+| §48 每用户同时任务数 | 免费用户先提交到套餐允许数量，第 3 条 429 `CONCURRENT_JOB_LIMIT`，文案写明当前数量/上限/升级可解开；被拦的提交**不扣额度也不建任务**，`guard_events` 有记录，后台能看到拦截次数与被拦最多的用户 |
+| §48 门禁不会把人锁死 | 让一条创作完成后立刻可以继续提交（不是永久拉黑） |
+| §48 单次批量数量 | `guard_max_batch_size=1` 时 2 版本批量 400 `BATCH_TOO_LARGE`，文案写明上限，不扣额度不建任务 |
+| §48 每分钟与异常高速 | 免费用户超过每分钟上限 429 `SUBMIT_RATE_LIMIT`；10 秒内第 4 次 429 `SUBMIT_TOO_FAST` 且记入后台；同一分钟里升级到工作室版的用户 4 次全部通过、零拦截记录（规则按套餐区分） |
+| §48 批量主流程不被破坏 | 付费用户 2 版本批量成功、按版本分别计费（计费单 6 条）、没有因并发门禁中途失败 |
+| §23 实际成本 | 上游返回 5 秒真实时长 + 运营填 50 分/秒 → `actual_cost_cents=250`、`cost_source='actual'`、`duration_seconds=5`、`provider='modelstudio'`（仅后台可见）；`user_value_cents = 额度 × 目录推导单价`，单价与依据（额度加油包）一起返回 |
+| §23 不伪装成本 | 每秒内部成本填 0 → `actual_cost_cents` 留空、`cost_source='estimated'`，预估值仍来自提交前报价 |
+| §23/§46 后台经营数据 | 收入（今日/本月/退款/成功率）、用户（活跃/新增/付费）、创作量与额度消耗、成本与毛利齐备；`毛利 = 实收 − 生成成本` 逐项对账；只有部分任务有实测成本时口径仍标 `estimated` 并给出 `实测/总数` 比例；成本明细能定位到具体任务 |
+| §48 单用户成本报警 | 阈值 100 分 + 50 分/秒 → 当日成本超阈值的用户被报警并带上金额与任务数；阈值调回 0 → 不报警（运营可以关掉） |
+| 结果通知 | 打开邮件偏好的成员**真的通过 SMTP 收到**一封邮件（标题/正文是业务文案、含创作名与 `/studio` 入口、`email_messages` 记为 `sent`+`smtp`），没打开偏好的成员一封都不收；站内通知同时存在（邮件不是唯一渠道）；失败也发一封并说明额度已退回，且额度确实只退回一次 |
+| §21 状态口径统一 | 成员任务列表与刷新返回的业务状态只落在统一说法里（等待开始/正在生成/正在处理/已完成/需要重新尝试/已取消/状态确认中），并带成员能懂的说明；成员 payload 里**不存在** `providerJobId`/`requestId`/`provider` 这些键，`details` 里没有 Endpoint/engine/model/route/taskStatus/usage；管理员同一接口保留 `internalStatus` 与上游原始响应 |
+| §22 边界 | 成员只能看到「创作服务正常」，读不到任何创作服务配置（401/403） |
+| 收尾全库一致性 | 不存在无任务的计费单、不存在无计费单的已扣额度、已完成任务没有被退回、上游投递次数与任务数一致（Worker 从不自动重投） |
+
+Phase 4 边界（保留的阻塞项，不算已交付）：
+
+结果文件在未归档时仍然指向上游临时链接，成员播放依赖它，界面已明确提示「云端结果链接会过期，
+满意后建议保存到本机」；这条链接会暴露上游存储域名，属 §3.1 的灰色地带，
+Phase 5（作品与存储商业化）把结果落到平台存储后该例外消失。
+成员任务 payload 里仍然保留内部状态机的小写枚举（`queued`/`running`/`succeeded`/`failed`/`unknown`）
+作为客户端机器键，成员读到的文案由 `businessJobStatus` / `JOB_STATUS_COPY` 映射；
+§54 要求把这些词从用户可见面彻底替换，属 Phase 7（前台与 Studio 产品化）。
+`pricing_rules.estimatedCostCentsPerUnit`（每个创作的预估内部成本）还没有后台编辑入口，
+目前只能改库，Phase 6（管理后台完整化）补上；在此之前预估成本为 0 时口径如实标 `unknown`。
+成本口径 `actual` 依赖运营填写每秒内部成本，未填写时永远不会出现「实际成本」，这是有意为之。
+额度预扣流水的 `ref_id` 是**计费单 id**（预扣发生在任务行创建之前），退回流水的 `ref_id` 是任务 id；
+账本不可变、不做回填，审计路径固定为 任务 → 计费单 → 流水。
+推进在单进程内串行，多进程靠 `claimJobForPoll` 乐观锁避免重复处理，没有引入分布式锁或消息队列
+（当前 SQLite 单机形态下不需要，横向扩展前必须重新评估）。

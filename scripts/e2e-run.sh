@@ -36,6 +36,12 @@ else
   echo "== openssl unavailable: SMTP TLS/STARTTLS checks will be reported as skipped =="
 fi
 
+# Phase 4 drives its own scheduler processes (and restarts them mid-flight), so the
+# harness server keeps its in-process loop off while that suite runs.
+if [ "$SCRIPT" = "scripts/worker-e2e.mjs" ]; then
+  export WANKE_DISABLE_WORKER=true
+fi
+
 node_modules/.bin/next start -p "$PORT" > /tmp/wanke-e2e-server.log 2>&1 &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT

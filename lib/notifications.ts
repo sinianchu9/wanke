@@ -91,9 +91,12 @@ export function createNotification(input: {
   if (!input.ignorePreference && !isChannelEnabled(input.userId, input.type)) return null;
   const id = randomUUID();
   const now = nowIso();
-  db.prepare(`INSERT INTO notifications (id, user_id, type, title, body, link, dedupe_key, read_at, created_at)
+  // A replayed fulfilment, a second worker pass or a member refresh must not tell the
+  // same story twice, so an existing dedupe key is a hard no-op instead of a crash.
+  const result = db.prepare(`INSERT OR IGNORE INTO notifications (id, user_id, type, title, body, link, dedupe_key, read_at, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`)
     .run(id, input.userId, input.type, input.title.trim(), (input.body || "").trim(), (input.link || "").trim(), input.dedupeKey || null, now);
+  if (input.dedupeKey && result.changes !== 1) return null;
   return { id, type: input.type, title: input.title.trim(), body: (input.body || "").trim(), link: (input.link || "").trim(), read: false, createdAt: now };
 }
 

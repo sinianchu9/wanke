@@ -147,13 +147,16 @@ VideoRender 独立渲染
 ### 任务中心
 
 - SQLite WAL 持久化
-- 页面打开后自动续查活动任务
+- **创作在服务器后台推进**：关闭页面、断网、换设备都不影响，完成后自动出现在任务中心并进通知中心
+- 页面打开后只是「加速看一眼」，轮询节奏由服务端 Worker 决定，刷新再多次也不会打满上游
 - Model Studio 与扩展工作流远端状态统一
-- RequestId + 原始 API 响应保留在折叠技术详情
+- 成员只看到业务状态与业务原因；RequestId、上游任务编号与原始 API 响应只保留在管理后台
 - 参数复制重跑，不覆盖历史
 - 父/子任务链
 - 结果预览与本机归档
 - Storyboard 失败镜头明细
+- 超时、上游无法识别的状态、连续查询失败都由 Worker 收口：该退回的额度只退一次，
+  可能已经生成的（状态无法确认）保留额度转人工确认，绝不自动重投生成
 
 ### 本机结果归档
 
@@ -198,6 +201,20 @@ WANKE_EMAIL_SECURE=true
 WANKE_EMAIL_FROM=     # 例如 Wanke <no-reply@example.com>
 WANKE_EMAIL_USERNAME=
 WANKE_EMAIL_PASSWORD= # 数据库中以主密钥加密存储，界面只显示掩码
+```
+
+后台创作调度（Phase 4；节奏、超时与成本保护上限都在后台「系统设置」里，数据库优先）：
+
+```env
+WANKE_DISABLE_WORKER= # 置 true 表示改用外部调度（cron/systemd），进程内定时循环不启动
+WANKE_WORKER_TOKEN=   # openssl rand -hex 24；cron 调用 /api/internal/worker 的令牌，留空则该接口 404 关闭
+WANKE_BASE_URL=       # scripts/worker-tick.mjs 调用的站点地址
+```
+
+用外部调度时，一条 crontab 即可（与进程内循环跑的是同一份 Worker 代码）：
+
+```cron
+* * * * * cd /path/to/wanke && WANKE_WORKER_TOKEN=... node scripts/worker-tick.mjs >> /var/log/wanke-worker.log 2>&1
 ```
 
 基础视频生成推荐配置：
@@ -246,8 +263,14 @@ SQLite、本地输入和结果归档都位于 `./data`，Docker Compose 已挂�
 
 - `npm run typecheck` 与 `npm run build` 已通过。
 - 验收剧本（一次性数据库 + 生产构建）当前状态：
-  `scripts/saas-e2e.mjs` 63 项、`scripts/commerce-e2e.mjs` 80 项、
+  `scripts/worker-e2e.mjs` 241 项、`scripts/saas-e2e.mjs` 63 项、`scripts/commerce-e2e.mjs` 80 项、
   `scripts/payment-e2e.mjs` 110 项、`scripts/account-e2e.mjs` 187 项，全部通过。
+- Worker 剧本用协议级 Mock（完整异步任务信封 + 鉴权校验 + 失败/无法识别/卡住/连接中断/HTTP 500 注入，
+  以及真实 SMTP 投递）覆盖：提交一次只扣一次、完成只确认一次、失败只退回一次、内容类失败不自动退款、
+  超时与连续查询失败按平台原因退回、上游状态无法识别保留额度转人工、100 次轮询与反复刷新不重复扣、
+  四路并发推进只有一条计费单、**另起进程无人值守推进**、`SIGKILL` 后重启不重复扣也不丢任务、
+  调度接口令牌权限与失败关闭、§48 四类防刷与付费/免费差异、§23 实际成本与「不伪装成本」、
+  后台经营数据与毛利对账、成员可见面的技术信息泄露扫描。
 - 账号剧本覆盖：注册与协议确认、验证邮件真实投递、链接一次性/过期/重放/跨用途、
   旧链接立即失效、60 秒节流、强制验证只限制创作不限制登录、找回密码反枚举、
   重置后全部退出、改密与会话管理、账号状态业务文案、邮件未开启与发送失败不谎报成功、
@@ -277,6 +300,10 @@ app/
     video-inputs/     # 基础生成本地图片输入
     archive/          # 本机归档文件 + Range 播放
     status/           # Provider 配置与扩展能力健康状态
+    admin/worker/     # 后台：Worker 健康 + 手动推进一轮
+    admin/business/   # 后台：经营数据、成本与毛利、异常与风险
+    internal/worker/  # cron 调度入口（Bearer 令牌，未配置令牌则 404）
+instrumentation.ts    # Node 启动时拉起进程内创作调度循环
 components/
   studio.tsx
   simple-video-generator.tsx
@@ -297,14 +324,26 @@ lib/
     assets.ts
     shared.ts
     provider.ts       # 扩展工作流兼容出口
+  worker.ts           # 服务端创作 Worker：推进、超时、终态结算、通知、归档
+  guardrails.ts       # §48 创作成本保护：批量/并发/高速/每分钟 + 拦截留痕
+  job-view.ts         # 成员可见任务视图（内部标识与技术字段不外发）
+  billing/
+    charges.ts        # 报价 → 预扣 → 确认/退回/作废（exactly-once）
+    quota.ts          # 额度账本与计费单状态机
+    costs.ts          # §23 任务成本、成本口径与毛利换算
   archive.ts
   db.ts
   repository.ts
+scripts/
+  worker-tick.mjs     # 外部调度（cron/systemd）入口
+  worker-e2e.mjs      # Phase 4 验收剧本（含无人值守与重启）
+  modelstudio-mock.mjs# 协议级上游 Mock，仅验收使用
 docs/
   VIDEO_GENERATION_PHASE1.md
   WORKFLOW.md
   API_MATRIX.md
   OPERATIONS.md
+  COMMERCIALIZATION_PLAN.md
 ```
 
 ## 设计原则

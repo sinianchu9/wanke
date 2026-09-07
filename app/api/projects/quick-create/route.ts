@@ -96,6 +96,8 @@ export async function POST(request: Request) {
         kind: "video_generation",
         jobInput,
         clientRequestId: input.clientRequestId ? `${input.clientRequestId}:${shot.id}` : undefined,
+        // The whole plan was approved as one submission by assertBatchAffordable above.
+        guard: "batch_member",
       });
       let job = createJob({ kind: "video_generation", title: `${project.name} · ${shot.name}`, request: jobInput, userId: user.id });
       attachJobToCharge(charge.id, job.id);

@@ -3,7 +3,9 @@ import type { StoredJob } from "@/lib/types";
 import { createJob, deleteJob, getJob, getJobForUser, requestReferenceExists, updateJobRemote } from "@/lib/repository";
 import { assignJobToShot } from "@/lib/projects";
 import { db } from "@/lib/db";
-import { refreshJob, resumeStoryboard, submitJob, type VideoProviderMode } from "@/lib/video/provider";
+import { pollIntervalMs } from "@/lib/repository";
+import { resumeStoryboard, submitJob, type VideoProviderMode } from "@/lib/video/provider";
+import { advanceJob } from "@/lib/worker";
 import { prepareJobInput } from "@/lib/video/prepare";
 import { collectLocalInputRefs, deleteLocalInput } from "@/lib/video/local-input";
 import { archiveJobOutput, deleteArchivedOutputs } from "@/lib/archive";
@@ -11,7 +13,7 @@ import { describeError } from "@/lib/errors";
 import { errorResponse, requireUser, type SessionUser } from "@/lib/auth";
 import { attachJobToCharge, beginSubmitCharge, failSubmitCharge } from "@/lib/billing/charges";
 import { publicErrorMessage } from "@/lib/copy";
-import { memberJobView } from "@/lib/job-view";
+import { businessView, memberJobView } from "@/lib/job-view";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +26,7 @@ export async function GET(request: Request, ctx: Ctx) {
     const { id } = await ctx.params;
     const job = getJobForUser(id, user.id, user.role === "admin");
     return job
-      ? NextResponse.json({ job: memberJobView(job, user.role === "admin") })
+      ? NextResponse.json({ job: memberJobView(job, user.role === "admin"), business: businessView(job, user.role === "admin") })
       : NextResponse.json({ error: "任务不存在" }, { status: 404 });
   } catch (error) {
     const handled = errorResponse(error);
@@ -49,9 +51,28 @@ export async function POST(request: Request, ctx: Ctx) {
     const action = body.action || "refresh";
 
     if (action === "refresh") {
-      const remote = await refreshJob(job);
-      const updated = updateJobRemote(id, remote);
-      return NextResponse.json({ job: memberJobView(updated, isAdmin) });
+      // The browser only asks the server worker to look at this one creation again
+      // (§20). Polling cadence is the worker's decision, so a member clicking refresh
+      // in a loop cannot turn into an upstream query storm.
+      // §21: every answer carries the business state, including a throttled one — the
+      // member is still looking at this creation, so the page must never lose its label.
+      const refreshPayload = (current: StoredJob | null, throttled: boolean, extra: Record<string, unknown> = {}) => {
+        return {
+          job: memberJobView(current, isAdmin),
+          throttled,
+          business: businessView(current, isAdmin),
+          ...extra,
+        };
+      };
+      if (job.details?.pollable === false) {
+        return NextResponse.json(refreshPayload(job, true, { reason: "该创作类型没有查询接口，完成后会自动更新" }));
+      }
+      const sinceUpdateMs = Date.now() - new Date(job.updatedAt).getTime();
+      if (sinceUpdateMs < pollIntervalMs(job)) {
+        return NextResponse.json(refreshPayload(job, true));
+      }
+      const advanced = await advanceJob(job, { trigger: "browser" });
+      return NextResponse.json(refreshPayload(getJob(id), !advanced.claimed));
     }
 
     if (action === "retry") {

@@ -400,6 +400,18 @@ function migrateCommercialSchema(db: Database) {
       last_accessed_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_storage_objects_user ON storage_objects(user_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS guard_events (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      kind TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT '',
+      detail_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_guard_events_user ON guard_events(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_guard_events_kind ON guard_events(kind, created_at DESC);
   `);
 
   addColumn(db, "sessions", "user_agent", "TEXT");
@@ -407,6 +419,13 @@ function migrateCommercialSchema(db: Database) {
   addColumn(db, "memberships", "bonus_credits", "INTEGER NOT NULL DEFAULT 0");
   addColumn(db, "memberships", "plan_id", "TEXT");
   addColumn(db, "jobs", "charge_id", "TEXT");
+  // §23 成本与毛利: what the member paid for one creation, what it cost us, and
+  // whether that cost is a real upstream number or only an estimate.
+  addColumn(db, "task_charges", "user_value_cents", "INTEGER NOT NULL DEFAULT 0");
+  addColumn(db, "task_charges", "cost_source", "TEXT NOT NULL DEFAULT 'unknown'");
+  addColumn(db, "task_charges", "duration_seconds", "INTEGER");
+  addColumn(db, "jobs", "attempts", "INTEGER NOT NULL DEFAULT 0");
+  addColumn(db, "jobs", "last_poll_at", "TEXT");
   addColumn(db, "works", "size_bytes", "INTEGER NOT NULL DEFAULT 0");
   addColumn(db, "works", "storage_key", "TEXT");
   addColumn(db, "assets", "size_bytes", "INTEGER NOT NULL DEFAULT 0");
@@ -414,6 +433,7 @@ function migrateCommercialSchema(db: Database) {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_memberships_plan ON memberships(plan, status);
     CREATE INDEX IF NOT EXISTS idx_jobs_charge ON jobs(charge_id);
+    CREATE INDEX IF NOT EXISTS idx_jobs_user_status ON jobs(user_id, status, updated_at DESC);
   `);
 
   migrateUsersAccountColumns(db);

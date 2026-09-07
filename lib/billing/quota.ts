@@ -460,7 +460,7 @@ export function settleCharge(chargeId: string, input: { actualCostCents?: number
       SET status='settled', settled_at=?, updated_at=?, provider=COALESCE(NULLIF(?, ''), provider),
           actual_cost_cents=COALESCE(?, actual_cost_cents)
       WHERE id=? AND status='reserved'`)
-      .run(nowIso(), input.provider || "", input.actualCostCents ?? null, chargeId);
+      .run(nowIso(), nowIso(), input.provider || "", input.actualCostCents ?? null, chargeId);
     settled = result.changes === 1;
   });
   return settled;
@@ -483,7 +483,7 @@ export function refundCharge(chargeId: string, input: { failureClass?: string | 
     const result = db.prepare(`UPDATE task_charges
       SET status='refunded', refunded_at=?, updated_at=?, failure_class=COALESCE(?, failure_class)
       WHERE id=? AND status='reserved'`)
-      .run(nowIso(), input.failureClass ?? null, chargeId);
+      .run(nowIso(), nowIso(), input.failureClass ?? null, chargeId);
     if (result.changes !== 1) return;
     const amount = Math.min(Number(row.credits || 0), Math.max(0, Math.round(input.credits ?? Number(row.credits || 0))));
     if (amount <= 0) return;

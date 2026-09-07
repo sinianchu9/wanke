@@ -1,127 +1,32 @@
 import { NextResponse } from "next/server";
-import { archiveJobOutput } from "@/lib/archive";
-import { getJob, listActiveJobs, updateJobRemote } from "@/lib/repository";
-import { refreshJob } from "@/lib/video/provider";
-import type { ResultMedia, StoredJob } from "@/lib/types";
+import { runJobWorker } from "@/lib/worker";
 import { errorResponse, requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * A member's browser may ask the server worker to run one pass early over their own
+ * creations (§20). It does not schedule, poll or settle anything itself: the same worker
+ * keeps every creation moving whether or not this endpoint is ever called, so closing
+ * the tab, the laptop or the mobile network changes nothing.
+ */
 export async function POST(request: Request) {
   try {
     const user = requireUser(request);
-    // Members only poll their own jobs; admins refresh everything.
-    const jobs = listActiveJobs(12, user.role === "admin" ? undefined : user.id);
-    const refreshResults = await Promise.allSettled(jobs.map(async job => {
-      const remote = await refreshJob(job);
-      return updateJobRemote(job.id, remote);
-    }));
-
-    const updatedJobs = refreshResults
-      .filter((result): result is PromiseFulfilledResult<StoredJob | null> => result.status === "fulfilled")
-      .map(result => result.value)
-      .filter((job): job is StoredJob => Boolean(job));
-
-    const archiveCandidates = updatedJobs.filter(job => shouldAutoArchive(job));
-    const archiveResults = await mapLimit(archiveCandidates, 2, async job => autoArchiveQuickResult(job));
-
+    const isAdmin = user.role === "admin";
+    // Admins keep the platform-wide view they already had; members only ever move their own jobs.
+    const result = await runJobWorker({ trigger: "browser", userId: isAdmin ? undefined : user.id });
     return NextResponse.json({
-      refreshed: refreshResults.filter(result => result.status === "fulfilled").length,
-      failed: refreshResults.filter(result => result.status === "rejected").length,
-      autoArchived: archiveResults.filter(result => result.ok).length,
-      archivePending: archiveResults.filter(result => !result.ok).length,
+      refreshed: result.processed - result.claimLost,
+      failed: result.failed,
+      autoArchived: result.archived,
+      archivePending: 0,
+      skipped: result.skipped,
+      backlog: result.backlog,
     });
   } catch (error) {
     const handled = errorResponse(error);
     return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
-}
-
-function shouldAutoArchive(job: StoredJob) {
-  if (job.status !== "succeeded") return false;
-  if (!(job.request as any)?._quickCreation) return false;
-  const index = firstVideoOutputIndex(job.outputs);
-  return index >= 0 && !job.outputs[index]?.archivedFile;
-}
-
-async function autoArchiveQuickResult(job: StoredJob) {
-  const index = firstVideoOutputIndex(job.outputs);
-  if (index < 0) return { ok: false };
-  try {
-    const latestBefore = getJob(job.id);
-    if (!latestBefore) return { ok: false };
-    const latestIndex = firstVideoOutputIndex(latestBefore.outputs);
-    if (latestIndex >= 0 && latestBefore.outputs[latestIndex]?.archivedFile) {
-      markArchiveSaved(latestBefore);
-      return { ok: true };
-    }
-
-    const archived = await archiveJobOutput(latestBefore, latestIndex >= 0 ? latestIndex : index);
-    const outputIndex = latestIndex >= 0 ? latestIndex : index;
-    const outputs = latestBefore.outputs.map((item, currentIndex) => currentIndex === outputIndex ? archived : item);
-    updateJobRemote(latestBefore.id, {
-      outputs,
-      details: {
-        ...(latestBefore.details || {}),
-        quickArchive: "saved",
-        quickArchiveError: null,
-      },
-    });
-    return { ok: true };
-  } catch (error) {
-    // Another browser/tab can legitimately reach the same succeeded Job while the first
-    // archive is still finishing. Re-read the DB before marking the Job as pending so a
-    // stale concurrent request cannot overwrite a successful archive state.
-    const latest = getJob(job.id);
-    if (latest) {
-      const latestIndex = firstVideoOutputIndex(latest.outputs);
-      if (latestIndex >= 0 && latest.outputs[latestIndex]?.archivedFile) {
-        markArchiveSaved(latest);
-        return { ok: true };
-      }
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    if (latest) {
-      updateJobRemote(latest.id, {
-        details: {
-          ...(latest.details || {}),
-          quickArchive: "pending",
-          quickArchiveError: message,
-        },
-      });
-    }
-    return { ok: false };
-  }
-}
-
-function markArchiveSaved(job: StoredJob) {
-  updateJobRemote(job.id, {
-    details: {
-      ...(job.details || {}),
-      quickArchive: "saved",
-      quickArchiveError: null,
-    },
-  });
-}
-
-function firstVideoOutputIndex(outputs: ResultMedia[]) {
-  const exact = outputs.findIndex(output => output.kind === "video");
-  if (exact >= 0) return exact;
-  return outputs.findIndex(output => /\.(mp4|mov|webm)(\?|$)/i.test(String(output.outputUrl || "")));
-}
-
-async function mapLimit<T, R>(items: T[], limit: number, worker: (item: T) => Promise<R>) {
-  if (!items.length) return [] as R[];
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-  async function run() {
-    while (true) {
-      const index = nextIndex++;
-      if (index >= items.length) return;
-      results[index] = await worker(items[index]);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => run()));
-  return results;
 }

@@ -126,6 +126,7 @@ export default function VideoExtend({ job, modelStudioAvailable, onCreated }: {
 function resolveSourceDuration(job: StoredJob) {
   const usage = job.details?.usage as Record<string, unknown> | undefined;
   const candidates = [
+    job.details?.durationSeconds,
     usage?.output_video_duration,
     job.details?.targetDuration,
     job.details?.effectiveDuration,

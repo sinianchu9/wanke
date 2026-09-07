@@ -11,7 +11,10 @@ import { applySecretInput, describeSecret, readSecret } from "@/lib/secrets";
  * deployment works before an operator opens the backoffice.
  */
 
-export type SettingScope = "site" | "payment" | "storage" | "email" | "security" | "worker";
+export type SettingScope = "site" | "payment" | "storage" | "email" | "security" | "worker" | "guard" | "cost";
+
+/** Every scope an operator can filter by. One list, used by the API and the backoffice. */
+export const SETTING_SCOPES: SettingScope[] = ["site", "payment", "storage", "email", "security", "worker", "guard", "cost"];
 
 interface SettingDefinition {
   key: string;
@@ -59,7 +62,22 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   { key: "email_reset_body", scope: "email", label: "找回密码邮件模板", help: "可用占位符：{name} {site} {link} {minutes} {contact}。留空使用内置模板。", type: "textarea" },
   { key: "require_email_verification", scope: "security", label: "注册后必须验证邮箱", help: "开启后未验证邮箱的账号不能创作，但可以登录补验证。", type: "boolean", default: "false" },
   { key: "worker_enabled", scope: "worker", label: "启用后台任务调度", help: "关闭后创作任务只能由用户手动刷新推进，正式运营必须开启。", type: "boolean", default: "true" },
-  { key: "worker_interval_seconds", scope: "worker", label: "后台调度间隔（秒）", help: "建议 20 到 60 秒。", type: "number", default: "30" },
+  { key: "worker_interval_seconds", scope: "worker", label: "后台调度间隔（秒）", help: "建议 20 到 60 秒。用户关闭网页后，创作任务仍然按这个节奏继续推进。", type: "number", default: "30" },
+  { key: "worker_batch_size", scope: "worker", label: "每轮最多推进任务数", help: "一轮调度最多查询多少条进行中的创作，避免上游被一次打满。", type: "number", default: "20" },
+  { key: "worker_concurrency", scope: "worker", label: "每轮并发查询数", help: "同时向上游查询状态的任务数量，建议 2 到 5。", type: "number", default: "3" },
+  { key: "job_timeout_minutes", scope: "worker", label: "创作超时时间（分钟）", help: "超过这个时间仍未完成的创作判定为超时，按失败规则处理并退回创作额度。", type: "number", default: "180" },
+  { key: "job_poll_max_errors", scope: "worker", label: "连续查询失败上限", help: "查询创作状态连续失败这么多次后判定任务异常，按失败规则处理。", type: "number", default: "8" },
+  { key: "notify_job_email", scope: "worker", label: "创作结果发送邮件", help: "开启后，创作完成或未通过时会额外发一封邮件；用户还需要在通知设置里允许邮件。", type: "boolean", default: "false" },
+  { key: "worker_token", scope: "worker", label: "运维调度令牌", help: "服务器定时任务（cron）调用内部推进接口时使用的令牌。留空表示只允许进程内定时调度与管理员手动推进。", secret: true, type: "text", env: "WANKE_WORKER_TOKEN" },
+  { key: "guard_min_concurrent_jobs", scope: "guard", label: "同时创作数下限", help: "任何套餐至少允许同时进行的创作数量，保证基础的批量创作体验。", type: "number", default: "2" },
+  { key: "guard_max_concurrent_jobs", scope: "guard", label: "同时创作数上限", help: "单个用户无论套餐如何都不能超过这个同时创作数量，用于保护生成成本。", type: "number", default: "12" },
+  { key: "guard_max_batch_size", scope: "guard", label: "单次批量数量上限", help: "一次提交最多包含多少个创作版本或分镜。", type: "number", default: "8" },
+  { key: "guard_max_submits_per_minute", scope: "guard", label: "每分钟提交上限", help: "付费用户的每分钟提交次数上限，超过后需要稍等再继续。", type: "number", default: "12" },
+  { key: "guard_free_max_submits_per_minute", scope: "guard", label: "免费用户每分钟提交上限", help: "免费用户的每分钟提交次数上限，用于防止刷量。", type: "number", default: "4" },
+  { key: "guard_burst_window_seconds", scope: "guard", label: "异常高速判定窗口（秒）", help: "在这么短的时间内提交很多次，会被判定为异常高速创建。", type: "number", default: "10" },
+  { key: "guard_burst_max_submits", scope: "guard", label: "异常高速提交次数", help: "在上面窗口内达到这个提交次数就会拦截，并记录到后台异常。", type: "number", default: "5" },
+  { key: "guard_user_daily_cost_cents", scope: "guard", label: "单用户当日成本报警（分）", help: "单个用户当天预计生成成本超过这个金额（单位：分）时，在后台异常里报警。0 表示不报警。", type: "number", default: "2000" },
+  { key: "cost_per_video_second_cents", scope: "cost", label: "每秒视频内部成本（分）", help: "用于把上游返回的真实时长换算成实际成本。填 0 表示暂时不知道真实成本，后台只会展示预估成本，不会伪装成实际成本。", type: "number", default: "0" },
 ];
 
 function nowIso() {

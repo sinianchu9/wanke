@@ -7,7 +7,8 @@ import {
   Receipt, RefreshCw, Server, Settings2, ShieldCheck, Users, Video,
 } from "lucide-react";
 import SettingsPanel from "@/components/settings-panel";
-import { PAYMENT_STATUS_COPY, REFUND_STATUS_COPY } from "@/lib/copy";
+import { JOB_STATUS_COPY, PAYMENT_STATUS_COPY, REFUND_STATUS_COPY } from "@/lib/copy";
+import { JOB_KIND_LABELS } from "@/lib/types";
 
 type Section = "dashboard" | "users" | "plans" | "orders" | "refunds" | "jobs" | "works" | "service" | "settings" | "audit";
 
@@ -39,6 +40,11 @@ async function api(path: string, init?: RequestInit) {
 
 function yuan(cents: number) {
   return `¥${(Math.round(cents || 0) / 100).toFixed((cents || 0) % 100 === 0 ? 0 : 2)}`;
+}
+
+function percent(rate: number | null | undefined) {
+  if (rate === null || rate === undefined || !Number.isFinite(rate)) return "—";
+  return `${(rate * 100).toFixed(rate * 100 % 1 === 0 ? 0 : 1)}%`;
 }
 
 export default function AdminConsole() {
@@ -98,9 +104,12 @@ function ErrorNote({ message }: { message: string }) { return <div className="er
 
 function Dashboard() {
   const { data, error, loading, reload } = useLoad<any>("/api/admin/stats", []);
+  // §23 经营数据 + §46 运营监控: cost, margin and the risks that must be visible here.
+  const { data: businessData, loading: businessLoading } = useLoad<any>("/api/admin/business", []);
   if (loading) return <Loading />;
   if (error) return <ErrorNote message={error} />;
   const stats = data.stats;
+  const business = businessLoading ? null : businessData?.business || null;
   return <div className="admin-panel">
     <div className="admin-panel-head"><h2>经营概览</h2><button className="secondary" onClick={reload}><RefreshCw size={13} />刷新</button></div>
     <div className="kpi-grid">
@@ -116,6 +125,14 @@ function Dashboard() {
         <small>预扣中 {stats.credits.reserved} · 已确认 {stats.credits.settled} · 已退回 {stats.credits.refunded}</small></div>
       <div className="kpi"><strong>{stats.support.openTickets + stats.support.pendingRefunds + stats.support.pendingInvoices}</strong><span>待处理事项</span>
         <small>反馈 {stats.support.openTickets} · 退款 {stats.support.pendingRefunds} · 发票 {stats.support.pendingInvoices}</small></div>
+      <div className="kpi"><strong>{percent(business?.creations?.successRate)}</strong><span>今日创作成功率</span>
+        <small>今日 {business?.creations?.today ?? stats.jobs.today} 个 · 未完成 {business?.creations?.failedToday ?? 0} · 进行中 {business?.creations?.inFlight ?? stats.jobs.running}</small></div>
+      <div className="kpi"><strong>{percent(business?.revenue?.paymentSuccessRate)}</strong><span>今日支付成功率</span>
+        <small>套餐 {yuan(business?.revenue?.today?.planCents ?? 0)} · 加油包 {yuan(business?.revenue?.today?.packCents ?? 0)}</small></div>
+      <div className="kpi"><strong>{yuan(business?.cost?.today?.averageCents ?? 0)}</strong><span>平均单任务成本</span>
+        <small>预计生成成本 {yuan(business?.cost?.today?.reportedCents ?? 0)} · {business?.cost?.basisText || "暂无成本数据"}{business?.cost?.basis === "estimated" ? "（未拿到实际成本）" : ""}</small></div>
+      <div className="kpi"><strong>{yuan(business?.cost?.marginTodayCents ?? 0)}</strong><span>今日毛利估算</span>
+        <small>毛利率 {percent(business?.cost?.marginRateToday)} · 本月 {yuan(business?.cost?.marginMonthCents ?? 0)}</small></div>
     </div>
     <div className="system-grid" style={{ marginTop: 16 }}>
       <section className="panel">
@@ -133,6 +150,27 @@ function Dashboard() {
           <div><dt>暂停使用账号</dt><dd>{stats.users.suspended}</dd></div>
           <div><dt>已注销账号</dt><dd>{stats.users.closed}</dd></div>
           <div><dt>历史遗留任务</dt><dd>{stats.jobs.legacy}（商业化迁移前创建，仅后台可见）</dd></div>
+          <div><dt>后台创作调度</dt><dd>{business?.risks?.worker
+            ? (business.risks.worker.stopped
+              ? <span className="error-text">已停止：最近 {business.risks.worker.secondsSinceLastRun ?? "—"} 秒没有推进任务，用户关闭网页后创作不会继续</span>
+              : business.risks.worker.enabled
+                ? `运行中（最近一轮 ${business.risks.worker.secondsSinceLastRun ?? "—"} 秒前，每 ${business.risks.worker.lastRunDurationMs ?? 0}ms）`
+                : <span className="error-text">已在系统设置里关闭，正式运营必须开启</span>)
+            : "加载中…"}</dd></div>
+          <div><dt>任务积压</dt><dd>{(business?.risks?.worker?.backlog ?? stats.jobs.running) > 0
+            ? <>{business?.risks?.worker?.backlog ?? stats.jobs.running} 个进行中{business?.risks?.worker?.strugglingJobs > 0 ? <span className="error-text"> · {business.risks.worker.strugglingJobs} 个查询反复失败</span> : null}</>
+            : "无"}</dd></div>
+          <div><dt>超时与待确认</dt><dd>{business?.risks?.worker?.timedOut24h > 0 ? <span className="error-text">24 小时内 {business.risks.worker.timedOut24h} 个创作超时</span> : "无超时"}
+            {business?.risks?.worker?.unresolvedCharges24h > 0 ? <span className="error-text"> · {business.risks.worker.unresolvedCharges24h} 笔额度待人工确认</span> : ""}</dd></div>
+          <div><dt>连续失败的创作类型</dt><dd>{business?.risks?.failingKinds?.length
+            ? <span className="error-text">{business.risks.failingKinds.map((row: any) => `${row.kind}（连续 ${row.consecutiveFailures} 次 / 24 小时 ${row.failed24h} 次）`).join("、")}</span>
+            : "无"}</dd></div>
+          <div><dt>异常提交拦截（24 小时）</dt><dd>{business?.risks?.guard?.blocked > 0
+            ? <>{business.risks.guard.blocked} 次{business.risks.guard.topUsers?.length ? `（最多：${business.risks.guard.topUsers.map((row: any) => `${row.email || row.userId} ${row.blocked} 次`).join("、")}）` : ""}</>
+            : "无"}</dd></div>
+          <div><dt>单用户成本报警</dt><dd>{business?.risks?.guard?.costAlerts?.length
+            ? <span className="error-text">{business.risks.guard.costAlerts.map((row: any) => `${row.email || row.userId} ${yuan(row.reportedCents)}（${row.jobs} 个创作）`).join("、")}</span>
+            : "无"}</dd></div>
         </dl>
       </section>
       <section className="panel">
@@ -524,8 +562,12 @@ function JobsSection() {
   if (status) params.set("status", status);
   if (userId) params.set("userId", userId);
   const { data, error, loading, reload } = useLoad<any>(`/api/admin/jobs?${params.toString()}`, [status, userId]);
-  const STATUS_LABELS: Record<string, string> = { queued: "等待开始", running: "正在生成", succeeded: "已完成", failed: "未完成", unknown: "状态确认中" };
+  // Internal statuses stay the data contract; the wording comes from the shared business
+  // copy layer (§21/§44) instead of a second local mapping.
+  const STATUS_LABELS = JOB_STATUS_COPY;
   return <div className="admin-panel">
+    <WorkerPanel />
+    <TaskCostPanel />
     <div className="admin-panel-head">
       <h2>任务监管</h2>
       <div className="admin-filters">
@@ -548,7 +590,7 @@ function JobsSection() {
           {data.jobs.map((job: any) => <tr key={job.id}>
             <td><strong>{job.title}</strong>{job.errorSummary && <><br /><span className="error-text mini">{job.errorSummary}</span></>}</td>
             <td>{job.kind}</td>
-            <td><span className={`stage-state ${job.status}`}>{STATUS_LABELS[job.status] || job.status}</span></td>
+            <td><span className={`stage-state ${job.status}`}>{STATUS_LABELS[job.status as keyof typeof STATUS_LABELS] || job.status}</span></td>
             <td>{job.ownerEmail || <span className="muted">历史/系统数据</span>}</td>
             <td>{new Date(job.createdAt).toLocaleString("zh-CN")}</td>
             <td className="muted mini"><details><summary>展开</summary><code>{job.id} · {job.status}</code></details></td>
@@ -558,6 +600,115 @@ function JobsSection() {
       </table>
     )}
   </div>;
+}
+
+/**
+ * 后台创作调度 (§20/§46): proof that creations keep moving with no browser open, plus a
+ * manual pass and the last runs. "立即推进一轮" runs the very same worker code the
+ * scheduler runs, so an operator action can never diverge from unattended behaviour.
+ */
+function WorkerPanel() {
+  const { data, error, loading, reload } = useLoad<any>("/api/admin/worker", []);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  async function tick() {
+    setBusy(true);
+    setNote("");
+    try {
+      const result = await api("/api/admin/worker", { method: "POST" });
+      const run = result.result || {};
+      setNote(`本轮推进 ${run.processed ?? 0} 个创作：完成 ${run.succeeded ?? 0} · 未完成 ${run.failed ?? 0} · 超时 ${run.timedOut ?? 0} · 确认扣费 ${run.settled ?? 0} · 退回 ${run.refunded ?? 0}（${run.refundedCredits ?? 0} 个创作额度）· 剩余积压 ${run.backlog ?? 0}`);
+      await reload();
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : String(err));
+    } finally { setBusy(false); }
+  }
+  const worker = data?.worker;
+  return <section className="panel" style={{ marginBottom: 16 }}>
+    <div className="admin-panel-head">
+      <h3>后台创作调度</h3>
+      <div className="admin-filters">
+        <button className="secondary" onClick={reload} disabled={loading}><RefreshCw size={13} />刷新</button>
+        <button className="primary" onClick={tick} disabled={busy || loading}>{busy ? <LoaderCircle className="spin" size={13} /> : <Server size={13} />}立即推进一轮</button>
+      </div>
+    </div>
+    {loading ? <Loading /> : error ? <ErrorNote message={error} /> : <>
+      <dl className="kv-list">
+        <div><dt>运行状态</dt><dd>{worker?.stopped
+          ? <span className="error-text">已停止：超过 {worker.staleAfterSeconds} 秒没有推进任务，用户关闭网页后创作不会继续</span>
+          : worker?.enabled ? `运行中，每 ${worker.intervalSeconds} 秒一轮` : <span className="error-text">已关闭（系统设置 → 后台任务）</span>}</dd></div>
+        <div><dt>最近一轮</dt><dd>{worker?.lastRunAt
+          ? `${new Date(worker.lastRunAt).toLocaleString("zh-CN")} · ${worker.lastRunTrigger} · ${worker.secondsSinceLastRun} 秒前 · 处理 ${worker.lastRun?.processed ?? 0} 个`
+          : "还没有运行记录"}</dd></div>
+        <div><dt>进行中创作</dt><dd>{worker?.backlog ?? 0} 个{worker?.strugglingJobs > 0 ? <span className="error-text"> · {worker.strugglingJobs} 个查询反复失败</span> : ""}</dd></div>
+        <div><dt>超时与人工确认</dt><dd>24 小时超时 {worker?.timedOut24h ?? 0} 个 · 额度待人工确认 {worker?.unresolvedCharges24h ?? 0} 笔</dd></div>
+        <div><dt>超时判定</dt><dd>超过 {worker?.timeoutMinutes ?? "—"} 分钟仍未完成即按失败规则处理；连续 {worker?.pollMaxErrors ?? "—"} 次查询失败判定为异常</dd></div>
+        <div><dt>外部调度（cron）</dt><dd>{worker?.cronTokenConfigured
+          ? "已配置运维调度令牌，可用 scripts/worker-tick.mjs 定时推进"
+          : <span className="error-text">未配置运维调度令牌，内部推进接口已关闭（进程内定时调度仍然可用）</span>}</dd></div>
+      </dl>
+      {note && <div className="muted mini" style={{ marginTop: 8 }}>{note}</div>}
+      {worker?.runs?.length > 0 && <details style={{ marginTop: 8 }}>
+        <summary className="muted mini">最近 {worker.runs.length} 轮调度明细</summary>
+        <table className="admin-table">
+          <thead><tr><th>开始时间</th><th>触发方式</th><th>处理</th><th>完成</th><th>未完成</th><th>超时</th><th>确认扣费</th><th>退回额度</th><th>耗时</th></tr></thead>
+          <tbody>
+            {worker.runs.map((run: any) => <tr key={run.id}>
+              <td>{new Date(run.startedAt).toLocaleString("zh-CN")}</td>
+              <td>{({ scheduler: "定时调度", cron: "外部 cron", admin: "管理员", browser: "用户刷新" } as Record<string, string>)[run.trigger] || run.trigger}</td>
+              <td>{run.processed}</td><td>{run.succeeded}</td><td>{run.failed}</td>
+              <td>{run.detail?.timedOut ?? 0}</td><td>{run.detail?.settled ?? 0}</td><td>{run.detail?.refundedCredits ?? 0}</td>
+              <td>{run.detail?.durationMs ?? 0}ms</td>
+            </tr>)}
+          </tbody>
+        </table>
+      </details>}
+    </>}
+  </section>;
+}
+
+/** 任务成本记录 (§23): what each creation was worth and what it cost us. */
+function TaskCostPanel() {
+  const { data, error, loading, reload } = useLoad<any>("/api/admin/business", []);
+  const business = data?.business;
+  return <section className="panel" style={{ marginBottom: 16 }}>
+    <div className="admin-panel-head">
+      <h3>经营数据与任务成本（24 小时）</h3>
+      <button className="secondary" onClick={reload} disabled={loading}><RefreshCw size={13} />刷新</button>
+    </div>
+    {loading ? <Loading /> : error ? <ErrorNote message={error} /> : <>
+      <dl className="kv-list">
+        <div><dt>今日 / 本月收入</dt><dd>{yuan(business?.revenue?.todayCents ?? 0)} / {yuan(business?.revenue?.monthCents ?? 0)}</dd></div>
+        <div><dt>套餐 / 加油包收入（今日）</dt><dd>{yuan(business?.revenue?.today?.planCents ?? 0)} / {yuan(business?.revenue?.today?.packCents ?? 0)}</dd></div>
+        <div><dt>今日退款</dt><dd>{yuan(business?.revenue?.refundedTodayCents ?? 0)}（累计 {yuan(business?.revenue?.refundedTotalCents ?? 0)}）</dd></div>
+        <div><dt>活跃 / 新增 / 付费用户（今日）</dt><dd>{business?.users?.activeToday ?? 0} / {business?.users?.newToday ?? 0} / {business?.users?.payingToday ?? 0}</dd></div>
+        <div><dt>生成任务量 / 成功率（今日）</dt><dd>{business?.creations?.today ?? 0} 个 · {percent(business?.creations?.successRate)}</dd></div>
+        <div><dt>预计生成成本 / 平均单任务</dt><dd>{yuan(business?.cost?.today?.reportedCents ?? 0)} / {yuan(business?.cost?.today?.averageCents ?? 0)}
+          <span className="muted mini">（{business?.cost?.basisText}，实测 {business?.cost?.measuredToday}）</span></dd></div>
+        <div><dt>毛利估算（今日 / 本月）</dt><dd>{yuan(business?.cost?.marginTodayCents ?? 0)}（{percent(business?.cost?.marginRateToday)}） / {yuan(business?.cost?.marginMonthCents ?? 0)}</dd></div>
+        <div><dt>单个创作额度价值</dt><dd>{business?.cost?.creditUnit?.cents ? `${yuan(business.cost.creditUnit.cents)}（按${business.cost.creditUnit.basis}换算）` : <span className="error-text">目录里还没有可购买的创作额度，无法折算用户支付价值</span>}</dd></div>
+      </dl>
+      <table className="admin-table" style={{ marginTop: 12 }}>
+        <thead><tr><th>创作类型</th><th>用户</th><th>消耗额度</th><th>用户支付价值</th><th>预计成本</th><th>实际成本</th><th>内部服务</th><th>计费状态</th><th>创建时间</th></tr></thead>
+        <tbody>
+          {(business?.recentCosts || []).map((row: any) => <tr key={row.chargeId}>
+            <td>{JOB_KIND_LABELS[row.kind as keyof typeof JOB_KIND_LABELS] || row.kind}</td>
+            <td>{row.email || <span className="muted">未知</span>}</td>
+            <td>{row.credits}</td>
+            <td>{row.userValueCents ? yuan(row.userValueCents) : <span className="muted">未定价</span>}</td>
+            <td>{yuan(row.estimatedCostCents)}</td>
+            <td>{row.actualCostCents === null
+              ? <span className="muted">{row.costSource === "estimated" ? "预估（未拿到实际用量）" : "暂无"}</span>
+              : <>{yuan(row.actualCostCents)}{row.durationSeconds ? <span className="muted mini"> · {row.durationSeconds}s</span> : null}</>}</td>
+            <td className="muted mini">{row.provider || "—"}</td>
+            <td><span className={`stage-state ${row.status}`}>{({ reserved: "预扣中", settled: "已确认", refunded: "已退回", voided: "未扣费" } as Record<string, string>)[row.status] || row.status}</span></td>
+            <td className="muted mini">{new Date(row.createdAt).toLocaleString("zh-CN")}</td>
+          </tr>)}
+          {(business?.recentCosts || []).length === 0 && <tr><td colSpan={9} className="muted">24 小时内没有创作计费记录</td></tr>}
+        </tbody>
+      </table>
+    </>}
+  </section>;
 }
 
 function WorksSection() {
@@ -636,7 +787,9 @@ function SystemSettingsSection() {
     }
   }
 
-  const SCOPE_LABELS: Record<string, string> = { site: "基本设置", payment: "支付设置", storage: "存储", email: "邮件", security: "安全", worker: "后台任务" };
+  const SCOPE_LABELS: Record<string, string> = { site: "基本设置", payment: "支付设置", storage: "存储", email: "邮件", security: "安全", worker: "后台任务", guard: "创作成本保护", cost: "成本与毛利" };
+  // Render every scope the API returns, so a new scope can never be silently invisible.
+  const SCOPES_IN_PAYLOAD: string[] = (data?.settings || []).map((item: any) => item.scope);
 
   return <div className="admin-panel">
     <div className="admin-panel-head">
@@ -650,7 +803,7 @@ function SystemSettingsSection() {
     <PaymentChannelCard />
     {loading ? <Loading /> : error ? <ErrorNote message={error} /> : (
       <div className="system-grid">
-        {Object.entries(SCOPE_LABELS).map(([scope, label]) => {
+        {Object.keys(SCOPE_LABELS).filter(scope => SCOPES_IN_PAYLOAD.includes(scope)).map(scope => [scope, SCOPE_LABELS[scope]] as [string, string]).map(([scope, label]) => {
           const items = (data.settings || []).filter((item: any) => item.scope === scope);
           if (!items.length) return null;
           return <section className="panel" key={scope}>

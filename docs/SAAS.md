@@ -131,6 +131,12 @@
 | POST | /api/orders/[id]/refund | 用户申请退款（需运营审核） |
 | POST | /api/payments/alipay/notify | 支付宝异步通知（验签、幂等、金额与收款主体核对） |
 | GET | /api/quota/ledger | 创作额度明细 |
+| POST | /api/quota/quote | 提交前报价（消耗多少额度、当前可用额度、是否足够） |
+| POST | /api/jobs/refresh | 请服务端 Worker 提前看一眼自己的创作（浏览器加速器，按轮询节奏节流） |
+| POST | /api/jobs/[id] | 单任务动作：刷新 / 重试 / 类似版本 / 继续创作 / 归档（刷新同样只是加速器） |
+| GET/POST | /api/admin/worker | Worker 健康状态 / 管理员手动推进一轮 |
+| GET | /api/admin/business | 经营数据：收入与退款、用户、创作量、任务成本与毛利、异常与风险 |
+| POST | /api/internal/worker | 外部调度（cron/systemd）推进入口，Bearer `worker_token`；未配置令牌时 404 失败关闭 |
 | GET/POST | /api/admin/refunds | 退款列表 / 运营发起并执行退款 |
 | POST | /api/admin/refunds/[id] | 通过 / 驳回 / 执行退款 |
 | GET/POST | /api/admin/payment-test | 支付通道状态 / 免费连通性测试 |
@@ -149,16 +155,32 @@
 既有生成类 API（/api/jobs、/api/assets、/api/projects 等）协议保持不变，
 仅叠加鉴权、归属校验与配额预扣；错误形状统一为 `{ error, code? }`。
 
+任务类应答按角色分层（§47）：成员拿到的任务对象里**不存在** `providerJobId` / `requestId` /
+`provider` 这些键，`details` 只保留界面真正渲染的字段，并额外给出业务字段
+`tracked`（是否有上游创作在跟进）与 `durationSeconds`（结果时长）；
+管理员拿到完整存储记录，并额外保留 `business.internalStatus` 用于任务监管。
+所有提交路径在预扣第一笔额度之前先过 §48 创作成本保护，被拦截时返回
+`{ error, code }`，`code` ∈ `BATCH_TOO_LARGE`(400) / `CONCURRENT_JOB_LIMIT`(429) /
+`SUBMIT_TOO_FAST`(429) / `SUBMIT_RATE_LIMIT`(429)，并写入 `guard_events`。
+
 ## 8. 已知限制与下一步商业化清单
 
 - 支付：支付宝电脑/手机网站支付已接入（验签、主动查单、超时关闭、退款）；
   微信/Stripe 与自动开票仍待接入，发票目前为人工处理入口。
 - 支付密钥模式：仅支持支付宝「公钥模式」，证书模式尚未实现。
-- 邮件：邮箱验证与找回密码已完整实现；业务通知（任务完成、额度提醒、订单与退款）目前只走
-  站内通知，通知偏好里的 `email` 通道还没有发信场景，邮件流水查询页面属后台完整化阶段。
+- 邮件：邮箱验证、找回密码与**创作结果通知**（完成/未完成，按成员通知偏好发送）已实现；
+  额度提醒、订单与退款通知仍只走站内通知，邮件流水查询页面属后台完整化阶段。
+- 调度：创作推进由进程内 Worker 循环负责，单进程内串行；多进程部署靠任务认领的乐观锁
+  避免重复处理，没有分布式锁或消息队列，横向扩展前需要重新评估。
+- 成本：`cost_source='actual'` 依赖运营在后台填写每秒视频内部成本，未填写时如实标
+  `estimated`/`unknown`；每个创作的预估内部成本（`pricing_rules.estimatedCostCentsPerUnit`）
+  还没有后台编辑入口，属后台完整化阶段。
+- 存储：创作结果在未归档时仍指向上游临时链接（界面已提示会过期并建议保存到本机），
+  落到平台存储属作品与存储商业化阶段。
 - OAuth：微信/Google 登录（users/sessions 模型兼容，需加 identities 表）。
 - Postgres：当前 SQLite + WAL 满足单机；表结构与 SQL 均使用标准语法，
   迁移时替换 `lib/db.ts` 驱动并复核 `LIKE`/JSON 字段即可。
 - 组织/团队：当前仅 user/admin 两级；多团队需引入 organizations 与 RBAC。
-- 监控：任务失败率、配额使用率、登录失败告警建议接入现有运维体系。
+- 监控：后台「异常与风险」已给出 Worker 停止、任务积压、连续查询失败、24 小时超时、
+  待人工确认额度、防刷拦截与连续失败创作类型；对外告警（钉钉/飞书/PagerDuty）仍待接入。
 - 存储配额：`works` 未限制存储量（仅生成条数配额）；可按需扩展存储额度字段。

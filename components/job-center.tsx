@@ -93,6 +93,10 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
           <button className={filter === id ? "active" : ""} key={id} onClick={() => setFilter(id)}>{label}</button>
         )}
       </div>
+      {/* §20: the member must know the creation is not tied to this tab. */}
+      <div className="muted mini" style={{ padding: "0 2px 8px" }}>
+        创作在服务器后台继续进行，关闭页面或断网都不会中断；完成后会自动出现在这里，并在通知中心提醒你。
+      </div>
       <div className="job-list">
         {shown.map(job => {
           const batch = batchMeta(job);
@@ -122,7 +126,7 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
           </div>
           <div className="detail-actions">
             <button className="secondary" disabled={busy !== "" || current.details?.pollable === false} onClick={() => action(current, "refresh")} title={current.details?.pollable === false ? String(current.details?.note || "该类型当前没有查询接口") : "检查最新状态"}><RefreshCw size={15}/>{current.details?.pollable === false ? "无查询接口" : "刷新"}</button>
-            {current.kind === "storyboard" && current.providerJobId && <button className="secondary" disabled={busy !== ""} onClick={() => action(current, "resume")}><RotateCcw size={15}/>续跑故事板</button>}
+            {current.kind === "storyboard" && current.tracked && <button className="secondary" disabled={busy !== ""} onClick={() => action(current, "resume")}><RotateCcw size={15}/>续跑故事板</button>}
             {current.status === "failed" && <button className="secondary" disabled={busy !== ""} onClick={() => action(current, "retry")}><Repeat2 size={15}/>重试失败任务</button>}
             {current.kind === "video_generation" && current.status === "succeeded" && <button className="secondary" disabled={busy !== ""} onClick={() => action(current, "similar")} title="使用原 Prompt、素材和 Recipe 创建新的独立候选"><Sparkles size={15}/>再来一个类似版本</button>}
             <button className="icon-button danger" onClick={() => remove(current)}><Trash2 size={15}/></button>
