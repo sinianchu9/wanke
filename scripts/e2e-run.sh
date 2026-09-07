@@ -6,12 +6,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PORT="${PORT:-3100}"
-DB="${DB:-./data/e2e-$(date +%Y%m%d-%H%M%S).db}"
+RUN_ID="$(date +%Y%m%d-%H%M%S)"
+DB="${DB:-./data/e2e-$RUN_ID.db}"
 SCRIPT="${1:-scripts/saas-e2e.mjs}"
 
 export WANKE_DB_PATH="$DB"
-export WANKE_INPUT_DIR="${WANKE_INPUT_DIR:-./data/e2e-inputs}"
-export WANKE_OUTPUT_DIR="${WANKE_OUTPUT_DIR:-./data/e2e-outputs}"
+# 每次运行独立的输入/输出目录：上一轮的遗留文件不会污染本轮的孤儿清理与对账断言。
+export WANKE_INPUT_DIR="${WANKE_INPUT_DIR:-./data/e2e-inputs-$RUN_ID}"
+export WANKE_OUTPUT_DIR="${WANKE_OUTPUT_DIR:-./data/e2e-outputs-$RUN_ID}"
 export E2E_DB="$DB"
 export E2E_BASE="http://127.0.0.1:$PORT"
 export ADMIN_EMAIL="${ADMIN_EMAIL:-admin@wanke.test}"

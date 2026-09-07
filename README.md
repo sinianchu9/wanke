@@ -267,7 +267,7 @@ SQLite、本地输入和结果归档都位于 `./data`，Docker Compose 已挂�
 - `npm run typecheck` 与 `npm run build` 已通过。
 - 验收剧本（一次性数据库 + 生产构建）当前状态：
   `scripts/worker-e2e.mjs` 241 项、`scripts/saas-e2e.mjs` 63 项、`scripts/commerce-e2e.mjs` 80 项、
-  `scripts/payment-e2e.mjs` 110 项、`scripts/account-e2e.mjs` 204 项，全部通过。
+  `scripts/payment-e2e.mjs` 110 项、`scripts/account-e2e.mjs` 204 项、`scripts/storage-e2e.mjs` 69 项，全部通过。
 - Worker 剧本用协议级 Mock（完整异步任务信封 + 鉴权校验 + 失败/无法识别/卡住/连接中断/HTTP 500 注入，
   以及真实 SMTP 投递）覆盖：提交一次只扣一次、完成只确认一次、失败只退回一次、内容类失败不自动退款、
   超时与连续查询失败按平台原因退回、上游状态无法识别保留额度转人工、100 次轮询与反复刷新不重复扣、
@@ -340,7 +340,9 @@ lib/
   repository.ts
 scripts/
   worker-tick.mjs     # 外部调度（cron/systemd）入口
+  backup.mjs          # 自动备份（VACUUM INTO + 校验 + 保留份数）与 --restore 在线恢复
   worker-e2e.mjs      # Phase 4 验收剧本（含无人值守与重启）
+  storage-e2e.mjs     # Phase 5 验收剧本（归属/下载鉴权/删除清理/孤儿清扫/磁盘报警/备份恢复）
   modelstudio-mock.mjs# 协议级上游 Mock，仅验收使用
 docs/
   VIDEO_GENERATION_PHASE1.md

@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Archive, BookmarkPlus, Film, LoaderCircle, Pencil, PlayCircle, Trash2 } from "lucide-react";
+import { Archive, BookmarkPlus, Download, Film, FolderOpen, LoaderCircle, Pencil, PlayCircle, RefreshCcw, Sparkles, Trash2 } from "lucide-react";
+
+interface WorkSource {
+  jobId: string;
+  jobTitle: string;
+  projectId: string | null;
+  projectName: string | null;
+}
 
 interface Work {
   id: string;
@@ -11,6 +18,25 @@ interface Work {
   archivedFile: string | null;
   status: "active" | "archived";
   createdAt: string;
+  sizeBytes: number;
+  durationSeconds: number | null;
+  format: string | null;
+  source: WorkSource | null;
+}
+
+function formatBytes(bytes: number) {
+  if (!bytes || bytes <= 0) return "大小未知";
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function formatDuration(seconds: number | null) {
+  if (!seconds || seconds <= 0) return "时长未知";
+  const whole = Math.round(seconds);
+  const minutes = Math.floor(whole / 60);
+  const rest = whole % 60;
+  return minutes > 0 ? `${minutes} 分 ${rest} 秒` : `${rest} 秒`;
 }
 
 export default function WorksLibrary({ onNotice }: { onNotice?: (message: string) => void }) {
@@ -55,7 +81,7 @@ export default function WorksLibrary({ onNotice }: { onNotice?: (message: string
   }
 
   async function remove(work: Work) {
-    if (!confirm(`删除作品「${work.title}」？删除后不可恢复（源任务与本地归档文件不受影响）。`)) return;
+    if (!confirm(`删除作品「${work.title}」？删除后不可恢复（来源任务不受影响）。`)) return;
     setBusy(work.id);
     try {
       const response = await fetch(`/api/works/${work.id}`, { method: "DELETE" });
@@ -70,14 +96,49 @@ export default function WorksLibrary({ onNotice }: { onNotice?: (message: string
     }
   }
 
+  async function jobAction(work: Work, action: string, payload: Record<string, unknown>, message: string) {
+    if (!work.source) return;
+    setBusy(work.id);
+    try {
+      const response = await fetch(`/api/jobs/${work.source.jobId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...payload }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "操作失败");
+      onNotice?.(message);
+    } catch (error) {
+      onNotice?.(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy("");
+    }
+  }
+
   function rename(work: Work) {
     const title = prompt("作品标题", work.title);
     if (title && title.trim() && title !== work.title) patch(work, { title: title.trim() }, "作品已重命名");
   }
 
+  function regenerate(work: Work) {
+    if (!work.source) return;
+    if (!confirm(`以「${work.title}」的创作要求再生成一个版本？这会按当前规则使用创作额度。`)) return;
+    jobAction(work, "similar", {}, "已提交新版本，生成完成后会出现在任务中心");
+  }
+
+  function continueCreation(work: Work) {
+    if (!work.source) return;
+    const promptText = prompt("继续创作：填写新的创作要求", "");
+    if (!promptText || !promptText.trim()) return;
+    jobAction(work, "continue", { prompt: promptText.trim(), outputIndex: 0 }, "已提交继续创作，生成完成后会出现在任务中心");
+  }
+
   const playUrl = (work: Work) => work.archivedFile
     ? `/api/archive/${encodeURIComponent(work.archivedFile)}`
     : work.videoUrl || "";
+  const downloadUrl = (work: Work) => work.archivedFile
+    ? `/api/archive/${encodeURIComponent(work.archivedFile)}?download=1`
+    : "";
 
   if (loading) {
     return <div className="works-empty"><LoaderCircle className="spin" size={22}/>正在加载作品库…</div>;
@@ -107,9 +168,42 @@ export default function WorksLibrary({ onNotice }: { onNotice?: (message: string
           <div className="work-meta">
             <div>
               <strong><PlayCircle size={13}/> {work.title}</strong>
-              <span>{new Date(work.createdAt).toLocaleString("zh-CN")}{work.status === "archived" ? " · 已归档" : ""}{work.archivedFile ? " · 本机保存" : ""}</span>
+              <span>
+                {new Date(work.createdAt).toLocaleString("zh-CN")}
+                {" · "}{formatDuration(work.durationSeconds)}
+                {" · "}{formatBytes(work.sizeBytes)}
+                {work.format ? ` · ${work.format}` : ""}
+                {work.status === "archived" ? " · 已归档" : ""}
+                {work.archivedFile ? " · 本机保存" : ""}
+              </span>
+              {work.source && (
+                <span className="mini">
+                  来源任务「{work.source.jobTitle || "未命名任务"}」
+                  {work.source.projectName ? ` · 项目「${work.source.projectName}」` : ""}
+                </span>
+              )}
             </div>
             <div className="result-actions">
+              {downloadUrl(work) && (
+                <a className="icon-button" title="下载作品" href={downloadUrl(work)} download>
+                  <Download size={14}/>
+                </a>
+              )}
+              {work.source && (
+                <a className="icon-button" title={work.source.projectName ? `查看来源项目「${work.source.projectName}」` : "查看来源任务"} href="/studio">
+                  <FolderOpen size={14}/>
+                </a>
+              )}
+              {work.source && work.status !== "archived" && (
+                <button className="icon-button" disabled={busy === work.id} title="继续创作" onClick={() => continueCreation(work)}>
+                  <Sparkles size={14}/>
+                </button>
+              )}
+              {work.source && work.status !== "archived" && (
+                <button className="icon-button" disabled={busy === work.id} title="再生成一个版本" onClick={() => regenerate(work)}>
+                  <RefreshCcw size={14}/>
+                </button>
+              )}
               <button className="icon-button" disabled={busy === work.id} title="重命名" onClick={() => rename(work)}><Pencil size={14}/></button>
               <button className="icon-button" disabled={busy === work.id} title={work.status === "archived" ? "恢复作品" : "归档作品"} onClick={() => patch(work, { status: work.status === "archived" ? "active" : "archived" }, work.status === "archived" ? "作品已恢复" : "作品已归档")}>
                 <Archive size={14}/>

@@ -14,6 +14,7 @@ import { createNotification, readPreferences } from "@/lib/notifications";
 import { publicBaseUrl, sendEmail, siteName } from "@/lib/mailer";
 import { businessJobStatus, publicErrorMessage } from "@/lib/copy";
 import { describeError } from "@/lib/errors";
+import { maybeRunStorageSweep } from "@/lib/storage-maintenance";
 import type { ResultMedia, StoredJob } from "@/lib/types";
 import type { FailureClass } from "@/lib/billing/failures";
 
@@ -211,6 +212,15 @@ async function executeTick(options: { trigger?: WorkerTrigger; userId?: string; 
   result.errors = result.errors.slice(0, 10);
 
   if (options.record !== false) recordWorkerRun(result);
+
+  // Storage housekeeping rides the same unattended pass (§9.3.7): orphan files,
+  // stale local inputs and the disk-space reading are refreshed at the configured
+  // interval no matter whether any creation was due this tick.
+  try {
+    maybeRunStorageSweep();
+  } catch (error) {
+    console.error("[worker] storage sweep failed:", describeError(error));
+  }
   return result;
 }
 

@@ -105,9 +105,49 @@ data/
 
 ## 4. 备份
 
-最简单可靠的方式：停止 Wanke 后完整备份 `data/`。
+### 4.1 自动备份（推荐）
 
-Docker：
+`scripts/backup.mjs` 用 SQLite 的 `VACUUM INTO` 做在线一致备份，**绝不直接 cp 热库**；
+每份备份必须通过校验（能打开、`quick_check` 通过、最新账本行与源库一致）才落盘，
+并按保留份数自动清理旧备份。每次结果（成功或失败）写回数据库，后台
+「经营概览 → 异常与风险 → 自动备份」对「从未备份 / 超过 36 小时未成功 / 上次失败」如实报警。
+
+```bash
+# 环境变量（都有默认值）
+WANKE_DB_PATH=./data/wanke.db      # 要保护的数据库
+WANKE_BACKUP_DIR=./data/backups    # 备份存放目录
+WANKE_BACKUP_KEEP=7                # 保留份数
+
+node scripts/backup.mjs            # 执行一次备份（cron 示例）
+```
+
+cron 示例（每天 03:17，风格与 `scripts/worker-tick.mjs` 一致）：
+
+```
+17 3 * * * cd /opt/wanke && node scripts/backup.mjs >> /var/log/wanke-backup.log 2>&1
+```
+
+退出码：0 = 备份已校验 / 恢复完成，1 = 失败（监控可直接报警）。
+
+### 4.2 恢复演练
+
+```bash
+# 在线恢复：直接把备份灌进运行中的数据库（SQLite 在线备份 API，服务下一次读取即生效）
+node scripts/backup.mjs --restore ./data/backups/wanke-20260907-031700.db
+
+# 冷恢复：停机替换文件
+docker compose stop
+cp ./data/backups/wanke-20260907-031700.db ./data/wanke.db
+docker compose start
+```
+
+验收口径「改坏数据 → 从备份恢复 → 数据回到备份点」由 `scripts/storage-e2e.mjs`
+的备份章节每次自动演练；上线前应人工按上面命令各跑一次。
+
+### 4.3 手工整机快照（兜底）
+
+数据库备份覆盖全部业务状态（账户、订单、账本、设置）；`data/outputs` 的归档文件体积大、
+且成功任务可重新归档，如需整机级文件备份，仍以停机快照兜底：
 
 ```bash
 docker compose stop
@@ -116,6 +156,13 @@ docker compose start
 ```
 
 `data/` 同时包含 SQLite、可重试本地输入、已归档结果和最终成片，因此只备份数据库并不等于完整备份作品。
+
+### 4.4 孤儿清理与磁盘报警
+
+存储清扫（无登记行的文件、无文件的登记行、过期本地输入）挂载在后台任务 Worker
+每次运行末尾按间隔自动执行，无需单独 cron；也可在后台「作品与素材 → 存储用量」点「立即清理」。
+开关、间隔、孤儿宽限期与磁盘报警阈值都在「系统设置 → 存储」；
+磁盘剩余低于阈值时「异常与风险 → 磁盘空间」报警。
 
 ## 5. 结果归档上限
 

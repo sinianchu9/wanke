@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import { NextResponse } from "next/server";
 import { archivedFilePath, contentTypeFor } from "@/lib/archive";
 import { errorResponse, requireUser } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { ensureStorageBackfill, getStorageObject, touchStorageAccess } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,17 +14,33 @@ export async function GET(request: Request, ctx: Ctx) {
   try {
     const user = requireUser(request);
     const { name } = await ctx.params;
-    // Archived files are only served to their owner (or an admin), never by guessable URL alone.
-    if (user.role !== "admin") {
-      const ownsJob = db.prepare("SELECT 1 FROM jobs WHERE user_id=? AND output_json LIKE ? LIMIT 1").get(user.id, `%${JSON.stringify(name).slice(1, -1)}%`);
-      const ownsWork = db.prepare("SELECT 1 FROM works WHERE user_id=? AND archived_file=? LIMIT 1").get(user.id, name);
-      if (!ownsJob && !ownsWork) return NextResponse.json({ error: "归档文件不存在" }, { status: 404 });
+    // Ownership comes from the storage registry (an indexed lookup), never from a
+    // guessed URL: a member who is not the owner gets the same 404 as if the file
+    // did not exist. Pre-registry files are adopted by the one-time backfill first.
+    ensureStorageBackfill();
+    const object = getStorageObject(name);
+    if (object && object.bucket !== "outputs") {
+      return NextResponse.json({ error: "归档文件不存在" }, { status: 404 });
+    }
+    if (object) {
+      if (user.role !== "admin" && object.userId !== user.id) {
+        return NextResponse.json({ error: "归档文件不存在" }, { status: 404 });
+      }
+    } else if (user.role !== "admin") {
+      return NextResponse.json({ error: "归档文件不存在" }, { status: 404 });
     }
     const file = archivedFilePath(name);
     const stat = fs.statSync(file);
     if (!stat.isFile()) throw new Error("不是文件");
+    touchStorageAccess(name);
+    const download = new URL(request.url).searchParams.get("download") === "1";
     const range = request.headers.get("range");
-    const common = { "Accept-Ranges": "bytes", "Content-Type": contentTypeFor(name), "Cache-Control": "private, max-age=3600" };
+    const common: Record<string, string> = {
+      "Accept-Ranges": "bytes",
+      "Content-Type": contentTypeFor(name),
+      "Cache-Control": "private, max-age=3600",
+    };
+    if (download) common["Content-Disposition"] = `attachment; filename*=UTF-8''${encodeURIComponent(name)}`;
 
     if (range) {
       const match = /^bytes=(\d*)-(\d*)$/.exec(range);
@@ -39,7 +55,9 @@ export async function GET(request: Request, ctx: Ctx) {
 
     const stream = fs.createReadStream(file);
     return new Response(Readable.toWeb(stream) as any, { headers: { ...common, "Content-Length": String(stat.size) } });
-  } catch {
+  } catch (error) {
+    const handled = errorResponse(error);
+    if (handled) return handled;
     return NextResponse.json({ error: "归档文件不存在" }, { status: 404 });
   }
 }

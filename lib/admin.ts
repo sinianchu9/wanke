@@ -8,6 +8,8 @@ import { emailHealth, mailConfiguration } from "@/lib/mailer";
 import { costTotals, creditUnitValueCents, listTaskCosts, COST_SOURCE_COPY } from "@/lib/billing/costs";
 import { guardStats } from "@/lib/guardrails";
 import { workerHealth } from "@/lib/worker";
+import { diskStatus, readLastSweep } from "@/lib/storage-maintenance";
+import { backupHealth } from "@/lib/backup-status";
 
 export interface AdminUserRow {
   user: SessionUser & { lastLoginAt: string | null };
@@ -298,6 +300,13 @@ export function businessOverview() {
         const mail = mailConfiguration();
         return { ...emailHealth(last24h), enabled: mail.enabled, configured: mail.ready, missing: mail.missing };
       })(),
+      // §8.4 磁盘空间报警 + §9.3.7/8: disk headroom, housekeeping health and backup
+      // freshness are operator-visible risks, not silent log lines.
+      storage: {
+        disk: diskStatus(),
+        sweep: readLastSweep(),
+        backup: backupHealth(),
+      },
     },
     recentCosts: listTaskCosts({ sinceIso: last24h, limit: 20 }).costs,
   };

@@ -401,6 +401,15 @@ function migrateCommercialSchema(db: Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_storage_objects_user ON storage_objects(user_id, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS storage_object_refs (
+      storage_key TEXT NOT NULL,
+      ref_type TEXT NOT NULL,
+      ref_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (storage_key, ref_type, ref_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_storage_object_refs_ref ON storage_object_refs(ref_type, ref_id);
+
     CREATE TABLE IF NOT EXISTS guard_events (
       id TEXT PRIMARY KEY,
       user_id TEXT,
@@ -428,6 +437,7 @@ function migrateCommercialSchema(db: Database) {
   addColumn(db, "jobs", "last_poll_at", "TEXT");
   addColumn(db, "works", "size_bytes", "INTEGER NOT NULL DEFAULT 0");
   addColumn(db, "works", "storage_key", "TEXT");
+  addColumn(db, "works", "duration_seconds", "REAL");
   addColumn(db, "assets", "size_bytes", "INTEGER NOT NULL DEFAULT 0");
 
   db.exec(`

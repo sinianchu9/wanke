@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { errorResponse, requireUser } from "@/lib/auth";
-import { deleteWork, getWorkForUser, updateWork } from "@/lib/works";
+import { deleteWork, getWorkForUser, updateWork, workView } from "@/lib/works";
 import { describeError } from "@/lib/errors";
 
 export const runtime = "nodejs";
@@ -21,7 +21,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
     const { id } = await ctx.params;
     if (!getWorkForUser(id, user.id)) return NextResponse.json({ error: "作品不存在" }, { status: 404 });
     const patch = patchSchema.parse(await request.json());
-    return NextResponse.json({ work: updateWork(id, patch) });
+    const updated = updateWork(id, patch);
+    return NextResponse.json({ work: updated ? workView(updated) : null });
   } catch (error) {
     const handled = errorResponse(error);
     if (handled) return handled;

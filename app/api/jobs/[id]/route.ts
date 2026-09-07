@@ -167,7 +167,7 @@ export async function DELETE(request: Request, ctx: Ctx) {
     if (!job) return NextResponse.json({ error: "任务不存在" }, { status: 404 });
 
     const localRefs = [...collectLocalInputRefs(job.request)];
-    deleteArchivedOutputs(job.outputs);
+    deleteArchivedOutputs(job.outputs, job.id);
     if (!deleteJob(id)) return NextResponse.json({ error: "任务删除失败" }, { status: 500 });
 
     const orphaned = localRefs.filter(ref => !requestReferenceExists(ref));

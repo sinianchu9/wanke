@@ -5,15 +5,15 @@ import { randomUUID } from "node:crypto";
 import { pipeline } from "node:stream/promises";
 import { Readable, Transform } from "node:stream";
 import type { ResultMedia, StoredJob } from "@/lib/types";
+import { db } from "@/lib/db";
+import {
+  addStorageRef, contentTypeFor, outputDirectory, registerStorageObject, releaseStorageRef, storageFilePath,
+} from "@/lib/storage";
 
-export function outputDirectory() {
-  return path.resolve(process.env.WANKE_OUTPUT_DIR || "./data/outputs");
-}
+export { contentTypeFor, outputDirectory };
 
 export function archivedFilePath(name: string) {
-  const safe = path.basename(name);
-  if (safe !== name || !/^[a-zA-Z0-9._-]+$/.test(safe)) throw new Error("非法归档文件名");
-  return path.join(outputDirectory(), safe);
+  return storageFilePath("outputs", name);
 }
 
 export async function archiveJobOutput(job: StoredJob, index: number) {
@@ -67,23 +67,60 @@ export async function archiveJobOutput(job: StoredJob, index: number) {
     throw error;
   }
 
+  // The file is final; register ownership in the same step so the download guard and
+  // the orphan sweep can both trust the registry (file and row live and die together).
+  const sizeBytes = safeStat(dest)?.size || received;
+  try {
+    registerStorageObject({
+      bucket: "outputs",
+      key: fileName,
+      userId: job.userId,
+      contentType: response.headers.get("content-type") || contentTypeFor(fileName),
+      sizeBytes,
+      refType: "job",
+      refId: job.id,
+    });
+  } catch (error) {
+    try { fs.unlinkSync(dest); } catch {}
+    throw error;
+  }
+  attachArchiveToWorks(job, output, fileName, sizeBytes);
+
   return { ...output, archivedFile: fileName, archivedAt: new Date().toISOString() } satisfies ResultMedia;
 }
 
-export function deleteArchivedOutputs(outputs: ResultMedia[]) {
-  for (const output of outputs) {
-    if (!output.archivedFile) continue;
-    try { fs.unlinkSync(archivedFilePath(output.archivedFile)); } catch (error: any) { if (error?.code !== "ENOENT") throw error; }
+/**
+ * A work saved before the archive existed must survive the remote link expiring:
+ * when the archive lands, every work that snapshots this output switches to the
+ * local file and takes a reference so later task cleanup cannot pull it away.
+ */
+function attachArchiveToWorks(job: StoredJob, output: ResultMedia, fileName: string, sizeBytes: number) {
+  if (!output.outputUrl) return;
+  const rows = db.prepare(
+    "SELECT id FROM works WHERE archived_file IS NULL AND video_url=? AND job_ids_json LIKE ?",
+  ).all(output.outputUrl, `%${job.id}%`) as any[];
+  const now = new Date().toISOString();
+  for (const row of rows) {
+    db.prepare("UPDATE works SET archived_file=?, storage_key=?, size_bytes=?, updated_at=? WHERE id=?")
+      .run(fileName, fileName, sizeBytes, now, row.id);
+    addStorageRef(fileName, "work", String(row.id));
   }
 }
 
-export function contentTypeFor(name: string) {
-  const ext = path.extname(name).toLowerCase();
-  return ({
-    ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
-    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",
-    ".srt": "application/x-subrip", ".vtt": "text/vtt", ".json": "application/json; charset=utf-8",
-  } as Record<string, string>)[ext] || "application/octet-stream";
+/**
+ * Task deletion releases the task's reference on every archived output. The file
+ * only disappears when no work (or other consumer) references it any more; a delete
+ * that fails throws so the caller surfaces it instead of leaving a silent orphan.
+ */
+export function deleteArchivedOutputs(outputs: ResultMedia[], jobId?: string) {
+  for (const output of outputs) {
+    if (!output.archivedFile) continue;
+    if (jobId) {
+      releaseStorageRef(output.archivedFile, "job", jobId);
+    } else {
+      releaseStorageRef(output.archivedFile, "job", "");
+    }
+  }
 }
 
 function archiveTimeoutMs() {

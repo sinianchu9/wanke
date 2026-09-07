@@ -38,6 +38,13 @@ async function api(path: string, init?: RequestInit) {
   return body;
 }
 
+function formatBytes(bytes: number) {
+  if (!bytes || bytes <= 0) return "0 B";
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
 function yuan(cents: number) {
   return `¥${(Math.round(cents || 0) / 100).toFixed((cents || 0) % 100 === 0 ? 0 : 2)}`;
 }
@@ -168,6 +175,23 @@ function Dashboard() {
           <div><dt>异常提交拦截（24 小时）</dt><dd>{business?.risks?.guard?.blocked > 0
             ? <>{business.risks.guard.blocked} 次{business.risks.guard.topUsers?.length ? `（最多：${business.risks.guard.topUsers.map((row: any) => `${row.email || row.userId} ${row.blocked} 次`).join("、")}）` : ""}</>
             : "无"}</dd></div>
+          <div><dt>磁盘空间</dt><dd>{business?.risks?.storage?.disk
+            ? (business.risks.storage.disk.warn
+              ? <span className="error-text">剩余 {formatBytes(business.risks.storage.disk.freeBytes)}（{business.risks.storage.disk.freePercent.toFixed(1)}%），低于 {business.risks.storage.disk.warnThresholdPercent}% 报警线，请清理或扩容</span>
+              : `剩余 ${formatBytes(business.risks.storage.disk.freeBytes)}（${business.risks.storage.disk.freePercent.toFixed(1)}%）`)
+            : "读取中…"}</dd></div>
+          <div><dt>存储清理</dt><dd>{business?.risks?.storage?.sweep
+            ? (business.risks.storage.sweep.errors?.length
+              ? <span className="error-text">最近一次清理有 {business.risks.storage.sweep.errors.length} 个失败：{String(business.risks.storage.sweep.errors[0]).slice(0, 60)}</span>
+              : `正常（${new Date(business.risks.storage.sweep.at).toLocaleString("zh-CN")} 清理孤儿 ${business.risks.storage.sweep.orphanFilesRemoved}、失效输入 ${business.risks.storage.sweep.staleInputsRemoved}、失效登记 ${business.risks.storage.sweep.danglingRowsRemoved}）`)
+            : "尚未运行（随后台任务按设置间隔自动执行）"}</dd></div>
+          <div><dt>自动备份</dt><dd>{business?.risks?.storage?.backup?.last
+            ? (business.risks.storage.backup.last.ok
+              ? (business.risks.storage.backup.stale
+                ? <span className="error-text">上次成功备份已超过 36 小时（{new Date(business.risks.storage.backup.last.at).toLocaleString("zh-CN")}），请检查备份定时任务</span>
+                : `正常（${new Date(business.risks.storage.backup.last.at).toLocaleString("zh-CN")}，${formatBytes(business.risks.storage.backup.last.bytes)}）`)
+              : <span className="error-text">上次备份失败：{String(business.risks.storage.backup.last.error || "未知原因").slice(0, 60)}</span>)
+            : <span className="error-text">还没有运行过自动备份，请按运维文档配置定时任务</span>}</dd></div>
           <div><dt>单用户成本报警</dt><dd>{business?.risks?.guard?.costAlerts?.length
             ? <span className="error-text">{business.risks.guard.costAlerts.map((row: any) => `${row.email || row.userId} ${yuan(row.reportedCents)}（${row.jobs} 个创作）`).join("、")}</span>
             : "无"}</dd></div>
@@ -714,7 +738,19 @@ function TaskCostPanel() {
 
 function WorksSection() {
   const { data, error, loading, reload } = useLoad<any>("/api/admin/works", []);
+  const { data: storageData, reload: reloadStorage } = useLoad<any>("/api/admin/storage", []);
+  const storage = storageData?.storage || null;
   const [busy, setBusy] = useState("");
+  const [sweeping, setSweeping] = useState(false);
+  async function sweepNow() {
+    setSweeping(true);
+    try {
+      await api("/api/admin/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sweep" }) });
+      await reloadStorage();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    } finally { setSweeping(false); }
+  }
   async function remove(work: any) {
     const reason = window.prompt(`删除作品「${work.title}」（所属用户 ${work.ownerEmail || "未知"}）\n请填写删除原因：`);
     if (reason === null) return;
@@ -729,6 +765,20 @@ function WorksSection() {
   }
   return <div className="admin-panel">
     <div className="admin-panel-head"><h2>作品与素材</h2><button className="secondary" onClick={reload}><RefreshCw size={13} />刷新</button></div>
+    <section className="panel" style={{ marginBottom: 16 }}>
+      <div className="admin-panel-head"><h3>存储用量</h3><button className="secondary" disabled={sweeping} onClick={sweepNow}><RefreshCw size={13} />{sweeping ? "清理中…" : "立即清理"}</button></div>
+      {storage ? (
+        <dl className="kv-list">
+          <div><dt>登记文件</dt><dd>{storage.totals.objects} 个 · {formatBytes(storage.totals.bytes)}</dd></div>
+          <div><dt>磁盘实际占用</dt><dd>{formatBytes(storage.reconciliation.diskBytes)}{Math.abs(storage.reconciliation.differenceBytes) > 0 ? `（与登记相差 ${formatBytes(Math.abs(storage.reconciliation.differenceBytes))}）` : "（与登记一致）"}</dd></div>
+          <div><dt>磁盘剩余</dt><dd>{storage.disk.warn
+            ? <span className="error-text">{formatBytes(storage.disk.freeBytes)}（{storage.disk.freePercent.toFixed(1)}%），低于报警线</span>
+            : `${formatBytes(storage.disk.freeBytes)}（${storage.disk.freePercent.toFixed(1)}%）`}</dd></div>
+          {storage.buckets.map((row: any) => <div key={row.bucket}><dt>{row.bucket === "inputs" ? "本地输入" : "作品与任务文件"}</dt><dd>{row.objects} 个 · {formatBytes(row.bytes)}</dd></div>)}
+          {storage.topUsers.filter((row: any) => row.bytes > 0).slice(0, 5).map((row: any) => <div key={row.userId || "unknown"}><dt>{row.email || "未知用户"}</dt><dd>{row.objects} 个 · {formatBytes(row.bytes)}</dd></div>)}
+        </dl>
+      ) : <Loading />}
+    </section>
     {loading ? <Loading /> : error ? <ErrorNote message={error} /> : (
       <table className="admin-table">
         <thead><tr><th>标题</th><th>所属用户</th><th>状态</th><th>存放位置</th><th>创建时间</th><th>操作</th></tr></thead>

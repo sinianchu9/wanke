@@ -3,10 +3,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { requestReferenceExists } from "@/lib/repository";
+import { deleteStorageObjectNow, getStorageObject, inputDirectory, registerStorageObject } from "@/lib/storage";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const INPUT_SCHEME = "wanke-input:";
-const STALE_INPUT_MS = 24 * 60 * 60 * 1000;
 const MIME_TO_EXT: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
@@ -19,24 +19,36 @@ const EXT_TO_MIME: Record<string, string> = {
   webp: "image/webp",
 };
 
-function inputDir() {
-  return path.resolve(process.env.WANKE_INPUT_DIR || "./data/inputs");
-}
-
 export type LocalImageInput = { ref: string; name: string; size: number };
 
-export async function saveLocalImage(file: File): Promise<LocalImageInput> {
+export async function saveLocalImage(file: File, userId: string | null): Promise<LocalImageInput> {
   const mime = file.type.toLowerCase();
   const ext = MIME_TO_EXT[mime];
   if (!ext) throw new Error("本地图片仅支持 JPG、PNG 或 WEBP");
   if (file.size <= 0) throw new Error("图片文件为空");
   if (file.size > MAX_IMAGE_BYTES) throw new Error("图片过大，请使用 10MB 以内的 JPG、PNG 或 WEBP");
 
-  await cleanupStaleLocalInputs().catch(() => undefined);
   const id = `${randomUUID()}.${ext}`;
-  const dir = inputDir();
+  const dir = inputDirectory();
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, id), Buffer.from(await file.arrayBuffer()), { flag: "wx" });
+  const buffer = Buffer.from(await file.arrayBuffer());
+  await fs.writeFile(path.join(dir, id), buffer, { flag: "wx" });
+  // Ownership is registered with the file, so another signed-in member can never
+  // delete (or have served) an input that is not theirs.
+  try {
+    registerStorageObject({
+      bucket: "inputs",
+      key: id,
+      userId,
+      contentType: mime,
+      sizeBytes: buffer.length,
+      refType: "user",
+      refId: userId || "",
+    });
+  } catch (error) {
+    await fs.unlink(path.join(dir, id)).catch(() => undefined);
+    throw error;
+  }
   return { ref: `${INPUT_SCHEME}//${id}`, name: file.name || "本地图片", size: file.size };
 }
 
@@ -51,8 +63,11 @@ function safeFileName(ref: string) {
   return name;
 }
 
-function refForFileName(name: string) {
-  return `${INPUT_SCHEME}//${name}`;
+/** Owner recorded at upload time; null when the input predates ownership tracking. */
+export function localInputOwner(ref: string): string | null {
+  let name: string;
+  try { name = safeFileName(ref); } catch { return null; }
+  return getStorageObject(name)?.userId || null;
 }
 
 export async function localInputToDataUrl(ref: string) {
@@ -61,7 +76,7 @@ export async function localInputToDataUrl(ref: string) {
   const mime = EXT_TO_MIME[ext];
   if (!mime) throw new Error("本地图片格式不受支持");
   try {
-    const data = await fs.readFile(path.join(inputDir(), name));
+    const data = await fs.readFile(path.join(inputDirectory(), name));
     if (data.length > MAX_IMAGE_BYTES) throw new Error("本地图片超过 10MB 限制");
     return `data:${mime};base64,${data.toString("base64")}`;
   } catch (error: any) {
@@ -72,11 +87,7 @@ export async function localInputToDataUrl(ref: string) {
 
 export async function deleteLocalInput(ref: string) {
   const name = safeFileName(ref);
-  try {
-    await fs.unlink(path.join(inputDir(), name));
-  } catch (error: any) {
-    if (error?.code !== "ENOENT") throw error;
-  }
+  await deleteStorageObjectNow("inputs", name);
 }
 
 export async function deleteLocalInputIfUnused(ref: string) {
@@ -98,19 +109,4 @@ export function collectLocalInputRefs(value: unknown, out = new Set<string>()) {
     for (const item of Object.values(value as Record<string, unknown>)) collectLocalInputRefs(item, out);
   }
   return out;
-}
-
-async function cleanupStaleLocalInputs() {
-  const dir = inputDir();
-  await fs.mkdir(dir, { recursive: true });
-  const names = await fs.readdir(dir);
-  const cutoff = Date.now() - STALE_INPUT_MS;
-  await Promise.allSettled(names.map(async name => {
-    if (!/^[0-9a-f-]+\.(jpg|jpeg|png|webp)$/i.test(name)) return;
-    const filePath = path.join(dir, name);
-    const stat = await fs.stat(filePath);
-    if (stat.mtimeMs >= cutoff) return;
-    const ref = refForFileName(name);
-    if (!requestReferenceExists(ref)) await fs.unlink(filePath);
-  }));
 }
