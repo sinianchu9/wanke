@@ -95,17 +95,35 @@
 | 浏览产品页 | ✅ | ✅ | ✅ |
 | 提交生成任务 | ❌ 401 | ✅（受配额） | ✅（受配额） |
 | 任务/素材/主体/项目/作品 | ❌ | 仅本人 | 全站读 |
-| 会员中心 / 模拟升级 | ❌ | ✅ | ✅ |
+| 会员中心 / 下单购买 | ❌ | ✅ | ✅ |
 | /admin 与 /api/admin/* | ❌ | ❌ 403 | ✅（写操作留审计） |
 | 系统配置修改 | ❌ | ❌ 403 | ✅ |
 
-## 6. 管理员种子
+## 6. 管理员角色与种子
+
+**只有一种管理员角色**：`admin` 即超管，拥有全部后台权限。不做超级管理员/财务/客服/运营分层，
+不做权限组与 RBAC（`docs/COMMERCIALIZATION_PLAN.md` §8.2/§8.5）。schema 用
+`CHECK(role IN ('user','admin'))` 把身份固定为两种，写入第三种会被数据库直接拒绝；
+所有后台接口的唯一守卫是 `requireAdmin()`。
+
+种子与增减管理员：
 
 - 设置环境变量 `ADMIN_EMAIL` 后：
   - 该邮箱注册时自动提升为 admin；
   - 已存在的账号在下次服务启动（db 初始化）时提升为 admin。
 - 未配置 `ADMIN_EMAIL` 时，可直接在 SQLite 中执行：
   `UPDATE users SET role='admin' WHERE email='you@example.com';`
+- 本轮不提供后台「授予/收回管理员」界面；需要收回时改 `ADMIN_EMAIL` 并重启，或
+  `UPDATE users SET role='user' WHERE email='...';`（下一次请求即生效，无需重启）。
+
+**后台不会失去最后一个管理员**（只有一个管理员角色时，失去他等于永久失去后台）：
+
+- 管理员不能停用或注销自己的账号：`PATCH /api/admin/users/[id]` 对自己返回 400 `SELF_DISABLE`；
+- 管理员不能在会员中心注销账号：`POST /api/account/close` 返回 409 `ADMIN_ACCOUNT`，
+  离开属于运营动作，由另一位管理员在后台「用户」里处理；
+- 停用/恢复**另一位**管理员仍然可以，团队依然能收回权限；被停用的管理员立即失去会话与后台访问；
+- 万一数据库被手工改坏导致无人可登录，恢复方式是
+  `UPDATE users SET role='admin', status='active' WHERE email='...';`（步骤见 `docs/OPERATIONS.md` §13）。
 
 ## 7. API 一览（SaaS 层）
 
@@ -178,9 +196,10 @@
 - 存储：创作结果在未归档时仍指向上游临时链接（界面已提示会过期并建议保存到本机），
   落到平台存储属作品与存储商业化阶段。
 - OAuth：微信/Google 登录（users/sessions 模型兼容，需加 identities 表）。
-- Postgres：当前 SQLite + WAL 满足单机；表结构与 SQL 均使用标准语法，
-  迁移时替换 `lib/db.ts` 驱动并复核 `LIKE`/JSON 字段即可。
-- 组织/团队：当前仅 user/admin 两级；多团队需引入 organizations 与 RBAC。
+- 数据库：SQLite + WAL 是**正式方案**，不是过渡方案（收敛修订 §8.2）——本轮不迁 PostgreSQL、
+  不做兼容层；只有真实运行后出现明显瓶颈再评估迁移（届时替换 `lib/db.ts` 驱动并复核 `LIKE`/JSON 字段）。
+- 组织/团队：不做。身份只有 user 与 admin（admin 即超管，见 §6），本轮明确不引入
+  organizations、角色分层、权限组与 RBAC。
 - 监控：后台「异常与风险」已给出 Worker 停止、任务积压、连续查询失败、24 小时超时、
   待人工确认额度、防刷拦截与连续失败创作类型；对外告警（钉钉/飞书/PagerDuty）仍待接入。
 - 存储配额：`works` 未限制存储量（仅生成条数配额）；可按需扩展存储额度字段。
