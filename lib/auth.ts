@@ -235,6 +235,22 @@ export function requireUser(request: Request): SessionUser {
   return user;
 }
 
+/**
+ * Administrator gate. There is exactly one administrator role: `admin` is the super
+ * administrator and holds every backoffice permission — no role tiers, no permission
+ * groups, no RBAC, because a small deployment is more reliable with fewer moving parts.
+ *
+ * The price of that simplicity is that losing the last administrator loses the whole
+ * backoffice (users, orders, refunds, credits), and recovery would mean hand-editing the
+ * database. Two plain rules keep that from happening, and together they guarantee at
+ * least one administrator can always sign in:
+ *
+ *   1. an administrator can never suspend or cancel their own account (SELF_DISABLE);
+ *   2. an administrator can never cancel from the member centre at all (ADMIN_ACCOUNT) —
+ *      leaving is an operator action, done by another administrator in 后台 → 用户.
+ *
+ * Suspending *another* administrator stays possible, so a team can still revoke access.
+ */
 export function requireAdmin(request: Request): SessionUser {
   const user = requireUser(request);
   if (user.role !== "admin") throw new HttpError(403, "FORBIDDEN", "该操作仅限管理员");

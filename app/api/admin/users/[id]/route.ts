@@ -29,9 +29,6 @@ export async function PATCH(request: Request, ctx: Ctx) {
     const target = getUserById(id);
     if (!target) throw new HttpError(404, "NOT_FOUND", "用户不存在");
     const input = schema.parse(await request.json());
-    if (target.id === admin.id && input.status === "disabled") {
-      throw new HttpError(400, "SELF_DISABLE", "不能停用自己的管理员账号");
-    }
     const meta: Record<string, unknown> = {};
 
     if (input.plan && !listPlans({ includeArchived: true }).some(plan => plan.id === input.plan)) {
@@ -41,6 +38,11 @@ export async function PATCH(request: Request, ctx: Ctx) {
       throw new HttpError(400, "REASON_REQUIRED", "请填写调整原因，便于运营追溯");
     }
     if (input.status && input.status !== target.status) {
+      // A single administrator role means the backoffice must never end up with nobody who
+      // can sign in: an administrator may suspend another one, but never their own account.
+      if (input.status !== "active" && target.id === admin.id) {
+        throw new HttpError(400, "SELF_DISABLE", "不能停用或注销自己的管理员账号");
+      }
       db.prepare("UPDATE users SET status=?, updated_at=? WHERE id=?")
         .run(input.status, new Date().toISOString(), id);
       // Suspended and cancelled accounts lose their sessions immediately.

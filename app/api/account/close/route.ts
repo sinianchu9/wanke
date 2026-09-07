@@ -20,6 +20,11 @@ export async function POST(request: Request) {
     const record = getUserByEmail(user.email);
     if (!record) throw new HttpError(404, "USER_NOT_FOUND", "账号不存在");
     if (!(await verifyPassword(input.password, record.passwordHash))) throw new HttpError(403, "BAD_PASSWORD", "密码不正确");
+    // An administrator cannot cancel from the member centre: with a single administrator role
+    // that would lock the backoffice permanently. Another operator does it in 后台 → 用户.
+    if (user.role === "admin") {
+      throw new HttpError(409, "ADMIN_ACCOUNT", "管理员账号不能在会员中心注销；如确需停用，请由另一位管理员在后台「用户」里处理");
+    }
     const pendingOrders = Number((db.prepare(`SELECT COUNT(*) AS c FROM orders WHERE user_id=? AND status IN ('pending','paying')`).get(user.id) as any).c || 0);
     if (pendingOrders > 0) throw new HttpError(409, "PENDING_ORDERS", "还有未完成的订单，请先取消或完成支付后再注销账号");
     const openTickets = Number((db.prepare(`SELECT COUNT(*) AS c FROM support_tickets WHERE user_id=? AND status IN ('open','processing','waiting_user')`).get(user.id) as any).c || 0);

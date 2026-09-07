@@ -268,6 +268,7 @@ function UsersSection() {
               </button>
               {row.user.status === "active"
                 ? <button className="secondary" disabled={busy === row.user.id || row.user.role === "admin"}
+                    title={row.user.role === "admin" ? "管理员账号不能在列表里暂停，以免系统失去唯一可登录的管理员" : "暂停后该用户立即无法登录"}
                     onClick={() => patch(row.user.id, { status: "disabled" }, "暂停账号")}>暂停</button>
                 : <button className="secondary" disabled={busy === row.user.id}
                     onClick={() => patch(row.user.id, { status: "active" }, "恢复账号")}>恢复</button>}

@@ -379,6 +379,47 @@ try {
   check("注销账号的重置请求得到同样的通用响应", closedReset.status === 200 && closedReset.json?.ok === true);
   check("注销账号不会收到重置邮件", lastMail(plain, "finn@wanke.test") === null, `messages=${plain.messages.length}`);
 
+  console.log("== 管理员只有一种角色，系统永远保留一个可登录的管理员（§42 / 收敛修订 §8.2） ==");
+  const hana = await register("hana@wanke.test", "Hana");
+  let thirdRoleRejected = false;
+  try { execute("UPDATE users SET role='operator' WHERE id=?", hana.id); } catch { thirdRoleRejected = true; }
+  check("数据库只承认「普通用户」与「管理员」两种身份", thirdRoleRejected && queryOne("SELECT role FROM users WHERE id=?", hana.id)?.role === "user");
+  const adminCountBefore = await call("/api/admin/stats", { cookie: admin.cookie });
+  check("后台可以看到管理员数量", adminCountBefore.json?.stats?.users?.admins === 1, JSON.stringify(adminCountBefore.json?.stats?.users));
+
+  const adminClose = await call("/api/account/close", { method: "POST", cookie: admin.cookie, body: { password: "admin-pass-123", confirm: true } });
+  check("管理员不能在会员中心注销自己", adminClose.status === 409 && adminClose.json?.code === "ADMIN_ACCOUNT", `${adminClose.status} ${adminClose.text}`);
+  check("拒绝理由说明由另一位管理员在后台处理", /另一位管理员/.test(adminClose.json?.error || ""), adminClose.json?.error);
+  scanLeak("admin self cancellation", adminClose.json);
+  check("管理员账号没有被注销", queryOne("SELECT status FROM users WHERE id=?", admin.id)?.status === "active");
+  check("管理员仍然可以进入后台", (await call("/api/admin/stats", { cookie: admin.cookie })).status === 200);
+
+  const selfDisable = await call(`/api/admin/users/${admin.id}`, { method: "PATCH", cookie: admin.cookie, body: { status: "disabled", note: "自助停用测试" } });
+  check("管理员不能在后台停用自己", selfDisable.status === 400 && selfDisable.json?.code === "SELF_DISABLE", `${selfDisable.status} ${selfDisable.text}`);
+  const selfClose = await call(`/api/admin/users/${admin.id}`, { method: "PATCH", cookie: admin.cookie, body: { status: "closed", note: "自助注销测试" } });
+  check("管理员也不能在后台注销自己", selfClose.status === 400 && selfClose.json?.code === "SELF_DISABLE", `${selfClose.status} ${selfClose.text}`);
+  check("两次自助操作之后管理员依然可用", queryOne("SELECT status FROM users WHERE id=?", admin.id)?.status === "active");
+
+  // Revoking *another* operator must stay possible, or a departed administrator could never
+  // be removed. Suspending one of two administrators still leaves one who can sign in.
+  const ivy = await register("ivy@wanke.test", "Ivy");
+  execute("UPDATE users SET role='admin', updated_at=? WHERE id=?", new Date().toISOString(), ivy.id);
+  const ivyLogin = await login("ivy@wanke.test", "account-pass-123");
+  check("第二位管理员可以进入后台", (await call("/api/admin/stats", { cookie: ivyLogin.session })).status === 200);
+  check("后台管理员数量随之变化", (await call("/api/admin/stats", { cookie: admin.cookie })).json?.stats?.users?.admins === 2);
+  const suspendIvy = await call(`/api/admin/users/${ivy.id}`, { method: "PATCH", cookie: admin.cookie, body: { status: "disabled", note: "离职交接测试" } });
+  check("可以停用另一位管理员", suspendIvy.status === 200, `${suspendIvy.status} ${suspendIvy.text}`);
+  check("被停用的管理员立即失去后台访问", (await call("/api/admin/stats", { cookie: ivyLogin.session })).status === 401);
+  check("停用管理员写入操作记录", query("SELECT action FROM admin_audit_logs WHERE target_id=? ORDER BY created_at DESC LIMIT 1", ivy.id)[0]?.action === "user.disable");
+  const restoreIvy = await call(`/api/admin/users/${ivy.id}`, { method: "PATCH", cookie: admin.cookie, body: { status: "active" } });
+  // Suspension revoked Ivy's sessions, so the restored account signs in again from scratch.
+  const ivyBack = await login("ivy@wanke.test", "account-pass-123");
+  check("管理员可以恢复另一位管理员", restoreIvy.status === 200 && ivyBack.status === 200, `${restoreIvy.status} / ${ivyBack.status}`);
+  execute("UPDATE users SET role='user', updated_at=? WHERE id=?", new Date().toISOString(), ivy.id);
+  check("收回管理员身份后该账号立刻回到普通用户", queryOne("SELECT role FROM users WHERE id=?", ivy.id)?.role === "user"
+    && (await call("/api/admin/stats", { cookie: ivyBack.session })).status === 403);
+  check("收回身份不影响普通功能", (await call("/api/auth/me", { cookie: ivyBack.session })).json?.user?.role === "user");
+
   console.log("== 邮件服务未开启：留档而不是假装发送 ==");
   await configure({ email_enabled: false });
   const gina = await register("gina@wanke.test", "Gina");
