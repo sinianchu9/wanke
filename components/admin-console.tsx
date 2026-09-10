@@ -912,11 +912,24 @@ function SystemSettingsSection() {
                 const isChecked = rawVal === "true" || rawVal === "1" || (rawVal as any) === true;
                 const isDirty = !item.secret && (item.value ?? "") !== (values[item.key] ?? item.value ?? "");
 
+                const defaultPlaceholder = (() => {
+                  if (item.secret) return item.configured ? "留空保持现有配置" : "请输入密码或密钥";
+                  if (item.key === "alipay_notify_url") return "留空使用系统默认拼接（如 https://域名/api/payments/alipay/notify）";
+                  if (item.key === "alipay_return_url") return "留空使用系统默认拼接（如 https://域名/payment/result）";
+                  if (item.key === "alipay_gateway_url") return "留空按环境自动选择官方网关";
+                  if (item.type === "url") return item.default ? `默认：${item.default}` : "https://...";
+                  if (item.type === "number") return item.default ? `默认：${item.default}` : "请输入数字";
+                  return item.default ? `默认：${item.default}` : `请输入${item.label}`;
+                })();
+
                 return (
                   <div className="field" key={item.key}>
-                    <span className="field-label">{item.label}
-                      <small>{item.configured ? (item.secret ? `${item.masked} · 已配置` : "已配置") : "未配置"} · {item.source === "database" ? "后台保存" : item.source === "environment" ? "来自环境变量" : "默认值"}</small>
-                    </span>
+                    <div className="field-label-row">
+                      <span className="field-label-title">{item.label}</span>
+                      <span className={`field-source-badge ${item.configured ? "configured" : "unconfigured"}`}>
+                        {item.configured ? (item.secret ? `${item.masked} · 已配置` : "已配置") : "未配置"} · {item.source === "database" ? "后台保存" : item.source === "environment" ? "来自环境变量" : "默认值"}
+                      </span>
+                    </div>
                     {isBoolean ? (
                       <div className="setting-toggle-row">
                         <div className="setting-toggle-meta">
@@ -944,21 +957,28 @@ function SystemSettingsSection() {
                         {item.options.map((option: any) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
                     ) : item.secret ? (
-                      <input type="password" autoComplete="new-password" placeholder={item.configured ? "留空保持现有配置" : item.help}
+                      <input type="password" autoComplete="new-password" placeholder={defaultPlaceholder}
                         onChange={event => setValues(state => ({ ...state, [item.key]: event.target.value }))} />
                     ) : item.type === "textarea" ? (
-                      <textarea rows={5} value={values[item.key] ?? ""} placeholder={item.help}
+                      <textarea rows={5} value={values[item.key] ?? ""} placeholder={defaultPlaceholder}
                         onChange={event => setValues(state => ({ ...state, [item.key]: event.target.value }))} />
                     ) : (
-                      <input value={values[item.key] ?? ""} placeholder={item.help}
+                      <input value={values[item.key] ?? ""} placeholder={defaultPlaceholder}
                         onChange={event => setValues(state => ({ ...state, [item.key]: event.target.value }))} />
                     )}
                     {isBoolean ? (
                       item.technicalKey && item.technicalKey !== item.key ? (
-                        <span className="muted mini">技术字段 {item.technicalKey}</span>
+                        <div className="field-help-row" style={{ justifyContent: "flex-end" }}>
+                          <code className="technical-key-tag">参数：{item.technicalKey}</code>
+                        </div>
                       ) : null
                     ) : (
-                      <span className="muted mini">{item.help}{item.technicalKey && item.technicalKey !== item.key ? ` · 技术字段 ${item.technicalKey}` : ""}</span>
+                      <div className="field-help-row">
+                        <span className="muted mini">{item.help}</span>
+                        {item.technicalKey && item.technicalKey !== item.key ? (
+                          <code className="technical-key-tag">参数：{item.technicalKey}</code>
+                        ) : null}
+                      </div>
                     )}
                   </div>
                 );
