@@ -15,7 +15,7 @@ export default function VideoEdit({ job, modelStudioAvailable, onCreated }: {
   const sourceDuration = resolveSourceDuration(job);
   const [outputIndex, setOutputIndex] = useState(usableOutputs[0]?.index ?? 0);
   const [prompt, setPrompt] = useState("");
-  const [resolution, setResolution] = useState<"720P" | "1080P">(sourceResolution(job));
+  const [resolution, setResolution] = useState<"480P" | "720P" | "1080P">(sourceResolution(job));
   const [audioSetting, setAudioSetting] = useState<"origin" | "auto">("origin");
   const [localImages, setLocalImages] = useState<LocalInput[]>([]);
   const [referenceUrls, setReferenceUrls] = useState("");
@@ -37,7 +37,7 @@ export default function VideoEdit({ job, modelStudioAvailable, onCreated }: {
 
   const publicRefs = referenceUrls.split(/\n/).map(value => value.trim()).filter(Boolean);
   const referenceCount = localImages.length + publicRefs.length;
-  const sourceSupported = Number.isInteger(sourceDuration) && sourceDuration >= 2 && sourceDuration <= 10;
+  const sourceSupported = Number.isInteger(sourceDuration) && sourceDuration >= 2 && sourceDuration <= 30;
   const canSubmit = modelStudioAvailable && sourceSupported && referenceCount <= 4 && Boolean(prompt.trim()) && !uploading && !busy;
 
   async function addLocalImages(files: FileList | null) {
@@ -102,14 +102,14 @@ export default function VideoEdit({ job, modelStudioAvailable, onCreated }: {
       <PencilLine size={17}/>
       <div>
         <h3>编辑这个视频</h3>
-        <p>对整条输入视频执行文字指令编辑；可以追加参考图片用于服装、道具、商品或视觉元素替换。</p>
+        <p>使用百炼 Wan 3.0 视频编辑能力，对整条输入视频执行文字指令编辑；可追加参考图片用于服装、道具、商品或视觉元素替换。</p>
       </div>
     </div>
 
     <div className="form-stack" style={{marginTop:16}}>
-      <div className="muted mini"><strong>边界：</strong>当前 Wan 2.7 Video Editing 没有时间段或 mask 参数，所以这里不是“第 3–5 秒局部重做”。编辑指令会作用于整条输入视频。</div>
-      {!modelStudioAvailable && <div className="error-banner">视频编辑当前只接入已核实的百炼 Wan 2.7 Video Editing。请先到“设置”配置百炼 API Key。</div>}
-      {!sourceSupported && <div className="error-banner">当前原片时长为 {sourceDuration || "未知"} 秒。此编辑路线当前只接受 2–10 秒输入视频。</div>}
+      <div className="muted mini"><strong>边界：</strong>当前百炼视频编辑对整条输入视频执行文字指令编辑，不带时间段或局部 mask 参数；编辑指令会作用于整条输入视频。</div>
+      {!modelStudioAvailable && <div className="error-banner">视频编辑当前只接入已核实的百炼 Wan 3.0 / HappyHorse 1.1 原生能力。请先到“设置”配置百炼 API Key。</div>}
+      {!sourceSupported && <div className="error-banner">当前原片时长为 {sourceDuration || "未知"} 秒。此编辑路线当前只接受 2–30 秒输入视频。</div>}
 
       {usableOutputs.length > 1 && <div className="field">
         <span className="field-label">选择要编辑的结果</span>
@@ -131,7 +131,7 @@ export default function VideoEdit({ job, modelStudioAvailable, onCreated }: {
       </div>
 
       <div className="form-grid two">
-        <div className="field"><span className="field-label">输出清晰度</span><select value={resolution} onChange={event => setResolution(event.target.value as "720P" | "1080P")}><option value="1080P">1080P</option><option value="720P">720P</option></select></div>
+        <div className="field"><span className="field-label">输出清晰度</span><select value={resolution} onChange={event => setResolution(event.target.value as "480P" | "720P" | "1080P")}><option value="1080P">1080P</option><option value="720P">720P</option><option value="480P">480P</option></select></div>
         <div className="field"><span className="field-label">声音</span><select value={audioSetting} onChange={event => setAudioSetting(event.target.value as "origin" | "auto")}><option value="origin">尽量保留原声音</option><option value="auto">交给模型自动处理</option></select></div>
       </div>
 
@@ -148,7 +148,7 @@ export default function VideoEdit({ job, modelStudioAvailable, onCreated }: {
 
       {error && <div className="error-banner">{error}</div>}
       <div className="stage-run" style={{margin:"4px 0 0",borderRadius:10}}>
-        <span className="muted mini">当前固定使用百炼 Wan 2.7 Video Editing；不会把没有时间段能力的编辑接口包装成 Retake。</span>
+        <span className="muted mini">当前固定使用百炼 Wan 3.0 Video Editing；带原生音画协同与高清重绘。</span>
         <button className="primary" disabled={!canSubmit} onClick={submit}><Send size={15}/>{busy ? "正在提交…" : "开始视频编辑"}</button>
       </div>
     </div>
@@ -178,7 +178,8 @@ function resolveSourceDuration(job: StoredJob) {
   return 0;
 }
 
-function sourceResolution(job: StoredJob): "720P" | "1080P" {
-  const value = String(job.request.resolution || "1080P").toUpperCase();
-  return value === "720P" ? "720P" : "1080P";
+function sourceResolution(job: StoredJob): "480P" | "720P" | "1080P" {
+  const value = String(job.request.resolution || job.details?.resolution || "1080P").toUpperCase();
+  if (value === "480P" || value === "720P" || value === "1080P") return value;
+  return "1080P";
 }

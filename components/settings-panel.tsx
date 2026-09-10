@@ -251,7 +251,7 @@ export default function SettingsPanel({ onChanged }: { onChanged: () => Promise<
         {channelTab === "happyhorse" && (
           <div className="form-stack" style={{marginTop:14}}>
             <div className="muted mini" style={{marginBottom:4,lineHeight:1.4}}>
-              <strong>🐎 HappyHorse 专属通道：</strong>负责文生视频、单图生视频、纯图片多参考。留空项自动继承通用百炼配置。推荐新加坡地域。
+              <strong>🐎 HappyHorse（1.1）专属通道：</strong>负责 3–15 秒文生视频、单图生视频、纯图片多参考及视频编辑，带原生音频，支持 720P/1080P，优先高画质与自然动态。留空项自动继承通用百炼配置。推荐新加坡地域。
             </div>
             {settings.happyhorse?.blockedReason && <div className="error-banner">HappyHorse 通道已停止用于新任务：{settings.happyhorse.blockedReason}</div>}
             <div className="field">
@@ -277,7 +277,7 @@ export default function SettingsPanel({ onChanged }: { onChanged: () => Promise<
         {channelTab === "wan" && (
           <div className="form-stack" style={{marginTop:14}}>
             <div className="muted mini" style={{marginBottom:4,lineHeight:1.4}}>
-              <strong>🌊 Wan 专属通道：</strong>负责首尾画面过渡、视频多模态参考、视频原生延长、整条视频指令编辑。留空项自动继承通用百炼配置。推荐北京独享空间。
+              <strong>🌊 Wan（万相 3.0）专属通道：</strong>负责 2–30 秒超长原生生成、首尾画面过渡、视频多模态参考、原生视频延长（最长 30 秒）、整条视频指令编辑。支持 480P/720P/1080P、30fps、原生音频。推荐北京独享空间或新加坡地域。留空项自动继承通用百炼配置。
             </div>
             {settings.wan?.blockedReason && <div className="error-banner">Wan 通道已停止用于新任务：{settings.wan.blockedReason}</div>}
             <div className="field">

@@ -2,7 +2,7 @@
 
 本功能解决的问题是：**已有一段短视频，希望沿同一时间轴继续往后生成，并返回包含原片的更长完整视频。**
 
-当前实现只接入已经核实的百炼 Wan 2.7 原生 Video Continuation 能力。
+当前实现接入百炼 Wan 3.0 原生 Video Continuation 能力，最长支持延续至 30 秒。
 
 它不会用“参考视频再生成”冒充视频延长，也不会假设万镜一刻具备同样的原生能力。
 
@@ -11,10 +11,10 @@
 Wanke 使用：
 
 ```text
-model = wan2.7-i2v-2026-04-25
+model = wan3.0-video
 media.type = first_clip
 media.url = 原视频云端 URL
-parameters.duration = 最终总时长
+parameters.duration = 最终总时长（最高 30 秒）
 ```
 
 这里最容易误解的是 `duration`。
@@ -31,28 +31,28 @@ parameters.duration = 最终总时长
 
 ```text
 原视频：5 秒
-targetDuration：10 秒
+targetDuration：15 秒
 ```
 
 含义是：
 
 ```text
-原 5 秒 + 约 5 秒新生成内容 = 10 秒完整结果
+原 5 秒 + 约 10 秒新生成内容 = 15 秒完整结果
 ```
 
 不是：
 
 ```text
-原 5 秒 + 10 秒 = 15 秒
+原 5 秒 + 15 秒 = 20 秒
 ```
 
 ## 2. 输入边界
 
-当前 Wanke 服务端严格限制：
+当前 Wanke 服务端规则：
 
 ```text
-原视频时长：2–10 秒
-最终总时长：最多 15 秒
+原视频时长：2–28 秒
+最终总时长：最多 30 秒
 最终总时长 > 原视频时长
 视频必须有可被百炼访问的 HTTP/HTTPS 云端 URL
 百炼 API Key 必须已配置

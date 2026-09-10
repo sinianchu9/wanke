@@ -10,7 +10,7 @@ type VideoInput = {
   medias: { type: "image" | "video" | "audio"; url?: string; mediaId?: string }[];
   aspectRatio: string;
   duration: number;
-  resolution: "720P" | "1080P";
+  resolution: "480P" | "720P" | "1080P";
 };
 
 type RouteDecision = {
@@ -28,25 +28,58 @@ export function chooseRoute(input: VideoInput): RouteDecision {
   const hhReady = Boolean(hhConfig.apiKey) && !hhConfig.blockedReason && !isHhBeijing;
   const wanReady = Boolean(wanConfig.apiKey) && !wanConfig.blockedReason;
 
-  // If HappyHorse is not ready or points to cn-beijing, but Wan is ready, route everything to Wan 2.7
-  if (!hhReady && wanReady) {
+  // Wan 3.0 独占或优先条件判断
+  const exceedsHappyHorseDuration = input.duration > 15 || input.duration < 3;
+  const requires480P = input.resolution === "480P";
+  const isFirstLast = input.jobType === "first_last_frame";
+  const hasVideoReference = input.medias.some(media => media.type === "video");
+
+  // 如果 HappyHorse 不可用、或者当前参数超出 HappyHorse 规格（时长>15s或<3s、480P、首尾帧、包含视频参考），只要 Wan 通道就绪则走 Wan 3.0
+  if ((!hhReady || exceedsHappyHorseDuration || requires480P || isFirstLast || hasVideoReference) && wanReady) {
     if (input.jobType === "text_to_video") {
-      return { model: "wan2.7-t2v", route: "wan-t2v", reason: "Wan 通道已就绪，文生视频使用 Wan 2.7 原生能力" };
+      const reason = exceedsHappyHorseDuration
+        ? `时长为 ${input.duration} 秒，自动使用 Wan 3.0 超长文生视频能力（最长支持 30 秒）`
+        : requires480P
+          ? "清晰度为 480P，自动使用 Wan 3.0 原生文生视频能力"
+          : "Wan 通道已就绪，文生视频使用 Wan 3.0 原生能力";
+      return { model: "wan3.0-video", route: "wan-t2v", reason };
     }
     if (input.jobType === "image_to_video") {
-      return { model: "wan2.7-i2v-2026-04-25", route: "wan-i2v", reason: "Wan 通道已就绪，单图生视频使用 Wan 2.7 原生能力" };
+      const reason = exceedsHappyHorseDuration
+        ? `时长为 ${input.duration} 秒，自动使用 Wan 3.0 超长图生视频能力（最长支持 30 秒）`
+        : requires480P
+          ? "清晰度为 480P，自动使用 Wan 3.0 原生图生视频能力"
+          : "Wan 通道已就绪，单图生视频使用 Wan 3.0 原生能力";
+      return { model: "wan3.0-video", route: "wan-i2v", reason };
     }
-    if (input.jobType === "first_last_frame") {
-      return { model: "wan2.7-i2v-2026-04-25", route: "wan-i2v", reason: "首尾帧由 Wan 2.7 原生支持" };
+    if (isFirstLast) {
+      return { model: "wan3.0-video", route: "wan-i2v", reason: "首尾帧由 Wan 3.0 原生支持过渡生成" };
     }
-    return { model: "wan2.7-r2v-2026-06-12", route: "wan-r2v", reason: "Wan 通道已就绪，参考生视频使用 Wan 2.7 多模态能力" };
+    return {
+      model: "wan3.0-video",
+      route: "wan-r2v",
+      reason: hasVideoReference
+        ? "存在视频参考，自动使用 Wan 3.0 多模态参考能力（输入+输出总时长 ≤30 秒）"
+        : exceedsHappyHorseDuration
+          ? `时长为 ${input.duration} 秒，自动使用 Wan 3.0 超长多参考能力（最长支持 30 秒）`
+          : "Wan 通道已就绪，参考生视频使用 Wan 3.0 多模态能力",
+    };
   }
 
-  if (input.jobType === "text_to_video") return { model: "happyhorse-1.1-t2v", route: "happyhorse-t2v", reason: "文生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动" };
-  if (input.jobType === "image_to_video") return { model: "happyhorse-1.1-i2v", route: "happyhorse-i2v", reason: "单图生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动" };
-  if (input.jobType === "first_last_frame") return { model: "wan2.7-i2v-2026-04-25", route: "wan-i2v", reason: "首尾帧由 Wan 2.7 原生支持" };
-  if (input.medias.every(media => media.type === "image")) return { model: "happyhorse-1.1-r2v", route: "happyhorse-r2v", reason: "纯图片多参考优先 HappyHorse 1.1，强化人物与产品一致性" };
-  return { model: "wan2.7-r2v-2026-06-12", route: "wan-r2v", reason: "存在视频参考，自动使用 Wan 2.7 多模态参考能力" };
+  // 默认使用 HappyHorse 1.1（适合 3–15 秒，720P/1080P，高动态与一致性）
+  if (input.jobType === "text_to_video") {
+    return { model: "happyhorse-1.1-t2v", route: "happyhorse-t2v", reason: "文生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动（支持 3–15 秒）" };
+  }
+  if (input.jobType === "image_to_video") {
+    return { model: "happyhorse-1.1-i2v", route: "happyhorse-i2v", reason: "单图生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动（支持 3–15 秒）" };
+  }
+  if (isFirstLast) {
+    return { model: "wan3.0-video", route: "wan-i2v", reason: "首尾帧由 Wan 3.0 原生支持" };
+  }
+  if (input.medias.every(media => media.type === "image")) {
+    return { model: "happyhorse-1.1-r2v", route: "happyhorse-r2v", reason: "纯图片多参考优先 HappyHorse 1.1，强化人物与产品一致性（支持 3–15 秒）" };
+  }
+  return { model: "wan3.0-video", route: "wan-r2v", reason: "存在视频参考，自动使用 Wan 3.0 多模态参考能力" };
 }
 
 function requireUrl(media: VideoInput["medias"][number], index: number) {
@@ -57,7 +90,8 @@ function requireUrl(media: VideoInput["medias"][number], index: number) {
 
 function effectiveDuration(input: VideoInput, decision: RouteDecision) {
   const hasVideoReference = input.medias.some(media => media.type === "video");
-  if (decision.route === "wan-r2v" && hasVideoReference) return Math.min(input.duration, 10);
+  // Wan 3.0 原生支持单次 2-30 秒；有视频参考时总时长 ≤ 30 秒
+  if (decision.route === "wan-r2v" && hasVideoReference) return Math.min(input.duration, 30);
   return input.duration;
 }
 
@@ -90,7 +124,7 @@ function buildPayload(input: VideoInput, decision: RouteDecision) {
   }
   if (decision.route === "wan-t2v") {
     parameters.ratio = input.aspectRatio;
-    return { model: decision.model, input: { prompt }, parameters: { ...parameters, prompt_extend: true } };
+    return { model: decision.model, input: { prompt }, parameters: { ...parameters, prompt_extend: true, audio_setting: "auto" } };
   }
   if (decision.route === "wan-i2v") {
     const isFirstLast = input.jobType === "first_last_frame" && input.medias.length >= 2;
@@ -102,7 +136,7 @@ function buildPayload(input: VideoInput, decision: RouteDecision) {
           ? [{ type: "first_frame", url: requireUrl(input.medias[0], 0) }, { type: "last_frame", url: requireUrl(input.medias[1], 1) }]
           : [{ type: "first_frame", url: requireUrl(input.medias[0], 0) }],
       },
-      parameters: { ...parameters, prompt_extend: true },
+      parameters: { ...parameters, prompt_extend: true, audio_setting: "auto" },
     };
   }
   if (decision.route === "happyhorse-r2v") {
@@ -114,7 +148,7 @@ function buildPayload(input: VideoInput, decision: RouteDecision) {
   return {
     model: decision.model,
     input: { prompt, media: input.medias.map((media, index) => ({ type: media.type === "video" ? "reference_video" : "reference_image", url: requireUrl(media, index) })) },
-    parameters: { ...parameters, prompt_extend: false },
+    parameters: { ...parameters, prompt_extend: false, audio_setting: "auto" },
   };
 }
 
@@ -318,7 +352,7 @@ export async function submitModelStudioVideo(input: VideoInput) {
 }
 
 export async function submitModelStudioVideoExtension(input: VideoExtensionInput) {
-  const model = "wan2.7-i2v-2026-04-25";
+  const model = "wan3.0-video";
   const channel = "wan" as const;
   const endpoint = rootUrlForChannel(channel);
   const body = await requestJsonForChannel(
@@ -329,7 +363,7 @@ export async function submitModelStudioVideoExtension(input: VideoExtensionInput
       body: JSON.stringify({
         model,
         input: { prompt: input.prompt, media: [{ type: "first_clip", url: input.sourceUrl }] },
-        parameters: { resolution: input.resolution, duration: input.targetDuration, prompt_extend: true, watermark: false },
+        parameters: { resolution: input.resolution, duration: input.targetDuration, prompt_extend: true, watermark: false, audio_setting: "auto" },
       }),
     }
   );
@@ -346,7 +380,7 @@ export async function submitModelStudioVideoExtension(input: VideoExtensionInput
       channel,
       model,
       route: "wan-video-extension",
-      routeReason: "视频延长使用 Wan 2.7 原生 first_clip continuation，不使用 reference-to-video 代替",
+      routeReason: "视频延长使用 Wan 3.0 原生 first_clip continuation，最高支持延续至 30 秒",
       creationAction: "video_extension",
       sourceJobId: input.sourceJobId,
       sourceOutputIndex: input.sourceOutputIndex,
@@ -358,7 +392,7 @@ export async function submitModelStudioVideoExtension(input: VideoExtensionInput
 }
 
 export async function submitModelStudioVideoEditing(input: VideoEditingInput) {
-  const model = "wan2.7-videoedit";
+  const model = "wan3.0-video";
   const channel = "wan" as const;
   const endpoint = rootUrlForChannel(channel);
   const media = [
@@ -395,7 +429,7 @@ export async function submitModelStudioVideoEditing(input: VideoEditingInput) {
       channel,
       model,
       route: "wan-video-editing",
-      routeReason: "整条视频指令编辑使用 Wan 2.7 Video Editing；当前没有时间段或 mask 参数，不标记为 Retake",
+      routeReason: "整条视频指令编辑使用 Wan 3.0 Video Editing，支持原生音频与高清编辑",
       creationAction: "video_editing",
       sourceJobId: input.sourceJobId,
       sourceOutputIndex: input.sourceOutputIndex,

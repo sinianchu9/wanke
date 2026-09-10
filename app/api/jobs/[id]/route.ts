@@ -121,7 +121,7 @@ export async function POST(request: Request, ctx: Ctx) {
         prompt,
         jobType: "reference_to_video",
         medias: [{ type: "video", url: sourceUrl, mediaId: "" }],
-        duration: Math.min(Number(base.duration) || 5, 10),
+        duration: Math.min(Number(base.duration) || 5, 30),
         n: 1,
         _sourceSubjectCardIds: Array.isArray(sourceSubjectCardIds) ? sourceSubjectCardIds : [],
       };

@@ -62,11 +62,10 @@ localhost 的自签证书（写入 `data/`，不提交）来跑真实的证书�
 
 自动生成路由当前包括：
 
-- `happyhorse-1.1-t2v`
-- `happyhorse-1.1-i2v`
-- `happyhorse-1.1-r2v`
-- `wan2.7-i2v-2026-04-25`
-- `wan2.7-r2v-2026-06-12`
+- `happyhorse-1.1-t2v`（3–15 秒文生视频）
+- `happyhorse-1.1-i2v`（3–15 秒图生视频）
+- `happyhorse-1.1-r2v`（3–15 秒多图参考）
+- `wan3.0-video`（2–30 秒超长原生多模态视频生成，支持首尾帧、视频参考、超长生成、原生延长与视频编辑）
 
 详见 `docs/VIDEO_GENERATION_PHASE1.md`。
 

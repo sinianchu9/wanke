@@ -29,7 +29,7 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
   const [recipeId, setRecipeId] = useState<VideoRecipeId>("general");
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [resolution, setResolution] = useState<"720P" | "1080P">("1080P");
+  const [resolution, setResolution] = useState<"480P" | "720P" | "1080P">("1080P");
   const [duration, setDuration] = useState(5);
   const [aspectRatio, setAspectRatio] = useState("16:9");
   const [versionCount, setVersionCount] = useState(1);
@@ -104,8 +104,8 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
   const medias = buildMedias();
   const hasVideoReference = mode === "reference_to_video" && medias.some((media: any) => media?.type === "video");
   const tooManyReferences = mode === "reference_to_video" && medias.length > 5;
-  const durationOptions = hasVideoReference ? ["5", "10"] : ["5", "10", "15"];
-  const effectiveDuration = hasVideoReference && duration > 10 ? 10 : duration;
+  const durationOptions = ["3", "5", "10", "15", "20", "30"];
+  const effectiveDuration = duration;
   const ready = Boolean(prompt.trim()) && !localUploading && !tooManyReferences && (
     mode === "text_to_video" ||
     (mode === "image_to_video" && medias.length === 1) ||
@@ -209,6 +209,7 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
   }
 
   function buildRequestInput() {
+    const shouldUseWan = effectiveDuration > 15 || effectiveDuration < 3 || resolution === "480P" || mode === "first_last_frame" || hasVideoReference;
     return {
       title,
       prompt: prompt.trim(),
@@ -218,7 +219,7 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
       aspectRatio,
       duration: effectiveDuration,
       resolution,
-      model: "happyhorse-1.1",
+      model: shouldUseWan ? "wan3.0" : "happyhorse-1.1",
       n: 1,
       _subjectCardIds: mode === "reference_to_video" ? subjectIds : [],
     };
@@ -301,40 +302,35 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
         </div>}
 
         {mode === "reference_to_video" && <div className="field">
-          <span className="field-label">选择参考素材<small>主体卡、单独图片和视频合计最多 5 个</small></span>
-
-          {subjects.length > 0 && <>
-            <div className="muted mini"><strong>主体卡：</strong>选择后会把卡内参考图片展开到当前任务。它只提供身份，不会自动切换 Recipe。</div>
+          <span className="field-label">参考素材<small>最多 5 个；支持人物/产品主体、素材库或公网图片/视频</small></span>
+          {subjects.length > 0 && <div className="subject-chip-group">
+            <div className="muted mini" style={{marginBottom:4}}>选择主体（自动载入参考图片）：</div>
             <div className="asset-chips">
-              {subjects.map(card => <button type="button" key={card.id} className={subjectIds.includes(card.id) ? "selected" : ""} onClick={() => toggleSubject(card.id)} title={`${card.subjectType === "person" ? "人物" : "产品"} · ${card.assets.length} 张参考图${card.usageNotes ? ` · ${card.usageNotes}` : ""}`}>
-                {card.subjectType === "person" ? "👤" : "📦"} {card.name} · {card.assets.length} 图
+              {subjects.map(subject => <button type="button" key={subject.id} className={subjectIds.includes(subject.id) ? "selected" : ""} onClick={() => toggleSubject(subject.id)}>
+                {subject.name}
               </button>)}
             </div>
-            {subjectIds.length > 0 && <div className="muted mini">已引用主体：{subjectIds.map(id => subjects.find(card => card.id === id)?.name).filter(Boolean).join(" + ")}。建议根据创作目标手动选择“人物一致”或“产品广告”Recipe，主体卡本身不做这个决定。</div>}
-          </>}
-
-          {directAvailable && <div><input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={localUploading || referenceCount >= 5} onChange={event => { addReferenceFiles(event.target.files); event.currentTarget.value=""; }} /><div className="muted mini">{localUploading?"正在准备本地图片…":"还可以直接追加本地 JPG / PNG / WEBP"}</div></div>}
-          {referenceLocal.length > 0 && <div className="asset-chips">{referenceLocal.map(item=><button type="button" className="selected" key={item.ref} onClick={()=>removeReferenceLocal(item)}>🖼️ {item.name} ×</button>)}</div>}
-          {referenceAssets.length > 0 && <div className="asset-chips">
-            {referenceAssets.map(asset => {
-              const suppliedBySubject = subjectAssetIds.includes(asset.id);
-              return <button type="button" key={asset.id} disabled={suppliedBySubject} className={effectiveReferenceAssetIds.includes(asset.id) ? "selected" : ""} onClick={() => toggleReference(asset.id)} title={suppliedBySubject ? "这张图片已经由已选主体卡提供" : "作为单独参考素材选择"}>
-                {asset.mediaType === "video" ? "🎬" : "🖼️"} {asset.name}{suppliedBySubject ? " · 主体卡" : ""}
-              </button>;
-            })}
           </div>}
-          <textarea value={referenceUrls} onChange={event => setReferenceUrls(event.target.value)} placeholder="也可以粘贴公网图片或 MP4/MOV 视频 URL，每行一个" />
-          <div className="muted mini">已使用 {Math.min(referenceCount, 99)} / 5 个参考素材；主体卡内部每张图都会计入总数。</div>
-          {tooManyReferences && <div className="mini error-text">参考素材最多 5 个，请删除多余的主体、素材或 URL 后再生成。</div>}
-          {hasVideoReference && <div className="muted mini">检测到视频参考：系统已自动使用支持视频参考的生成路线，并把最长时长限制为 10 秒。</div>}
-          <details className="advanced" style={{marginTop:8}}>
-            <summary><HelpCircle size={15}/> 主体卡和普通参考有什么区别？</summary>
-            <div className="advanced-body">
-              <div className="muted mini"><strong>主体卡：</strong>长期复用同一个人物 / 产品身份；修改卡以后，新任务会使用新的参考图片。</div>
-              <div className="muted mini"><strong>普通参考：</strong>只服务当前一次任务，不产生可复用身份。</div>
-              <div className="muted mini"><strong>演示：</strong>选择“品牌女主角 A”人物卡 + “黑色智能手环”产品卡 → 两张卡的图片一起进入多参考生成 → Prompt 描述两者在这个镜头中做什么 → Recipe 决定怎么拍。</div>
-            </div>
-          </details>
+          <div className="asset-chips" style={{marginTop:8}}>
+            {referenceAssets.map(asset => <button type="button" key={asset.id} className={referenceIds.includes(asset.id) || subjectAssetIds.includes(asset.id) ? "selected" : ""} disabled={subjectAssetIds.includes(asset.id)} onClick={() => toggleReference(asset.id)}>
+              {asset.name}
+            </button>)}
+          </div>
+          {directAvailable && <div style={{marginTop:8}}>
+            <label className="secondary-button-label">
+              <span>+ 添加电脑中的图片（最多 5 个）</span>
+              <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={e => { addReferenceFiles(e.target.files); e.target.value = ""; }} style={{display:"none"}} />
+            </label>
+            {referenceLocal.length > 0 && <div className="asset-chips" style={{marginTop:6}}>
+              {referenceLocal.map(item => <span key={item.ref} className="local-chip">
+                {item.name} <button type="button" onClick={() => removeReferenceLocal(item)}>×</button>
+              </span>)}
+            </div>}
+          </div>}
+          <div style={{marginTop:8}}>
+            <textarea value={referenceUrls} onChange={e => setReferenceUrls(e.target.value)} rows={2} placeholder="或粘贴参考素材公网 URL（每行一个，支持图片直链或 MP4/MOV 视频）" style={{fontSize:13}} />
+          </div>
+          <div className="muted mini" style={{marginTop:4}}>已选 {referenceCount} 个素材{referenceCount > 5 ? "（超出 5 个上限，请删减）" : ""}</div>
         </div>}
 
         {localError && <div className="error-banner">{localError}</div>}
@@ -345,9 +341,12 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
             <div className="form-grid four">
               {(mode === "text_to_video" || mode === "reference_to_video") && <SimpleSelect label="画幅" value={aspectRatio} onChange={setAspectRatio} options={["16:9", "9:16", "1:1", "4:3", "3:4"]} />}
               <SimpleSelect label="时长" value={String(effectiveDuration)} onChange={value => setDuration(Number(value))} options={durationOptions} suffix="秒" />
-              <SimpleSelect label="清晰度" value={resolution} onChange={value => setResolution(value as "720P" | "1080P")} options={["1080P", "720P"]} />
+              <SimpleSelect label="清晰度" value={resolution} onChange={value => setResolution(value as "480P" | "720P" | "1080P")} options={["1080P", "720P", "480P"]} />
               <div className="field"><span className="field-label">任务名称<small>可不填</small></span><input value={title} onChange={event => setTitle(event.target.value)} placeholder="例如：新品广告主镜头" /></div>
             </div>
+            {(effectiveDuration > 15 || resolution === "480P") && <div className="muted mini" style={{marginTop: 6, color: "var(--accent, #6366f1)"}}>
+              ✨ 当前设置时长（{effectiveDuration}秒）或 480P 将自动启用阿里 Wan 3.0 超长多模态模型进行原生渲染（最长支持 30 秒）。
+            </div>}
           </div>
         </details>
 

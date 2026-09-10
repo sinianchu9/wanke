@@ -61,7 +61,7 @@ export async function submitJob(kind: JobKind, rawInput: unknown, options: Submi
     const blocked = blockedModelStudioMessage(config);
     if (blocked) throw new Error(blocked);
     if (!config.apiKey) {
-      throw new Error("视频延长当前使用百炼 Wan 2.7 原生 continuation。请先在设置中配置 Wan 专属 API Key（或通用百炼 Key）。");
+      throw new Error("视频延长当前使用百炼 Wan 3.0 原生 continuation。请先在设置中配置 Wan 专属 API Key（或通用百炼 Key）。");
     }
     return submitModelStudioVideoExtension(input);
   }
@@ -72,7 +72,7 @@ export async function submitJob(kind: JobKind, rawInput: unknown, options: Submi
     const blocked = blockedModelStudioMessage(config);
     if (blocked) throw new Error(blocked);
     if (!config.apiKey) {
-      throw new Error("视频编辑当前使用百炼 Wan 2.7 Video Editing。请先在设置中配置 Wan 专属 API Key（或通用百炼 Key）。");
+      throw new Error("视频编辑当前使用百炼 Wan 3.0 Video Editing。请先在设置中配置 Wan 专属 API Key（或通用百炼 Key）。");
     }
     return submitModelStudioVideoEditing(input);
   }

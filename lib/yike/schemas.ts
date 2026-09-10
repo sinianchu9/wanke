@@ -5,7 +5,7 @@ import { videoEditingSchema } from "@/lib/video/editing";
 
 const ratio = z.enum(["16:9", "9:16", "4:3", "3:4", "1:1"]);
 const standardRatio = z.enum(["16:9", "9:16", "4:3", "3:4"]);
-const resolution = z.enum(["720P", "1080P"]);
+const resolution = z.enum(["480P", "720P", "1080P"]);
 
 function isKnownLandingPageUrl(value: string) {
   if (!value) return false;
@@ -43,9 +43,9 @@ const schemas = {
     jobType: z.enum(["text_to_video", "image_to_video", "first_last_frame", "reference_to_video"]),
     medias: z.array(mediaRef).max(5, "多参考模式最多接受 5 个参考素材").default([]),
     aspectRatio: ratio.default("16:9"),
-    duration: z.coerce.number().int().min(4).max(15).default(5),
+    duration: z.coerce.number().int().min(2).max(30).default(5),
     resolution: resolution.default("720P"),
-    model: z.enum(["wan2.7", "happyhorse-1.1", "happyhorse-1.0"]).default("wan2.7"),
+    model: z.enum(["wan3.0", "wan2.7", "happyhorse-1.1", "happyhorse-1.0"]).default("wan3.0"),
     n: z.coerce.number().int().min(1).max(4).default(1),
     title: z.string().optional(),
     expert,

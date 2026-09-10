@@ -4,7 +4,7 @@
 
 | Wanke 功能 | API 版本 | 提交 | 查询/恢复 | 关键约束 |
 |---|---|---|---|---|
-| AI 视频 | 2026-07-07 | `SubmitVideoGenerationJob` | `GetVideoGenerationJob` | 4–15s；1–4 输出；720P/1080P；text/image/first-last/reference |
+| AI 视频 | 2026-07-07 | `SubmitVideoGenerationJob` | `GetVideoGenerationJob` | 2–30s（Wan 3.0）/ 3–15s（HappyHorse 1.1）；1–4 输出；480P/720P/1080P；text/image/first-last/reference |
 | 视频拆解 | 2026-07-07 | `SubmitMediaComprehensionJob` | `GetMediaComprehensionJob` | `JobType=VideoBreakdown`；结果为 JSON URL |
 | 复刻脚本 | 2026-07-07 | `SubmitRemakeScriptJob` | `GetRemakeScriptJob` | `faithful-remake`；消费拆解结果；输出 creative script JSON |
 | 创意渲染 | 2026-07-07 | `SubmitVideoRenderJob` | `GetVideoRenderJob` | `Script` 是 JSON 字符串；可返回 `EditingProjectId` |
@@ -24,7 +24,7 @@
 - `first_last_frame`: 必须正好 2 个素材。
 - `reference_to_video`: 1–9 个素材。
 - Media 支持 Type + URL / MediaId。
-- Model: `wan2.7`, `happyhorse-1.1`, `happyhorse-1.0`。
+- Model: `wan3.0`, `wan2.7`, `happyhorse-1.1`, `happyhorse-1.0`。
 
 ## Render bridge
 

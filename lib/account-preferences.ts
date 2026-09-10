@@ -27,7 +27,7 @@ const DEFAULT_CREATION: CreationPreferences = {
 };
 
 export const ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"];
-export const RESOLUTIONS = ["720p", "1080p"];
+export const RESOLUTIONS = ["480p", "720p", "1080p"];
 export const LANGUAGES = [
   { value: "zh-CN", label: "简体中文" },
   { value: "zh-TW", label: "繁體中文" },

@@ -12,7 +12,7 @@ const schema = z.object({
   recipeId: z.enum(["general", "product_ad", "character_consistency", "cinematic", "social_short"]).default("general"),
   jobType: z.enum(["text_to_video", "image_to_video", "first_last_frame", "reference_to_video"]),
   aspectRatio: z.enum(["16:9", "9:16", "1:1", "4:3", "3:4"]),
-  duration: z.coerce.number().int().min(4).max(15),
+  duration: z.coerce.number().int().min(2).max(30),
   referenceCount: z.coerce.number().int().min(0).max(9).default(0),
 });
 

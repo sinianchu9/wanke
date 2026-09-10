@@ -21,9 +21,9 @@ export const videoEditingSchema = z.object({
     }
   }, "视频编辑只接受 HTTP/HTTPS 视频 URL"),
   prompt: z.string().trim().min(1, "请描述希望如何编辑整条视频").max(5000),
-  sourceDuration: z.coerce.number().int().min(2).max(10),
-  referenceImages: z.array(referenceImage).max(4, "Wan 2.7 视频编辑最多接受 4 张参考图片").default([]),
-  resolution: z.enum(["720P", "1080P"]).default("1080P"),
+  sourceDuration: z.coerce.number().int().min(2).max(30),
+  referenceImages: z.array(referenceImage).max(4, "视频编辑最多接受 4 张参考图片").default([]),
+  resolution: z.enum(["480P", "720P", "1080P"]).default("1080P"),
   audioSetting: z.enum(["origin", "auto"]).default("origin"),
   sourceJobId: z.string().min(1),
   sourceOutputIndex: z.coerce.number().int().min(0).default(0),
