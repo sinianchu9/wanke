@@ -113,7 +113,7 @@ function routedPrompt(input: VideoInput, decision: RouteDecision) {
 function buildPayload(input: VideoInput, decision: RouteDecision) {
   const duration = effectiveDuration(input, decision);
   const prompt = routedPrompt(input, decision);
-  const parameters: Record<string, unknown> = { resolution: input.resolution, duration, watermark: false };
+  const parameters: Record<string, unknown> = { resolution: input.resolution, duration, ratio: input.aspectRatio, watermark: false };
 
   if (decision.route === "happyhorse-t2v") {
     parameters.ratio = input.aspectRatio;

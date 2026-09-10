@@ -22,7 +22,7 @@ import type { StoredAsset } from "@/lib/types";
 import styles from "@/components/studio-shell.module.css";
 
 type CreationType = "text_video" | "product_ad" | "person_short" | "image_video";
-type Platform = "douyin" | "xiaohongshu" | "youtube" | "landscape";
+type Platform = "douyin" | "xiaohongshu" | "youtube" | "landscape" | "square";
 type ProviderMode = "auto" | "modelstudio" | "yike";
 type LocalInput = { ref: string; name: string; size: number };
 type QuickCreateResult = {
@@ -37,7 +37,7 @@ type DraftState = {
   type: CreationType;
   prompt: string;
   platform: Platform;
-  duration: 5 | 10 | 15 | 30;
+  duration: number;
   providerMode: ProviderMode;
   subjectId: string;
   imageAssetId: string;
@@ -107,7 +107,7 @@ export default function ChatCreationHome({
   const [type, setType] = useState<CreationType>(draftSeed.type);
   const [prompt, setPrompt] = useState(draftSeed.prompt);
   const [platform, setPlatform] = useState<Platform>(draftSeed.platform);
-  const [duration, setDuration] = useState<5 | 10 | 15 | 30>(draftSeed.duration);
+  const [duration, setDuration] = useState<number>(draftSeed.duration);
   // Members never pick an upstream service; the platform routes each creation.
   const [providerMode] = useState<ProviderMode>("auto");
   const [subjectId, setSubjectId] = useState(draftSeed.subjectId);
@@ -516,7 +516,7 @@ export default function ChatCreationHome({
             <div className={styles.popoverAnchor}>
               <button disabled={interactionLocked} className={styles.optionButton} onClick={() => { const next = !optionsOpen; closePopovers(); setOptionsOpen(next); }}>
                 <Settings2 size={15} />
-                {platform === "landscape" ? "横屏" : platform === "youtube" ? "YouTube" : platform === "xiaohongshu" ? "小红书" : "抖音"} · {duration} 秒
+                {platform === "landscape" ? "通用横屏 (16:9)" : platform === "youtube" ? "YouTube (16:9)" : platform === "xiaohongshu" ? "小红书 (3:4)" : platform === "square" ? "方形 (1:1)" : "抖音竖屏 (9:16)"} · {duration} 秒
                 <ChevronDown size={14} />
               </button>
               {optionsOpen && (
@@ -527,15 +527,58 @@ export default function ChatCreationHome({
                   </div>
                   <div className={styles.popoverLabel}>平台 / 画幅</div>
                   <div className={styles.choiceGrid}>
-                    {([["douyin", "抖音竖屏"], ["xiaohongshu", "小红书"], ["youtube", "YouTube"], ["landscape", "横屏"]] as Array<[Platform, string]>).map(([id, label]) => (
-                      <button key={id} className={platform === id ? styles.choiceActive : ""} onClick={() => setPlatform(id)}>{label}</button>
+                    {([
+                      ["douyin", "抖音竖屏", "9:16"],
+                      ["xiaohongshu", "小红书", "3:4"],
+                      ["youtube", "YouTube", "16:9"],
+                      ["landscape", "通用横屏", "16:9"],
+                    ] as const).map(([id, label, ratio]) => (
+                      <button
+                        key={id}
+                        className={platform === id ? styles.choiceActive : ""}
+                        onClick={() => setPlatform(id as Platform)}
+                        style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "44px", padding: "4px" }}
+                      >
+                        <span style={{ fontWeight: 650 }}>{label}</span>
+                        <span style={{ fontSize: "9px", opacity: 0.75 }}>{ratio}</span>
+                      </button>
                     ))}
                   </div>
-                  <div className={styles.popoverLabel}>总时长</div>
-                  <div className={styles.choiceGrid}>
-                    {([5, 10, 15, 30] as const).map(value => (
-                      <button key={value} className={duration === value ? styles.choiceActive : ""} onClick={() => setDuration(value)}>{value} 秒</button>
-                    ))}
+                  <div className={styles.popoverLabel} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "4px" }}>
+                    <span>总时长（滑动调节）</span>
+                    <span style={{ color: "#4338CA", fontWeight: 750, fontSize: "12px" }}>{duration} 秒</span>
+                  </div>
+                  <div className={styles.sliderBox}>
+                    <input
+                      type="range"
+                      min={2}
+                      max={30}
+                      step={1}
+                      value={duration}
+                      onChange={e => setDuration(Number(e.target.value))}
+                      className={styles.rangeSlider}
+                      aria-label="生成视频总时长滑动条"
+                    />
+                    <div className={styles.sliderTicks}>
+                      <span>2s</span>
+                      <span>5s</span>
+                      <span>10s</span>
+                      <span>15s</span>
+                      <span>20s</span>
+                      <span>25s</span>
+                      <span>30s</span>
+                    </div>
+                    <div className={styles.sliderTip}>
+                      {duration > 15 || duration < 3 ? (
+                        <span style={{ color: "#b45309" }}>
+                          ⚡ <strong>Wan 3.0 超长通道</strong>：已启用单次 2–30 秒原生生成大模型
+                        </span>
+                      ) : (
+                        <span style={{ color: "#4338ca" }}>
+                          ✨ <strong>智能自适应双通道</strong>：HappyHorse 1.1 / Wan 3.0 质感协同调度
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -592,8 +635,8 @@ function readDraft(defaultProviderMode: ProviderMode): DraftState {
     if (!raw) return fallback;
     const value = JSON.parse(raw) as Partial<DraftState>;
     const type = value.type === "text_video" || value.type === "product_ad" || value.type === "person_short" || value.type === "image_video" ? value.type : fallback.type;
-    const platform = value.platform === "douyin" || value.platform === "xiaohongshu" || value.platform === "youtube" || value.platform === "landscape" ? value.platform : fallback.platform;
-    const duration = value.duration === 5 || value.duration === 10 || value.duration === 15 || value.duration === 30 ? value.duration : fallback.duration;
+    const platform = value.platform === "douyin" || value.platform === "xiaohongshu" || value.platform === "youtube" || value.platform === "landscape" || value.platform === "square" ? value.platform : fallback.platform;
+    const duration = typeof value.duration === "number" && value.duration >= 2 && value.duration <= 30 ? Math.round(value.duration) : fallback.duration;
     const providerMode = value.providerMode === "auto" || value.providerMode === "modelstudio" || value.providerMode === "yike" ? value.providerMode : defaultProviderMode;
     const localInput = value.localInput && typeof value.localInput.ref === "string" && value.localInput.ref.startsWith("wanke-input://")
       ? { ref: value.localInput.ref, name: String(value.localInput.name || "本地图片"), size: Number(value.localInput.size || 0) }

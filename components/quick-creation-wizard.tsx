@@ -7,7 +7,7 @@ import type { PublicSubjectCard } from "@/components/subject-library";
 import type { StoredAsset } from "@/lib/types";
 
 type CreationType = "product_ad" | "person_short" | "image_video";
-type Platform = "douyin" | "xiaohongshu" | "youtube" | "landscape";
+type Platform = "douyin" | "xiaohongshu" | "youtube" | "landscape" | "square";
 type LocalInput = { ref: string; name: string; size: number };
 
 type Props = {
@@ -33,7 +33,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
   const [platform, setPlatform] = useState<Platform>("douyin");
-  const [duration, setDuration] = useState<5 | 10 | 15 | 30>(5);
+  const [duration, setDuration] = useState<number>(5);
   const [subjectId, setSubjectId] = useState("");
   const [imageAssetId, setImageAssetId] = useState("");
   const [referenceUrl, setReferenceUrl] = useState("");
@@ -288,21 +288,42 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
 
       <div className="form-grid two" style={{marginTop:16}}>
         <div className="field">
-          <span className="field-label">4. 发到哪里？</span>
+          <span className="field-label">4. 发到哪里？（画幅适配）</span>
           <select disabled={interactionLocked} value={platform} onChange={event => setPlatform(event.target.value as Platform)}>
-            <option value="douyin">抖音 / 竖屏</option>
-            <option value="xiaohongshu">小红书 / 竖屏</option>
-            <option value="youtube">YouTube / 横屏</option>
-            <option value="landscape">横屏通用</option>
+            <option value="douyin">抖音竖屏 (9:16)</option>
+            <option value="xiaohongshu">小红书 (3:4)</option>
+            <option value="youtube">YouTube (16:9)</option>
+            <option value="landscape">通用横屏 (16:9)</option>
+            <option value="square">方形画幅 (1:1)</option>
           </select>
         </div>
         <div className="field">
-          <span className="field-label">5. 大约多长？</span>
-          <div className="asset-chips">{([5,10,15,30] as const).map(value => <button type="button" disabled={interactionLocked} className={duration === value ? "selected" : ""} key={value} onClick={() => setDuration(value)}>{value} 秒</button>)}</div>
+          <span className="field-label" style={{ display: "flex", justifyContent: "space-between" }}>
+            <span>5. 大约多长？</span>
+            <b style={{ color: "#4F46E5" }}>{duration} 秒</b>
+          </span>
+          <input
+            type="range"
+            min={2}
+            max={30}
+            step={1}
+            disabled={interactionLocked}
+            value={duration}
+            onChange={event => setDuration(Number(event.target.value))}
+            style={{ width: "100%", accentColor: "#4F46E5", marginTop: "6px" }}
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#888", marginTop: "2px" }}>
+            <span>2秒</span>
+            <span>5秒</span>
+            <span>10秒</span>
+            <span>15秒</span>
+            <span>20秒</span>
+            <span>30秒</span>
+          </div>
         </div>
       </div>
 
-      <div className="notice" style={{marginTop:16}}><Sparkles size={16}/><span>系统会自动创建 {duration <= 5 ? 1 : duration <= 10 ? 2 : duration <= 15 ? 3 : 4} 个镜头并提交生成。每个镜头独立执行，一个失败不会拖垮其他镜头。</span></div>
+      <div className="notice" style={{marginTop:16}}><Sparkles size={16}/><span>{duration > 15 || duration < 3 ? `当前 ${duration} 秒将自动调度 Wan 3.0 超长大模型单次原生生成。` : `当前 ${duration} 秒将智能协同 HappyHorse 1.1 质感模型与 Wan 3.0 大模型。`}</span></div>
 
       <div className="inline-actions" style={{marginTop:16}}>
         <button className="primary" disabled={!ready} onClick={create}><Play size={15}/>{busy ? "正在建立作品并提交…" : localUploading ? "正在准备图片…" : generationReady === null ? "正在检查服务…" : "开始创作"}</button>

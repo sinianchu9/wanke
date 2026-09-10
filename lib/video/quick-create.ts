@@ -4,14 +4,14 @@ import { getSubjectCard } from "@/lib/subjects";
 import { isLocalInputRef } from "@/lib/video/local-input";
 
 export type QuickCreationType = "text_video" | "product_ad" | "person_short" | "image_video";
-export type QuickPlatform = "douyin" | "xiaohongshu" | "youtube" | "landscape";
+export type QuickPlatform = "douyin" | "xiaohongshu" | "youtube" | "landscape" | "square";
 
 export type QuickCreationInput = {
   type: QuickCreationType;
   name: string;
   goal: string;
   platform: QuickPlatform;
-  totalDuration: 5 | 10 | 15 | 30;
+  totalDuration: number;
   subjectId?: string | null;
   imageAssetId?: string | null;
   referenceUrl?: string | null;
@@ -24,8 +24,8 @@ export type QuickShotPlan = {
   prompt: string;
   jobType: "text_to_video" | "image_to_video" | "reference_to_video";
   recipeId: "general" | "product_ad" | "character_consistency" | "social_short";
-  duration: 5 | 10;
-  aspectRatio: "9:16" | "16:9";
+  duration: number;
+  aspectRatio: "9:16" | "16:9" | "3:4" | "1:1";
   medias: Array<{ type: "image"; url: string; mediaId: string }>;
   subjectCardIds: string[];
 };
@@ -40,13 +40,35 @@ export function buildQuickCreationPlan(input: QuickCreationInput) {
   const cleanName = input.name.trim() || defaultName(input.type);
   const cleanGoal = input.goal.trim();
   if (!cleanGoal) throw new Error("请用一句话说明你希望视频表达什么");
-  const aspectRatio = input.platform === "youtube" || input.platform === "landscape" ? "16:9" as const : "9:16" as const;
+  const aspectRatio: "9:16" | "16:9" | "3:4" | "1:1" =
+    input.platform === "youtube" || input.platform === "landscape" ? "16:9"
+    : input.platform === "xiaohongshu" ? "3:4"
+    : input.platform === "square" ? "1:1"
+    : "9:16";
 
   const reference = resolveReference(input);
-  const shotDurations: Array<5 | 10> = input.totalDuration === 5 ? [5]
-    : input.totalDuration === 10 ? [5, 5]
-      : input.totalDuration === 15 ? [5, 5, 5]
-        : [10, 10, 5, 5];
+  const total = Math.max(2, Math.min(30, Math.round(Number(input.totalDuration) || 5)));
+
+  // 文字生视频与图片变视频直接单镜头生成完整时长，充分发挥 Wan 3.0 的 2–30 秒原生超长能力
+  let shotDurations: number[];
+  if (input.type === "text_video" || input.type === "image_video") {
+    shotDurations = [total];
+  } else {
+    // 广告与人像根据总时长智能规划镜头数量
+    if (total <= 6) {
+      shotDurations = [total];
+    } else if (total <= 12) {
+      const d1 = Math.floor(total / 2);
+      shotDurations = [d1, total - d1];
+    } else if (total <= 20) {
+      const d = Math.floor(total / 3);
+      shotDurations = [d, d, total - d * 2];
+    } else {
+      const d = Math.floor(total / 4);
+      shotDurations = [d, d, d, total - d * 3];
+    }
+  }
+
   const blueprints = blueprintsFor(input.type, shotDurations.length);
 
   const shots: QuickShotPlan[] = blueprints.map((blueprint, index) => ({
@@ -63,10 +85,10 @@ export function buildQuickCreationPlan(input: QuickCreationInput) {
 
   return {
     projectName: cleanName,
-    projectDescription: `${quickTypeLabel(input.type)} · ${platformLabel(input.platform)} · 目标 ${input.totalDuration} 秒\n${cleanGoal}`,
+    projectDescription: `${quickTypeLabel(input.type)} · ${platformLabel(input.platform)} · 目标 ${total} 秒\n${cleanGoal}`,
     shots,
     referenceSource: reference.source,
-    summary: `${quickTypeLabel(input.type)} · ${shots.length} 个镜头 · 目标 ${input.totalDuration} 秒 · ${aspectRatio} · ${platformLabel(input.platform)}`,
+    summary: `${quickTypeLabel(input.type)} · ${shots.length} 个镜头 · 目标 ${total} 秒 · ${aspectRatio} · ${platformLabel(input.platform)}`,
   };
 }
 
@@ -185,5 +207,9 @@ function quickTypeLabel(type: QuickCreationType) {
 }
 
 function platformLabel(platform: QuickPlatform) {
-  return platform === "douyin" ? "抖音 / 竖屏" : platform === "xiaohongshu" ? "小红书 / 竖屏" : platform === "youtube" ? "YouTube / 横屏" : "横屏通用";
+  return platform === "douyin" ? "抖音竖屏 (9:16)"
+    : platform === "xiaohongshu" ? "小红书 (3:4)"
+    : platform === "youtube" ? "YouTube (16:9)"
+    : platform === "square" ? "方形画幅 (1:1)"
+    : "通用横屏 (16:9)";
 }

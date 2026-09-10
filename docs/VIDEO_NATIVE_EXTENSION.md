@@ -76,7 +76,7 @@ JobKind = video_extension
 
 - 输入语义不同：原视频是 `first_clip`；
 - 时长语义不同：`duration` 是最终总时长；
-- Provider 能力边界不同：当前只走百炼 Wan 2.7；
+- Provider 能力边界不同：当前走百炼 Wan 3.0；
 - 结果关系不同：延长任务是原结果的时间轴子任务。
 
 任务中心会明确显示：
@@ -220,7 +220,7 @@ first_clip + 一组主体参考图
 所以：
 
 ```text
-视频延长 → 百炼 Wan 2.7 原生 continuation
+视频延长 → 百炼 Wan 3.0 原生 continuation
 ```
 
 即使用户把“基础视频引擎”设置成“强制万镜一刻”，只要百炼 Key 已配置，视频延长仍明确使用百炼。
@@ -356,9 +356,9 @@ UI 和服务端都会阻止。
 ## 16. 验收标准
 
 - [x] 独立 `video_extension` JobKind；
-- [x] 使用 Wan 2.7 `first_clip`；
-- [x] 服务端限制 source 2–10 秒；
-- [x] 服务端限制最终总时长最大 15 秒；
+- [x] 使用 Wan 3.0 `first_clip`；
+- [x] 服务端限制 source 2–30 秒；
+- [x] 服务端限制最终总时长最大 30 秒；
 - [x] UI 明确“总时长”而非“追加时长”；
 - [x] 只从具体成功结果进入；
 - [x] 有 parent/child 来源关系；

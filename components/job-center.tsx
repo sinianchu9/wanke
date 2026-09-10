@@ -254,11 +254,13 @@ function PendingState({ job, onRefresh, onRetry, busy }: { job: StoredJob; onRef
       : job.kind === "video_editing"
         ? "正在根据指令逐帧编辑处理视频"
         : "AI 视频画面扩散推理中";
+    const rawModel = String(job.details?.model || job.request?.model || "");
+    const modelTag = rawModel.includes("happyhorse") ? "HappyHorse 1.1" : "Wan 3.0";
     statusDesc = job.kind === "video_extension"
       ? "正在保持主体与画风连续性，生成高质量延长动作与运镜。"
       : job.kind === "video_editing"
         ? "正在按编辑提示词逐帧优化主体结构、色彩与运动细节。"
-        : "Wan 2.7 视频大模型正在进行多步扩散推理与高精度画面合成。";
+        : `${modelTag} 视频大模型正在进行多步扩散推理与高精度画面合成。`;
 
     const storyboardShots = Array.isArray(job.details?.storyboardInfo) ? job.details.storyboardInfo : [];
     if (storyboardShots.length > 0) {

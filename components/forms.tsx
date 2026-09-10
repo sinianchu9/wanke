@@ -163,7 +163,7 @@ function VoiceForm({assets,onSubmit,submitting}:Props){
 }
 
 function StoryboardForm({assets,onSubmit,submitting}:Props){
-  const initial={fileURL:"",title:"",execMode:"FullPipeline",aspectRatio:"16:9",resolution:"1080P",styleId:"RealisticPhotography",shotPromptMode:"multi",shotPromptLang:"zh-CN",shotSplitMode:"firstPersonNarration",sourceType:"Novel",narrationVoiceId:"sys_YoungGracefulWoman",keepOriginDialogue:true,needCaption:true,skipFailureShot:true,audioEnable:true,videoModel:"wan2.6-r2v-flash",expertText:""};
+  const initial={fileURL:"",title:"",execMode:"FullPipeline",aspectRatio:"16:9",resolution:"1080P",styleId:"RealisticPhotography",shotPromptMode:"multi",shotPromptLang:"zh-CN",shotSplitMode:"firstPersonNarration",sourceType:"Novel",narrationVoiceId:"sys_YoungGracefulWoman",keepOriginDialogue:true,needCaption:true,skipFailureShot:true,audioEnable:true,videoModel:"wan3.0-video",expertText:""};
   const [v,setV]=useDraft("storyboard",initial);
   return <FormFrame title="故事板生产线" subtitle="面向长文本：先拆故事板，再生成镜头并合成。失败镜头保留明细，可在任务中心直接续跑。" kind="storyboard" value={v} setValue={setV} onRun={()=>onSubmit("storyboard",withExpert(v),v.title)} submitting={submitting}>
     <Field label="脚本文件" hint="Yike 当前要求 OSS 上的 .txt 或 .doc。可先在素材库上传。"><AssetSelect assets={assets} type="document" mode="url" value={v.fileURL} onChange={fileURL=>setV({...v,fileURL})}/><input value={v.fileURL} onChange={e=>setV({...v,fileURL:e.target.value})} placeholder="或粘贴脚本 OSS URL"/></Field>
