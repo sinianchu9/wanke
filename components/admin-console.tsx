@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, BarChart3, ClipboardList, Coins, FileText, LoaderCircle, Package,
@@ -447,13 +447,29 @@ function PlansSection() {
           <textarea rows={4} value={draft.features} onChange={event => setDraft({ ...draft, features: event.target.value })} /></div>
       </div>
       <div className="form-stack" style={{ marginTop: 12 }}>
-        {([["purchasable", "允许购买"], ["public", "在官网显示"], ["recommended", "设为推荐"]] as Array<[string, string]>).map(([key, label]) => (
-          <div className="toggle-row" key={key}>
-            <strong>{label}</strong>
-            <button type="button" className={`toggle ${draft[key] ? "active" : ""}`} role="switch" aria-checked={Boolean(draft[key])} aria-label={label}
-              onClick={() => setDraft({ ...draft, [key]: !draft[key] })} />
-          </div>
-        ))}
+        {([["purchasable", "允许购买"], ["public", "在官网显示"], ["recommended", "设为推荐"]] as Array<[string, string]>).map(([key, label]) => {
+          const isChecked = Boolean(draft[key]);
+          return (
+            <div className="setting-toggle-row" key={key} style={{ padding: "8px 12px" }}>
+              <strong style={{ fontSize: "13px" }}>{label}</strong>
+              <div className="setting-toggle-action">
+                <span className={`switch-status-label ${isChecked ? "active" : ""}`}>
+                  {isChecked ? "已启用" : "已停用"}
+                </span>
+                <button
+                  type="button"
+                  className={`switch-button ${isChecked ? "active" : ""}`}
+                  role="switch"
+                  aria-checked={isChecked}
+                  aria-label={label}
+                  onClick={() => setDraft({ ...draft, [key]: !draft[key] })}
+                >
+                  <span className="switch-thumb" />
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
       <div className="inline-actions" style={{ marginTop: 12 }}>
         <button className="primary" disabled={busy || !draft.id.trim() || !draft.name.trim()} onClick={save}>
@@ -814,9 +830,21 @@ function SystemSettingsSection() {
   useEffect(() => {
     if (!data?.settings) return;
     const next: Record<string, string> = {};
-    for (const item of data.settings) if (!item.secret) next[item.key] = item.value;
+    for (const item of data.settings) if (!item.secret) next[item.key] = item.value ?? "";
     setValues(next);
   }, [data]);
+
+  const changedCount = useMemo(() => {
+    if (!data?.settings) return 0;
+    let count = 0;
+    for (const item of data.settings) {
+      if (item.secret) continue;
+      const initial = item.value ?? "";
+      const current = values[item.key] ?? "";
+      if (initial !== current) count++;
+    }
+    return count;
+  }, [data, values]);
 
   async function save() {
     setBusy(true);
@@ -829,10 +857,18 @@ function SystemSettingsSection() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ values: payload }),
       });
-      setMessage(body.changed?.length ? `已更新：${body.changed.join("、")}` : "没有需要保存的变化");
+      if (body.changed?.length) {
+        const labels = body.changed.map((k: string) => {
+          const item = (data?.settings || []).find((s: any) => s.key === k);
+          return item?.label || k;
+        });
+        setMessage(`系统设置保存成功，已更新：${labels.join("、")}`);
+      } else {
+        setMessage("当前配置已是最新，无待保存的改动");
+      }
       await reload();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : String(err));
+      setMessage(`保存失败：${err instanceof Error ? err.message : String(err)}，请重试`);
     } finally {
       setBusy(false);
     }
@@ -844,10 +880,20 @@ function SystemSettingsSection() {
 
   return <div className="admin-panel">
     <div className="admin-panel-head">
-      <h2>系统设置</h2>
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <h2>系统设置</h2>
+        {changedCount > 0 && (
+          <span className="badge-unsaved">
+            {changedCount} 项修改待保存
+          </span>
+        )}
+      </div>
       <div className="inline-actions">
         <button className="secondary" onClick={reload}><RefreshCw size={13} />刷新</button>
-        <button className="primary" disabled={busy || loading} onClick={save}>{busy ? <LoaderCircle className="spin" size={14} /> : null}保存设置</button>
+        <button className="primary" disabled={busy || loading} onClick={save}>
+          {busy ? <LoaderCircle className="spin" size={14} /> : null}
+          {changedCount > 0 ? `保存设置 (${changedCount})` : "保存设置"}
+        </button>
       </div>
     </div>
     {message && <div className="notice" style={{ margin: "0 0 12px" }}>{message}</div>}
@@ -860,35 +906,63 @@ function SystemSettingsSection() {
           return <section className="panel" key={scope}>
             <h3>{label}</h3>
             <div className="form-stack" style={{ marginTop: 10 }}>
-              {items.map((item: any) => (
-                <div className="field" key={item.key}>
-                  <span className="field-label">{item.label}
-                    <small>{item.configured ? (item.secret ? `${item.masked} · 已配置` : "已配置") : "未配置"} · {item.source === "database" ? "后台保存" : item.source === "environment" ? "来自环境变量" : "默认值"}</small>
-                  </span>
-                  {item.type === "boolean" ? (
-                    <div className="toggle-row">
-                      <span className="muted mini">{item.help}</span>
-                      <button type="button" className={`toggle ${values[item.key] === "true" ? "active" : ""}`} role="switch"
-                        aria-checked={values[item.key] === "true"} aria-label={item.label}
-                        onClick={() => setValues(state => ({ ...state, [item.key]: state[item.key] === "true" ? "false" : "true" }))} />
-                    </div>
-                  ) : item.type === "select" ? (
-                    <select value={values[item.key] ?? ""} onChange={event => setValues(state => ({ ...state, [item.key]: event.target.value }))}>
-                      {item.options.map((option: any) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                    </select>
-                  ) : item.secret ? (
-                    <input type="password" autoComplete="new-password" placeholder={item.configured ? "留空保持现有配置" : item.help}
-                      onChange={event => setValues(state => ({ ...state, [item.key]: event.target.value }))} />
-                  ) : item.type === "textarea" ? (
-                    <textarea rows={5} value={values[item.key] ?? ""} placeholder={item.help}
-                      onChange={event => setValues(state => ({ ...state, [item.key]: event.target.value }))} />
-                  ) : (
-                    <input value={values[item.key] ?? ""} placeholder={item.help}
-                      onChange={event => setValues(state => ({ ...state, [item.key]: event.target.value }))} />
-                  )}
-                  <span className="muted mini">{item.help}{item.technicalKey && item.technicalKey !== item.key ? ` · 技术字段 ${item.technicalKey}` : ""}</span>
-                </div>
-              ))}
+              {items.map((item: any) => {
+                const isBoolean = item.type === "boolean";
+                const rawVal = values[item.key] ?? item.value ?? "";
+                const isChecked = rawVal === "true" || rawVal === "1" || (rawVal as any) === true;
+                const isDirty = !item.secret && (item.value ?? "") !== (values[item.key] ?? item.value ?? "");
+
+                return (
+                  <div className="field" key={item.key}>
+                    <span className="field-label">{item.label}
+                      <small>{item.configured ? (item.secret ? `${item.masked} · 已配置` : "已配置") : "未配置"} · {item.source === "database" ? "后台保存" : item.source === "environment" ? "来自环境变量" : "默认值"}</small>
+                    </span>
+                    {isBoolean ? (
+                      <div className="setting-toggle-row">
+                        <div className="setting-toggle-meta">
+                          <span className="setting-toggle-help">{item.help}</span>
+                          {isDirty && <span className="setting-toggle-dirty-tag">待保存</span>}
+                        </div>
+                        <div className="setting-toggle-action">
+                          <span className={`switch-status-label ${isChecked ? "active" : ""}`}>
+                            {isChecked ? "已启用" : "已停用"}
+                          </span>
+                          <button
+                            type="button"
+                            className={`switch-button ${isChecked ? "active" : ""}`}
+                            role="switch"
+                            aria-checked={isChecked}
+                            aria-label={item.label}
+                            onClick={() => setValues(state => ({ ...state, [item.key]: isChecked ? "false" : "true" }))}
+                          >
+                            <span className="switch-thumb" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : item.type === "select" ? (
+                      <select value={values[item.key] ?? ""} onChange={event => setValues(state => ({ ...state, [item.key]: event.target.value }))}>
+                        {item.options.map((option: any) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    ) : item.secret ? (
+                      <input type="password" autoComplete="new-password" placeholder={item.configured ? "留空保持现有配置" : item.help}
+                        onChange={event => setValues(state => ({ ...state, [item.key]: event.target.value }))} />
+                    ) : item.type === "textarea" ? (
+                      <textarea rows={5} value={values[item.key] ?? ""} placeholder={item.help}
+                        onChange={event => setValues(state => ({ ...state, [item.key]: event.target.value }))} />
+                    ) : (
+                      <input value={values[item.key] ?? ""} placeholder={item.help}
+                        onChange={event => setValues(state => ({ ...state, [item.key]: event.target.value }))} />
+                    )}
+                    {isBoolean ? (
+                      item.technicalKey && item.technicalKey !== item.key ? (
+                        <span className="muted mini">技术字段 {item.technicalKey}</span>
+                      ) : null
+                    ) : (
+                      <span className="muted mini">{item.help}{item.technicalKey && item.technicalKey !== item.key ? ` · 技术字段 ${item.technicalKey}` : ""}</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </section>;
         })}

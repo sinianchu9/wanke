@@ -297,23 +297,33 @@ export default function UserSettingsPanel({ onChanged }: { onChanged: () => Prom
           ["order", "订单提醒", "支付成功、会员到期、退款完成时通知我"],
           ["system", "系统通知", "平台公告与反馈回复时通知我"],
           ["email", "邮件通知", "同时把上述通知发送到我的邮箱"],
-        ] as Array<[string, string, string]>).map(([key, label, help]) => (
-          <div className="toggle-row" key={key}>
-            <div>
-              <strong>{label}</strong>
-              <span className="muted mini">{help}</span>
+        ] as Array<[string, string, string]>).map(([key, label, help]) => {
+          const isChecked = Boolean(notifications[key]);
+          return (
+            <div className="setting-toggle-row" key={key} style={{ minHeight: "44px" }}>
+              <div className="setting-toggle-meta">
+                <strong>{label}</strong>
+                <span className="setting-toggle-help" style={{ marginTop: 2 }}>{help}</span>
+              </div>
+              <div className="setting-toggle-action">
+                <span className={`switch-status-label ${isChecked ? "active" : ""}`}>
+                  {isChecked ? "已开启" : "已关闭"}
+                </span>
+                <button
+                  type="button"
+                  className={`switch-button ${isChecked ? "active" : ""}`}
+                  role="switch"
+                  aria-checked={isChecked}
+                  aria-label={label}
+                  disabled={busy === "notifications"}
+                  onClick={() => savePreference({ [key]: !notifications[key] }, "notifications")}
+                >
+                  <span className="switch-thumb" />
+                </button>
+              </div>
             </div>
-            <button
-              type="button"
-              className={`toggle ${notifications[key] ? "active" : ""}`}
-              role="switch"
-              aria-checked={Boolean(notifications[key])}
-              aria-label={label}
-              disabled={busy === "notifications"}
-              onClick={() => savePreference({ [key]: !notifications[key] }, "notifications")}
-            />
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
 
@@ -334,9 +344,25 @@ export default function UserSettingsPanel({ onChanged }: { onChanged: () => Prom
         </div>
         <div className="field">
           <span className="field-label">其他设备</span>
-          <div className="toggle-row">
-            <span className="muted mini">修改后退出其他登录</span>
-            <button type="button" className={`toggle ${logoutOthers ? "active" : ""}`} role="switch" aria-checked={logoutOthers} aria-label="修改后退出其他登录" onClick={() => setLogoutOthers(value => !value)} />
+          <div className="setting-toggle-row" style={{ minHeight: "44px" }}>
+            <div className="setting-toggle-meta">
+              <span className="setting-toggle-help">修改后退出其他登录</span>
+            </div>
+            <div className="setting-toggle-action">
+              <span className={`switch-status-label ${logoutOthers ? "active" : ""}`}>
+                {logoutOthers ? "开启" : "关闭"}
+              </span>
+              <button
+                type="button"
+                className={`switch-button ${logoutOthers ? "active" : ""}`}
+                role="switch"
+                aria-checked={logoutOthers}
+                aria-label="修改后退出其他登录"
+                onClick={() => setLogoutOthers(value => !value)}
+              >
+                <span className="switch-thumb" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
