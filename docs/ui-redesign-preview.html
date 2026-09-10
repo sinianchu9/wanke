@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wanke · UI 重设计预览 · 深空极光</title>
+<style>
+  :root {
+    --bg-deep: #070B18;
+    --bg-raised: #0C1326;
+    --glass: rgba(255,255,255,.05);
+    --line-dark: rgba(255,255,255,.09);
+    --text-hi: #F2F5FF;
+    --text-mid: #9AA6C4;
+    --brand: #5B5BF0;
+    --violet: #8B5CF6;
+    --cyan: #22D3EE;
+    --aurora: linear-gradient(100deg, #5B5BF0, #8B5CF6 55%, #22D3EE);
+    --bg: #F5F6FA;
+    --panel: #FFFFFF;
+    --line: #E6E8F0;
+    --ink: #1A1D29;
+    --muted: #6B7280;
+    --success: #12A97B;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg-deep);
+    color: var(--text-hi);
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  /* ---------- 营销层：深空极光 ---------- */
+  .dark-wrap { position: relative; overflow: hidden; }
+  .aurora-bg { position: absolute; inset: 0; pointer-events: none; }
+  .aurora-bg::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 30%, transparent 75%);
+  }
+  .blob { position: absolute; border-radius: 50%; filter: blur(120px); opacity: .5; }
+  .blob-a { width: 560px; height: 560px; background: #5B5BF0; top: -180px; left: 8%; animation: drift 22s ease-in-out infinite alternate; }
+  .blob-b { width: 460px; height: 460px; background: #8B5CF6; top: -120px; right: 4%; animation: drift 26s ease-in-out infinite alternate-reverse; }
+  .blob-c { width: 380px; height: 380px; background: #0e7490; top: 260px; left: 42%; opacity: .35; animation: drift 30s ease-in-out infinite alternate; }
+  @keyframes drift {
+    from { transform: translate(0, 0) scale(1); }
+    to { transform: translate(60px, 40px) scale(1.12); }
+  }
+
+  .nav {
+    position: relative; z-index: 2;
+    max-width: 1160px; margin: 0 auto; padding: 20px 28px;
+    display: flex; align-items: center; gap: 30px;
+  }
+  .brand { display: flex; gap: 11px; align-items: center; }
+  .brand-mark {
+    width: 38px; height: 38px; border-radius: 12px;
+    background: var(--aurora);
+    display: grid; place-items: center;
+    box-shadow: 0 4px 18px rgba(91,91,240,.5);
+    font-size: 17px;
+  }
+  .brand strong { display: block; font-size: 17px; letter-spacing: .2px; }
+  .brand span { display: block; color: var(--text-mid); font-size: 10px; letter-spacing: 1.6px; margin-top: 1px; }
+  .nav nav { display: flex; gap: 24px; font-size: 13.5px; color: var(--text-mid); }
+  .nav nav a:hover { color: var(--text-hi); }
+  .nav-cta { margin-left: auto; display: flex; gap: 10px; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    border-radius: 10px; font-weight: 650; border: 1px solid transparent;
+    padding: 10px 18px; font-size: 14px; cursor: pointer;
+    transition: transform .16s cubic-bezier(.22,.61,.36,1), box-shadow .16s, background .16s, border-color .16s;
+  }
+  .btn-primary {
+    background: var(--aurora); color: #fff;
+    box-shadow: 0 8px 26px rgba(91,91,240,.45);
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 34px rgba(91,91,240,.6); }
+  .btn-ghost {
+    background: var(--glass); border-color: var(--line-dark); color: var(--text-hi);
+    backdrop-filter: blur(12px);
+  }
+  .btn-ghost:hover { border-color: rgba(255,255,255,.22); transform: translateY(-2px); }
+  .btn-big { padding: 14px 26px; font-size: 15px; border-radius: 12px; }
+
+  .hero {
+    position: relative; z-index: 1;
+    max-width: 1160px; margin: 0 auto; padding: 84px 28px 40px; text-align: center;
+  }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; letter-spacing: 1.6px; font-weight: 700;
+    color: #B9B8FF; text-transform: uppercase;
+    border: 1px solid rgba(139,92,246,.35); background: rgba(91,91,240,.12);
+    padding: 7px 14px; border-radius: 999px;
+  }
+  .eyebrow i { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+  .hero h1 {
+    font-size: 58px; line-height: 1.14; letter-spacing: -1.6px;
+    margin: 24px auto 20px; max-width: 940px; font-weight: 800;
+  }
+  .grad-text {
+    background: var(--aurora);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero-sub {
+    color: var(--text-mid); max-width: 700px; margin: 0 auto;
+    line-height: 1.85; font-size: 16px;
+  }
+  .hero-cta { display: flex; gap: 14px; justify-content: center; margin-top: 34px; }
+  .proof { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 34px; }
+  .proof span {
+    display: inline-flex; gap: 7px; align-items: center;
+    border: 1px solid var(--line-dark); border-radius: 999px;
+    padding: 8px 14px; background: var(--glass); backdrop-filter: blur(12px);
+    color: var(--text-mid); font-size: 12.5px;
+  }
+  .proof b { color: var(--cyan); font-weight: 700; }
+
+  /* Hero 视觉锚点：玻璃工作台缩略 */
+  .hero-visual {
+    position: relative; z-index: 1;
+    max-width: 980px; margin: 56px auto 0; padding: 0 28px;
+  }
+  .studio-mock {
+    border-radius: 18px; border: 1px solid var(--line-dark);
+    background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
+    backdrop-filter: blur(16px);
+    box-shadow: 0 40px 90px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04), 0 0 120px rgba(91,91,240,.18);
+    overflow: hidden;
+  }
+  .studio-mock-bar {
+    display: flex; align-items: center; gap: 7px; padding: 12px 16px;
+    border-bottom: 1px solid var(--line-dark);
+  }
+  .studio-mock-bar i { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,.14); }
+  .studio-mock-bar em {
+    margin-left: 10px; font-style: normal; font-size: 11px; color: var(--text-mid);
+    border: 1px solid var(--line-dark); border-radius: 7px; padding: 4px 12px;
+    background: rgba(255,255,255,.04);
+  }
+  .studio-mock-body { display: grid; grid-template-columns: 180px 1fr 220px; min-height: 300px; }
+  .mock-side { border-right: 1px solid var(--line-dark); padding: 14px 10px; display: flex; flex-direction: column; gap: 6px; }
+  .mock-side u {
+    text-decoration: none; font-size: 11.5px; color: var(--text-mid);
+    padding: 8px 10px; border-radius: 8px;
+  }
+  .mock-side u.on { background: rgba(91,91,240,.2); color: #D5D4FF; box-shadow: inset 2px 0 0 var(--brand); }
+  .mock-main { padding: 18px; }
+  .mock-main h4 { font-size: 14px; margin-bottom: 4px; }
+  .mock-main p { font-size: 11.5px; color: var(--text-mid); margin-bottom: 14px; }
+  .mock-videos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .mock-video {
+    aspect-ratio: 16/10; border-radius: 10px; border: 1px solid var(--line-dark);
+    position: relative; overflow: hidden;
+  }
+  .mock-video:nth-child(1) { background: linear-gradient(135deg, #312e81, #5B5BF0); }
+  .mock-video:nth-child(2) { background: linear-gradient(135deg, #4c1d95, #8B5CF6); }
+  .mock-video:nth-child(3) { background: linear-gradient(135deg, #164e63, #22D3EE); }
+  .mock-video::after {
+    content: "▶"; position: absolute; inset: 0; display: grid; place-items: center;
+    color: rgba(255,255,255,.85); font-size: 15px;
+  }
+  .mock-progress { margin-top: 14px; }
+  .mock-progress label { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--text-mid); margin-bottom: 5px; }
+  .mock-progress .track { height: 5px; border-radius: 5px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .mock-progress .fill { height: 100%; width: 68%; border-radius: 5px; background: var(--aurora); box-shadow: 0 0 12px rgba(91,91,240,.7); }
+  .mock-right { border-left: 1px solid var(--line-dark); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .mock-kpi { border: 1px solid var(--line-dark); border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,.03); }
+  .mock-kpi strong { font-size: 19px; display: block; font-variant-numeric: tabular-nums; }
+  .mock-kpi span { font-size: 10.5px; color: var(--text-mid); }
+
+  .stats {
+    position: relative; z-index: 1;
+    max-width: 980px; margin: 64px auto 0; padding: 0 28px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+  }
+  .stat {
+    text-align: center; padding: 22px 12px;
+    border: 1px solid var(--line-dark); border-radius: 14px; background: var(--glass);
+  }
+  .stat strong {
+    font-size: 30px; font-weight: 800; display: block;
+    background: var(--aurora); -webkit-background-clip: text; background-clip: text; color: transparent;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat span { font-size: 12.5px; color: var(--text-mid); display: block; margin-top: 6px; }
+
+  .section { position: relative; z-index: 1; max-width: 1160px; margin: 0 auto; padding: 90px 28px 10px; }
+  .section h2 { font-size: 34px; letter-spacing: -0.8px; margin-bottom: 10px; }
+  .section > p { color: var(--text-mid); margin-bottom: 34px; font-size: 15px; }
+
+  .cap-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .cap-card {
+    position: relative; border-radius: 16px; padding: 22px;
+    background: var(--glass); border: 1px solid var(--line-dark);
+    backdrop-filter: blur(12px); overflow: hidden;
+    transition: transform .16s cubic-bezier(.22,.61,.36,1), border-color .16s, box-shadow .16s;
+  }
+  .cap-card::before {
+    content: ""; position: absolute; top: 0; left: 10%; right: 10%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent);
+  }
+  .cap-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(139,92,246,.5);
+    box-shadow: 0 16px 40px rgba(91,91,240,.22);
+  }
+  .cap-icon {
+    width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
+    background: rgba(91,91,240,.16); border: 1px solid rgba(139,92,246,.35);
+    font-size: 17px; margin-bottom: 14px;
+  }
+  .cap-card h3 { font-size: 15px; margin-bottom: 7px; }
+  .cap-card p { color: var(--text-mid); font-size: 12.5px; line-height: 1.7; }
+
+  .plan-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items: stretch; }
+  .plan-card {
+    border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 16px;
+    background: var(--glass); border: 1px solid var(--line-dark); backdrop-filter: blur(12px);
+    transition: transform .16s cubic-bezier(.22,.61,.36,1), box-shadow .16s;
+  }
+  .plan-card:hover { transform: translateY(-4px); }
+  .plan-card.featured {
+    background:
+      linear-gradient(var(--bg-raised), var(--bg-raised)) padding-box,
+      var(--aurora) border-box;
+    border: 1.5px solid transparent;
+    transform: scale(1.03);
+    box-shadow: 0 24px 60px rgba(91,91,240,.3);
+  }
+  .plan-card.featured:hover { transform: scale(1.03) translateY(-4px); }
+  .plan-card h3 { font-size: 17px; display: flex; align-items: center; gap: 9px; }
+  .plan-badge {
+    background: var(--aurora); color: #fff; font-size: 10.5px; font-weight: 800;
+    padding: 3px 9px; border-radius: 999px; box-shadow: 0 2px 10px rgba(91,91,240,.5);
+  }
+  .plan-price { font-size: 36px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
+  .plan-price small { font-size: 13px; color: var(--text-mid); font-weight: 500; letter-spacing: 0; }
+  .plan-sub { color: var(--text-mid); font-size: 12.5px; margin-top: -10px; }
+  .plan-card ul { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 9px; flex: 1; }
+  .plan-card li { display: flex; gap: 8px; align-items: center; font-size: 13px; color: #C9D2EC; }
+  .plan-card li b { color: var(--cyan); font-weight: 700; }
+
+  .role-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .role-card {
+    border-radius: 16px; padding: 22px;
+    background: var(--glass); border: 1px solid var(--line-dark);
+  }
+  .role-card h3 { font-size: 15px; margin-bottom: 8px; }
+  .role-card p { color: var(--text-mid); font-size: 12.5px; line-height: 1.7; }
+
+  .footer {
+    position: relative; z-index: 1;
+    max-width: 1160px; margin: 80px auto 0; padding: 30px 28px 46px;
+    border-top: 1px solid var(--line-dark);
+    display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+    font-size: 12.5px; color: var(--text-mid);
+  }
+  .footer nav { display: flex; gap: 16px; }
+  .footer a:hover { color: var(--text-hi); }
+
+  /* ---------- 工作台层：曜石灰白（亮色预览条） ---------- */
+  .light-preview { background: var(--bg); padding: 70px 28px 80px; color: var(--ink); }
+  .light-inner { max-width: 1160px; margin: 0 auto; }
+  .light-inner h2 { font-size: 28px; letter-spacing: -0.6px; margin-bottom: 8px; }
+  .light-inner > p { color: var(--muted); font-size: 14px; margin-bottom: 30px; }
+  .light-mock {
+    display: grid; grid-template-columns: 220px 1fr; gap: 18px;
+    border: 1px solid var(--line); border-radius: 18px; padding: 18px; background: #EDEEF4;
+  }
+  .light-side {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px;
+    display: flex; flex-direction: column; gap: 4px;
+    box-shadow: 0 1px 2px rgba(16,24,40,.05), 0 8px 24px rgba(16,24,40,.06);
+  }
+  .light-side u {
+    text-decoration: none; font-size: 13px; color: #454B5C; padding: 9px 11px; border-radius: 9px;
+    transition: background .16s;
+  }
+  .light-side u:hover { background: #F4F5FB; }
+  .light-side u.on { background: #EEF0FE; color: #4338CA; font-weight: 650; box-shadow: inset 3px 0 0 var(--brand); }
+  .light-main { display: flex; flex-direction: column; gap: 14px; }
+  .light-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px;
+    box-shadow: 0 1px 2px rgba(16,24,40,.05), 0 8px 24px rgba(16,24,40,.06);
+    transition: transform .16s cubic-bezier(.22,.61,.36,1), box-shadow .16s;
+  }
+  .light-card:hover { transform: translateY(-2px); box-shadow: 0 2px 4px rgba(16,24,40,.06), 0 14px 34px rgba(16,24,40,.1); }
+  .light-card h4 { font-size: 15px; margin-bottom: 4px; }
+  .light-card p { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
+  .light-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .btn-brand {
+    background: linear-gradient(135deg, #6E6BFF, #5B5BF0); color: #fff;
+    box-shadow: 0 6px 18px rgba(91,91,240,.35);
+  }
+  .btn-brand:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(91,91,240,.45); }
+  .btn-plain { background: #fff; border-color: #DDDEE6; color: #333; }
+  .btn-plain:hover { background: #F4F5FB; border-color: #C7CBE8; }
+  .chip { border: 1px solid #DDDEE6; background: #fff; border-radius: 999px; padding: 7px 13px; font-size: 12.5px; color: #555; cursor: pointer; transition: all .16s; }
+  .chip.on { border-color: var(--brand); background: #EEF0FE; color: #4338CA; font-weight: 650; }
+  .kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .kpi { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: #FAFBFE; }
+  .kpi strong { font-size: 24px; font-variant-numeric: tabular-nums; display: block; }
+  .kpi span { font-size: 12px; color: var(--muted); }
+  .light-progress { height: 6px; border-radius: 6px; background: #E9EAF2; overflow: hidden; margin-top: 12px; }
+  .light-progress i { display: block; height: 100%; width: 68%; background: linear-gradient(90deg, #5B5BF0, #8B5CF6); border-radius: 6px; }
+
+  @media (max-width: 900px) {
+    .hero h1 { font-size: 36px; letter-spacing: -1px; }
+    .cap-grid, .stats { grid-template-columns: repeat(2, 1fr); }
+    .plan-grid, .role-grid, .kpi-row { grid-template-columns: 1fr; }
+    .plan-card.featured { transform: none; }
+    .studio-mock-body { grid-template-columns: 1fr; }
+    .mock-side, .mock-right { display: none; }
+    .light-mock { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="dark-wrap">
+  <div class="aurora-bg">
+    <div class="blob blob-a"></div>
+    <div class="blob blob-b"></div>
+    <div class="blob blob-c"></div>
+  </div>
+
+  <header class="nav">
+    <a href="#" class="brand">
+      <span class="brand-mark">🎬</span>
+      <div><strong>Wanke</strong><span>AI VIDEO PLATFORM</span></div>
+    </a>
+    <nav>
+      <a href="#capabilities">产品能力</a>
+      <a href="#pricing">价格</a>
+      <a href="#roles">角色与权限</a>
+    </nav>
+    <div class="nav-cta">
+      <a href="#" class="btn btn-ghost">登录</a>
+      <a href="#" class="btn btn-primary">免费注册</a>
+    </div>
+  </header>
+
+  <section class="hero">
+    <p class="eyebrow"><i></i>WANKE · 商业级 AI 视频创作平台</p>
+    <h1>把创意变成<span class="grad-text">成片</span>，<br>一个工作台完成全部 AI 视频生产</h1>
+    <p class="hero-sub">Wanke 面向创作者与小团队，覆盖描述生成、图生视频、人物一致、复刻、数字人口播、故事板与多语言翻译。创作进度随时可查，作品、素材与项目统一保存。</p>
+    <div class="hero-cta">
+      <a href="#" class="btn btn-primary btn-big">免费开始创作</a>
+      <a href="#pricing" class="btn btn-ghost btn-big">查看套餐</a>
+    </div>
+    <div class="proof">
+      <span><b>✓</b>创作内容仅自己可见</span>
+      <span><b>✓</b>生成未完成不会误扣创作额度</span>
+      <span><b>✓</b>作品、素材和任务统一保存</span>
+      <span><b>✓</b>关闭网页，创作继续完成</span>
+    </div>
+  </section>
+
+  <div class="hero-visual">
+    <div class="studio-mock">
+      <div class="studio-mock-bar">
+        <i></i><i></i><i></i>
+        <em>wanke.app/studio · 任务中心</em>
+      </div>
+      <div class="studio-mock-body">
+        <div class="mock-side">
+          <u class="on">任务中心</u><u>描述生成</u><u>快速向导</u><u>数字人口播</u><u>故事板</u><u>作品库</u><u>素材库</u>
+        </div>
+        <div class="mock-main">
+          <h4>本周创作</h4>
+          <p>3 个任务进行中 · 12 个作品已入库</p>
+          <div class="mock-videos">
+            <div class="mock-video"></div>
+            <div class="mock-video"></div>
+            <div class="mock-video"></div>
+          </div>
+          <div class="mock-progress">
+            <label><span>故事板 · 镜头 7/10</span><span>68%</span></label>
+            <div class="track"><div class="fill"></div></div>
+          </div>
+        </div>
+        <div class="mock-right">
+          <div class="mock-kpi"><strong>86</strong><span>剩余创作额度</span></div>
+          <div class="mock-kpi"><strong>3</strong><span>进行中的任务</span></div>
+          <div class="mock-kpi"><strong>12</strong><span>作品库</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><strong>8</strong><span>条创作工作流</span></div>
+    <div class="stat"><strong>100%</strong><span>任务全程可追踪</span></div>
+    <div class="stat"><strong>0</strong><span>未完成误扣额度</span></div>
+    <div class="stat"><strong>24h</strong><span>关闭网页持续创作</span></div>
+  </div>
+
+  <section class="section" id="capabilities">
+    <h2>八条创作工作流，覆盖完整视频生产</h2>
+    <p>同一套任务中心与素材体系驱动，结果自动进入你的作品库。</p>
+    <div class="cap-grid">
+      <article class="cap-card"><div class="cap-icon">✨</div><h3>描述生成视频</h3><p>一句话生成完整视频，Recipe 与批量版本支持精细创作。</p></article>
+      <article class="cap-card"><div class="cap-icon">🪄</div><h3>快速向导</h3><p>分步选择素材与目标，自动规划镜头并批量提交生成。</p></article>
+      <article class="cap-card"><div class="cap-icon">🧬</div><h3>高级复刻</h3><p>把原视频拆解、改写和渲染，串成可检查、可回退的流程。</p></article>
+      <article class="cap-card"><div class="cap-icon">📋</div><h3>快速复刻</h3><p>以已有视频为骨架，一键替换人物、产品或素材。</p></article>
+      <article class="cap-card"><div class="cap-icon">🧑‍💼</div><h3>数字人口播</h3><p>知识讲解与固定机位口播，统一人物、声音与画面。</p></article>
+      <article class="cap-card"><div class="cap-icon">🎙️</div><h3>旁白成片</h3><p>文案 + 素材 + 配音组合成完整旁白视频。</p></article>
+      <article class="cap-card"><div class="cap-icon">🎬</div><h3>故事板</h3><p>长文本自动拆镜、生成镜头并合成完整成片。</p></article>
+      <article class="cap-card"><div class="cap-icon">🌐</div><h3>视频翻译</h3><p>字幕、语音与画面文字的多语言处理。</p></article>
+    </div>
+  </section>
+
+  <section class="section" id="pricing">
+    <h2>选择适合你的创作节奏</h2>
+    <p>创作额度按次消耗，提交前会明确显示本次预计消耗；创作未完成会自动退回。</p>
+    <div class="plan-grid">
+      <article class="plan-card">
+        <h3>免费版</h3>
+        <div class="plan-price">免费</div>
+        <p class="plan-sub">体验完整的 AI 视频创作</p>
+        <ul>
+          <li><b>✓</b>每月 10 个创作额度</li>
+          <li><b>✓</b>全部基础创作能力</li>
+          <li><b>✓</b>作品库与素材库</li>
+          <li><b>✓</b>个人工作台</li>
+        </ul>
+        <a href="#" class="btn btn-ghost">选择免费版</a>
+      </article>
+      <article class="plan-card featured">
+        <h3>创作者版 <span class="plan-badge">推荐</span></h3>
+        <div class="plan-price grad-text">¥99<small> / 30 天</small></div>
+        <p class="plan-sub">面向持续创作的创作者</p>
+        <ul>
+          <li><b>✓</b>每月 100 个创作额度</li>
+          <li><b>✓</b>全部高级创作工作流</li>
+          <li><b>✓</b>批量版本与快速向导</li>
+          <li><b>✓</b>更高同时任务数</li>
+        </ul>
+        <a href="#" class="btn btn-primary">选择创作者版</a>
+      </article>
+      <article class="plan-card">
+        <h3>工作室版</h3>
+        <div class="plan-price">¥699<small> / 30 天</small></div>
+        <p class="plan-sub">面向重度用户与小团队</p>
+        <ul>
+          <li><b>✓</b>每月 1000 个创作额度</li>
+          <li><b>✓</b>全部高级创作工作流</li>
+          <li><b>✓</b>更高并发与容量</li>
+          <li><b>✓</b>优先支持</li>
+        </ul>
+        <a href="#" class="btn btn-ghost">选择工作室版</a>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" id="roles">
+    <h2>角色与权限</h2>
+    <div class="role-grid">
+      <article class="role-card"><h3>访客</h3><p>浏览产品能力与套餐说明，注册后立即开始创作。</p></article>
+      <article class="role-card"><h3>会员</h3><p>按套餐使用全部生成能力，管理任务、素材与作品库。</p></article>
+      <article class="role-card"><h3>运营者</h3><p>在管理后台管理会员、订单、创作服务与用户反馈。</p></article>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <span>Wanke · AI 视频创作平台</span>
+    <nav><a href="#">用户协议</a><a href="#">隐私政策</a></nav>
+  </footer>
+</div>
+
+<div class="light-preview">
+  <div class="light-inner">
+    <h2>工作台层 · 曜石灰白（精修亮色）</h2>
+    <p>创作与后台保持亮色高密度，主按钮、激活态、聚焦环全面换用品牌靛，卡片叠加柔和投影。</p>
+    <div class="light-mock">
+      <div class="light-side">
+        <u class="on">任务中心</u><u>开始创作</u><u>作品库</u><u>素材库</u><u>会员中心</u>
+      </div>
+      <div class="light-main">
+        <div class="light-card">
+          <h4>描述生成视频</h4>
+          <p>一句话生成完整视频，提交前明确显示本次预计消耗。</p>
+          <div class="light-actions">
+            <span class="chip on">9:16 竖屏</span><span class="chip">16:9 横屏</span><span class="chip">1:1 方形</span>
+          </div>
+          <div class="light-progress"><i></i></div>
+          <div class="light-actions" style="margin-top:14px">
+            <a href="#" class="btn btn-brand">开始创作 · 消耗 1 额度</a>
+            <a href="#" class="btn btn-plain">保存草稿</a>
+          </div>
+        </div>
+        <div class="kpi-row">
+          <div class="kpi"><strong>86</strong><span>剩余创作额度</span></div>
+          <div class="kpi"><strong>3</strong><span>进行中的任务</span></div>
+          <div class="kpi"><strong>12</strong><span>作品库</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -22,7 +22,7 @@ const DEFAULT_CREATION: CreationPreferences = {
   resolution: "1080p",
   subtitleEnabled: false,
   language: "zh-CN",
-  defaultDuration: 10,
+  defaultDuration: 5,
   favoriteTool: "",
 };
 

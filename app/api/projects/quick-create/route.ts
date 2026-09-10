@@ -23,7 +23,7 @@ const schema = z.object({
   name: z.string().max(120).default(""),
   goal: z.string().trim().min(1).max(1200),
   platform: z.enum(["douyin", "xiaohongshu", "youtube", "landscape"]),
-  totalDuration: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(30)]),
+  totalDuration: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(30)]).default(5),
   providerMode: z.enum(["auto", "modelstudio", "yike"]).optional(),
   subjectId: z.string().min(1).nullable().optional(),
   imageAssetId: z.string().min(1).nullable().optional(),

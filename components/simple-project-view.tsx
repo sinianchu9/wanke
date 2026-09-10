@@ -179,15 +179,25 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
               </div>
             </div>}
 
-            {!state.chosenOutput && !state.needsChoice && <div className="pending-card" style={{marginTop:12}}>
-              {state.status === "waiting" ? <LoaderCircle className="spin" size={22}/> : <Repeat2 size={22}/>}<div><strong>{state.label}</strong><span>{state.detail}</span></div>
-            </div>}
+            {!state.chosenOutput && !state.needsChoice && (
+              state.status === "waiting" && (state as any).activeJob ? (
+                <CompactShotProgress job={(state as any).activeJob} label={state.label} detail={state.detail} />
+              ) : (
+                <div className="pending-card" style={{marginTop:12}}>
+                  {state.status === "waiting" ? <LoaderCircle className="spin" size={22}/> : <Repeat2 size={22}/>}<div><strong>{state.label}</strong><span>{state.detail}</span></div>
+                </div>
+              )
+            )}
+
+            {state.status === "waiting" && state.successful.length > 0 && (state as any).activeJob && (
+              <CompactShotProgress job={(state as any).activeJob} label={state.label} detail="新候选版本正在生成中，完成后会自动加入候选列表供选择" />
+            )}
 
             <div className="inline-actions" style={{marginTop:12}}>
               {state.status === "failed" && <button className="secondary" disabled={actionLocked} onClick={() => retryShot(shot)}><RefreshCw size={14}/>{busy === `retry:${shot.id}` ? "正在重试…" : "重试这个镜头"}</button>}
               {state.status === "done" && !state.needsChoice && state.chosen?.kind === "video_generation" && <button className="secondary" disabled={actionLocked} onClick={() => regenerateShot(shot)}><Repeat2 size={14}/>{busy === `similar:${shot.id}` ? "正在提交…" : "再生成一个版本"}</button>}
               {state.status === "done" && !state.needsChoice && state.chosen && state.chosen.kind !== "video_generation" && <span className="muted mini">这个版本来自延长/编辑等后续处理；需要继续加工时进入高级编辑。</span>}
-              {state.status === "waiting" && state.successful.length > 0 && <span className="muted mini">已有可用版本，但新的候选仍在生成；完成后会在这里一起比较。</span>}
+              {state.status === "waiting" && state.successful.length > 0 && !(state as any).activeJob && <span className="muted mini">已有可用版本，但新的候选仍在生成；完成后会在这里一起比较。</span>}
               {state.status === "empty" && <button className="secondary" onClick={onAdvanced}><Settings2 size={14}/>去高级编辑补充这个镜头</button>}
             </div>
           </section>;
@@ -252,6 +262,7 @@ function shotState(shot: ProjectShot, jobMap: Map<string, StoredJob>) {
       chosen,
       chosenOutput,
       needsChoice: false,
+      activeJob: active[0] || null,
     };
   }
   if (needsChoice) return { status: "done" as const, label: "请选择版本", detail: "有多个可用版本，预览后选一个即可", successful, chosen: null, chosenOutput: null, needsChoice: true };
@@ -285,4 +296,49 @@ function mediaUrl(output: ResultMedia) {
 
 function friendlyShotName(name: string) {
   return name.replace(/^Shot\s+\d+\s*·\s*/i, "");
+}
+
+function CompactShotProgress({ job, label, detail }: { job: StoredJob; label: string; detail: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const elapsed = Math.max(0, Math.floor((now - new Date(job.createdAt).getTime()) / 1000));
+  const estimatedTotal = 70;
+  let progress = 15;
+  let stageLabel = "排队中";
+
+  if (job.status === "queued") {
+    stageLabel = "云端排队中";
+    progress = Math.min(28, Math.round(15 + (elapsed / 30) * 13));
+  } else if (job.status === "running") {
+    stageLabel = "AI 渲染中";
+    const ratio = Math.min(2.5, elapsed / estimatedTotal);
+    const curve = 1 - Math.exp(-2.2 * ratio);
+    progress = Math.min(92, Math.round(32 + curve * 58));
+  } else if (job.status === "unknown") {
+    stageLabel = "状态确认中";
+    progress = 30;
+  }
+
+  return (
+    <div className="compact-progress-card" style={{ marginTop: 12 }}>
+      <div className="compact-progress-top">
+        <strong>
+          <LoaderCircle className="spin" size={14} />
+          {label} · {stageLabel}
+        </strong>
+        <span className="compact-progress-pct">{progress}%</span>
+      </div>
+      <div className="compact-progress-bar">
+        <div className="compact-progress-bar-fill" style={{ width: `${progress}%` }} />
+      </div>
+      <div className="compact-progress-sub">
+        <span>{detail}</span>
+        <span>已耗时 {elapsed < 60 ? `${elapsed} 秒` : `${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒`}</span>
+      </div>
+    </div>
+  );
 }

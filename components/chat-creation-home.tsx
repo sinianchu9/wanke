@@ -579,7 +579,7 @@ function readDraft(defaultProviderMode: ProviderMode): DraftState {
     type: "product_ad",
     prompt: "",
     platform: "douyin",
-    duration: 10,
+    duration: 5,
     providerMode: defaultProviderMode,
     subjectId: "",
     imageAssetId: "",

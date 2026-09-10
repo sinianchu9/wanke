@@ -47,7 +47,12 @@ export default async function LandingPage() {
   const contactEmail = getSetting("contact_email").trim();
 
   return <div className="landing">
+    <div className="aurora-bg" aria-hidden="true">
+      <i className="blob a"/><i className="blob b"/><i className="blob c"/>
+    </div>
+
     <header className="landing-nav">
+      <div className="landing-shell">
       <Link href="/" className="brand">
         <span className="brand-mark"><Clapperboard size={19}/></span>
         <div><strong>Wanke</strong><span>AI VIDEO PLATFORM</span></div>
@@ -65,11 +70,12 @@ export default async function LandingPage() {
               <Link href="/register" className="primary">免费注册</Link>
             </>}
       </div>
+      </div>
     </header>
 
-    <section className="landing-hero">
-      <p className="eyebrow">{siteName} · 商业级 AI 视频创作平台</p>
-      <h1>把创意变成成片，<br/>一个工作台完成全部 AI 视频生产</h1>
+    <section className="landing-hero landing-shell">
+      <p className="eyebrow"><i/>{siteName} · 商业级 AI 视频创作平台</p>
+      <h1>把创意变成<span className="grad-text">成片</span>，<br/>一个工作台完成全部 AI 视频生产</h1>
       <p className="landing-sub">Wanke 面向创作者与小团队，覆盖描述生成、图生视频、人物一致、复刻、数字人口播、故事板与多语言翻译。创作进度随时可查，作品、素材与项目统一保存。</p>
       <div className="landing-cta center">
         {user
@@ -87,19 +93,56 @@ export default async function LandingPage() {
       </div>
     </section>
 
-    <section className="landing-section" id="capabilities">
+    <div className="landing-shell hero-visual" aria-hidden="true">
+      <div className="studio-mock">
+        <div className="studio-mock-bar">
+          <i/><i/><i/>
+          <em>/studio · 任务中心</em>
+        </div>
+        <div className="studio-mock-body">
+          <div className="mock-side">
+            <u className="on">任务中心</u><u>描述生成</u><u>快速向导</u><u>数字人口播</u><u>故事板</u><u>作品库</u><u>素材库</u>
+          </div>
+          <div className="mock-main">
+            <h4>本周创作</h4>
+            <p>3 个任务进行中 · 12 个作品已入库</p>
+            <div className="mock-videos">
+              <div className="mock-video a"/><div className="mock-video b"/><div className="mock-video c"/>
+            </div>
+            <div className="mock-progress">
+              <label><span>故事板 · 镜头 7/10</span><span>68%</span></label>
+              <div className="track"><div className="fill"/></div>
+            </div>
+          </div>
+          <div className="mock-right">
+            <div className="mock-kpi"><strong>86</strong><span>剩余创作额度</span></div>
+            <div className="mock-kpi"><strong>3</strong><span>进行中的任务</span></div>
+            <div className="mock-kpi"><strong>12</strong><span>作品库</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div className="landing-shell stats-row">
+      <div className="stat-card"><strong>8</strong><span>条创作工作流</span></div>
+      <div className="stat-card"><strong>100%</strong><span>任务全程可追踪</span></div>
+      <div className="stat-card"><strong>0</strong><span>未完成误扣额度</span></div>
+      <div className="stat-card"><strong>24h</strong><span>关闭网页持续创作</span></div>
+    </div>
+
+    <section className="landing-section landing-shell" id="capabilities">
       <h2>八条创作工作流，覆盖完整视频生产</h2>
       <p className="muted">同一套任务中心与素材体系驱动，结果自动进入你的作品库。</p>
       <div className="capability-grid">
         {capabilities.map(capability => <article key={capability.name} className="capability-card">
-          <capability.icon size={18}/>
+          <span className="cap-icon"><capability.icon size={18}/></span>
           <h3>{capability.name}</h3>
           <p>{capability.desc}</p>
         </article>)}
       </div>
     </section>
 
-    <section className="landing-section" id="pricing">
+    <section className="landing-section landing-shell" id="pricing">
       <h2>选择适合你的创作节奏</h2>
       <p className="muted">创作额度按次消耗，提交前会明确显示本次预计消耗；创作未完成会自动退回。</p>
       <div className="plan-grid landing-plans">
@@ -120,20 +163,22 @@ export default async function LandingPage() {
       </div>
     </section>
 
-    <section className="landing-section" id="roles">
+    <section className="landing-section landing-shell" id="roles">
       <h2>角色与权限</h2>
       <div className="role-grid">
         {roles.map(role => <article key={role.name} className="role-card"><h3>{role.name}</h3><p>{role.desc}</p></article>)}
       </div>
     </section>
 
-    <footer className="landing-footer">
+    <footer className="landing-footer landing-shell">
+      <div className="landing-footer-inner">
       <span>{siteName} · AI 视频创作平台</span>
       <span className="muted landing-legal">
         <Link href="/legal/terms">用户协议</Link>
         <Link href="/legal/privacy">隐私政策</Link>
         {contactEmail ? <span>客服 {contactEmail}</span> : null}
       </span>
+      </div>
     </footer>
   </div>;
 }

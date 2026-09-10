@@ -33,7 +33,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
   const [platform, setPlatform] = useState<Platform>("douyin");
-  const [duration, setDuration] = useState<5 | 10 | 15 | 30>(10);
+  const [duration, setDuration] = useState<5 | 10 | 15 | 30>(5);
   const [subjectId, setSubjectId] = useState("");
   const [imageAssetId, setImageAssetId] = useState("");
   const [referenceUrl, setReferenceUrl] = useState("");

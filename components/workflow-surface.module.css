@@ -99,8 +99,8 @@
   --line: #e5e5e8;
   --text: #202123;
   --muted: #77777d;
-  --accent: #202123;
-  --accent2: #000;
+  --accent: #5B5BF0;
+  --accent2: #4338CA;
   --danger: #c73d51;
   --warn: #a26716;
   --blue: #3c6eaa;
@@ -196,8 +196,8 @@
 .surface :global(.field textarea:focus),
 .surface :global(.field select:focus),
 .surface :global(.register-row input:focus) {
-  border-color: #a8a8ae;
-  box-shadow: 0 0 0 3px rgba(32, 33, 35, .07);
+  border-color: #5B5BF0;
+  box-shadow: 0 0 0 3px rgba(91, 91, 240, .18);
 }
 
 .surface :global(.secondary),
@@ -213,14 +213,17 @@
 }
 
 .surface :global(.primary) {
-  border-color: #202123;
-  background: #202123;
+  border-color: transparent;
+  background: linear-gradient(135deg,#6E6BFF,#5B5BF0);
   color: #fff;
+  box-shadow: 0 6px 18px rgba(91,91,240,.3);
 }
 
 .surface :global(.primary:hover) {
-  border-color: #000;
-  background: #000;
+  border-color: transparent;
+  background: linear-gradient(135deg,#7C79FF,#4F4DE8);
+  box-shadow: 0 10px 24px rgba(91,91,240,.42);
+  transform: translateY(-1px);
 }
 
 .surface :global(.segment) {
@@ -234,8 +237,8 @@
 
 .surface :global(.segment button.active) {
   background: #fff;
-  color: #202123;
-  box-shadow: 0 0 0 1px #d4d4d8, 0 1px 3px rgba(0, 0, 0, .04);
+  color: #4338CA;
+  box-shadow: 0 0 0 1px rgba(91,91,240,.35), 0 1px 3px rgba(0, 0, 0, .04);
 }
 
 .surface :global(.toggle .switch) {
@@ -248,7 +251,7 @@
 }
 
 .surface :global(.toggle input:checked + .switch) {
-  background: #202123;
+  background: #5B5BF0;
 }
 
 .surface :global(.toggle input:checked + .switch:after) {
@@ -356,7 +359,7 @@
 }
 
 .surface :global(.pipeline-step em) {
-  background: #202123;
+  background: #5B5BF0;
   color: #fff;
 }
 
@@ -386,9 +389,9 @@
 }
 
 .surface :global(.upload-box) {
-  border-color: #d6d6da;
-  background: #fafafa;
-  color: #4d4d53;
+  border-color: #C7CBF5;
+  background: #F5F6FE;
+  color: #4338CA;
 }
 
 .surface :global(.upload-box span) {
@@ -400,7 +403,7 @@
 }
 
 .surface :global(.progress i) {
-  background: #202123;
+  background: linear-gradient(90deg,#5B5BF0,#8B5CF6);
 }
 
 .surface :global(.panel .panel) {
@@ -417,7 +420,7 @@
 .surface :global(select:focus-visible),
 .backButton:focus-visible,
 .closeButton:focus-visible {
-  outline: 2px solid #202123;
+  outline: 2px solid #5B5BF0;
   outline-offset: 2px;
 }
 

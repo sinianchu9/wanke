@@ -18,17 +18,19 @@ const schema = z.object({
 
 function compatibleBaseUrl() {
   const config = getModelStudioRuntimeConfig();
-  if (config.workspaceId) {
-    return `https://${config.workspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`;
-  }
   const explicit = config.baseUrl?.trim();
-  if (!explicit) return "";
-  try {
-    const url = new URL(explicit);
-    return `${url.origin}/compatible-mode/v1`;
-  } catch {
-    return "";
+  if (explicit) {
+    try {
+      const url = new URL(explicit);
+      return `${url.origin}/compatible-mode/v1`;
+    } catch {
+      // ignore
+    }
   }
+  if (config.workspaceId) {
+    return `https://${config.workspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`;
+  }
+  return "";
 }
 
 function plainText(value: unknown) {

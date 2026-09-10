@@ -429,12 +429,10 @@ export default function Studio() {
 
           {sidebarActiveJobs.length > 0 && <div className={styles.navGroup}>
             <button className={styles.groupToggle} onClick={() => setActiveJobsOpen(value => !value)}>
-              <span>正在生成</span>{activeJobsOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              <span>正在生成 ({sidebarActiveJobs.length})</span>{activeJobsOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
             </button>
             {activeJobsOpen && sidebarActiveJobs.map(job => (
-              <button key={job.id} className={styles.recentItem} onClick={() => openJob(job.id)} title={job.title}>
-                <LoaderCircle className={styles.spin} size={13} /><span>{job.title}</span>
-              </button>
+              <SidebarJobItem key={job.id} job={job} onClick={() => openJob(job.id)} />
             ))}
           </div>}
 
@@ -604,4 +602,37 @@ function mergeJobs(...groups: StoredJob[][]) {
   const map = new Map<string, StoredJob>();
   for (const job of groups.flat()) map.set(job.id, job);
   return [...map.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+function SidebarJobItem({ job, onClick }: { job: StoredJob; onClick: () => void }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const elapsed = Math.max(0, Math.floor((now - new Date(job.createdAt).getTime()) / 1000));
+  let progress = 15;
+  if (job.status === "queued") {
+    progress = Math.min(28, Math.round(15 + (elapsed / 30) * 13));
+  } else if (job.status === "running") {
+    const ratio = Math.min(2.5, elapsed / 70);
+    const curve = 1 - Math.exp(-2.2 * ratio);
+    progress = Math.min(92, Math.round(32 + curve * 58));
+  } else if (job.status === "unknown") {
+    progress = 30;
+  }
+
+  return (
+    <button className={styles.sidebarJobItem} onClick={onClick} title={`${job.title}（点击查看任务进度）`}>
+      <div className={styles.sidebarJobHeader}>
+        <LoaderCircle className={styles.spin} size={12} style={{ color: "#4f46e5", flexShrink: 0 }} />
+        <span className={styles.sidebarJobTitle}>{job.title}</span>
+        <span className={styles.sidebarJobPct}>{progress}%</span>
+      </div>
+      <div className={styles.sidebarJobTrack}>
+        <div className={styles.sidebarJobFill} style={{ width: `${progress}%` }} />
+      </div>
+    </button>
+  );
 }

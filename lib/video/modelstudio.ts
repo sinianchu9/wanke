@@ -2,7 +2,7 @@ import "server-only";
 import type { JobStatus, StoredJob } from "@/lib/types";
 import type { VideoExtensionInput } from "@/lib/video/extension";
 import type { VideoEditingInput } from "@/lib/video/editing";
-import { getModelStudioRuntimeConfig } from "@/lib/settings";
+import { getModelStudioChannelConfig, getModelStudioRuntimeConfig, type ModelStudioChannel } from "@/lib/settings";
 
 type VideoInput = {
   prompt: string;
@@ -15,47 +15,33 @@ type VideoInput = {
 
 type RouteDecision = {
   model: string;
-  route: "happyhorse-t2v" | "happyhorse-i2v" | "happyhorse-r2v" | "wan-i2v" | "wan-r2v";
+  route: "happyhorse-t2v" | "happyhorse-i2v" | "happyhorse-r2v" | "wan-t2v" | "wan-i2v" | "wan-r2v";
   reason: string;
 };
 
-function apiKey() {
-  return getModelStudioRuntimeConfig().apiKey;
-}
+export function chooseRoute(input: VideoInput): RouteDecision {
+  const hhConfig = getModelStudioChannelConfig("happyhorse");
+  const wanConfig = getModelStudioChannelConfig("wan");
+  const hhEndpoint = rootUrlForChannel("happyhorse");
+  const isHhBeijing = hhEndpoint.includes("cn-beijing");
+  // HappyHorse does not exist in Beijing exclusive workspace
+  const hhReady = Boolean(hhConfig.apiKey) && !hhConfig.blockedReason && !isHhBeijing;
+  const wanReady = Boolean(wanConfig.apiKey) && !wanConfig.blockedReason;
 
-function rootUrl() {
-  const config = getModelStudioRuntimeConfig();
-  const explicit = config.baseUrl.trim().replace(/\/+$/, "");
-  if (explicit) return explicit.endsWith("/api/v1") ? explicit.slice(0, -7) : explicit;
-  if (config.workspaceId) return `https://${config.workspaceId}.ap-southeast-1.maas.aliyuncs.com`;
-  return "https://dashscope-intl.aliyuncs.com";
-}
+  // If HappyHorse is not ready or points to cn-beijing, but Wan is ready, route everything to Wan 2.7
+  if (!hhReady && wanReady) {
+    if (input.jobType === "text_to_video") {
+      return { model: "wan2.7-t2v", route: "wan-t2v", reason: "Wan 通道已就绪，文生视频使用 Wan 2.7 原生能力" };
+    }
+    if (input.jobType === "image_to_video") {
+      return { model: "wan2.7-i2v-2026-04-25", route: "wan-i2v", reason: "Wan 通道已就绪，单图生视频使用 Wan 2.7 原生能力" };
+    }
+    if (input.jobType === "first_last_frame") {
+      return { model: "wan2.7-i2v-2026-04-25", route: "wan-i2v", reason: "首尾帧由 Wan 2.7 原生支持" };
+    }
+    return { model: "wan2.7-r2v-2026-06-12", route: "wan-r2v", reason: "Wan 通道已就绪，参考生视频使用 Wan 2.7 多模态能力" };
+  }
 
-function apiBase() {
-  return `${rootUrl()}/api/v1`;
-}
-
-export function modelStudioConfigSummary() {
-  const config = getModelStudioRuntimeConfig();
-  return {
-    configured: Boolean(config.apiKey),
-    provider: "modelstudio",
-    regionId: "ap-southeast-1",
-    regionName: "新加坡",
-    endpoint: rootUrl(),
-    workspaceDedicatedDomain: Boolean(config.workspaceId || config.baseUrl),
-    configSource: config.sources,
-  };
-}
-
-export function canUseModelStudio(input: VideoInput) {
-  if (!apiKey()) return false;
-  if (!input.medias.every(media => Boolean(media.url))) return false;
-  if (input.jobType === "reference_to_video" && input.medias.some(media => media.type === "audio")) return false;
-  return true;
-}
-
-function chooseRoute(input: VideoInput): RouteDecision {
   if (input.jobType === "text_to_video") return { model: "happyhorse-1.1-t2v", route: "happyhorse-t2v", reason: "文生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动" };
   if (input.jobType === "image_to_video") return { model: "happyhorse-1.1-i2v", route: "happyhorse-i2v", reason: "单图生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动" };
   if (input.jobType === "first_last_frame") return { model: "wan2.7-i2v-2026-04-25", route: "wan-i2v", reason: "首尾帧由 Wan 2.7 原生支持" };
@@ -102,10 +88,20 @@ function buildPayload(input: VideoInput, decision: RouteDecision) {
   if (decision.route === "happyhorse-i2v") {
     return { model: decision.model, input: { prompt, media: [{ type: "first_frame", url: requireUrl(input.medias[0], 0) }] }, parameters };
   }
+  if (decision.route === "wan-t2v") {
+    parameters.ratio = input.aspectRatio;
+    return { model: decision.model, input: { prompt }, parameters: { ...parameters, prompt_extend: true } };
+  }
   if (decision.route === "wan-i2v") {
+    const isFirstLast = input.jobType === "first_last_frame" && input.medias.length >= 2;
     return {
       model: decision.model,
-      input: { prompt, media: [{ type: "first_frame", url: requireUrl(input.medias[0], 0) }, { type: "last_frame", url: requireUrl(input.medias[1], 1) }] },
+      input: {
+        prompt,
+        media: isFirstLast
+          ? [{ type: "first_frame", url: requireUrl(input.medias[0], 0) }, { type: "last_frame", url: requireUrl(input.medias[1], 1) }]
+          : [{ type: "first_frame", url: requireUrl(input.medias[0], 0) }],
+      },
       parameters: { ...parameters, prompt_extend: true },
     };
   }
@@ -121,6 +117,90 @@ function buildPayload(input: VideoInput, decision: RouteDecision) {
     parameters: { ...parameters, prompt_extend: false },
   };
 }
+
+export function resolveChannel(modelName: string): "happyhorse" | "wan" {
+  if (modelName.toLowerCase().startsWith("wan")) return "wan";
+  return "happyhorse";
+}
+
+export function apiKeyForChannel(channel: ModelStudioChannel = "default") {
+  return getModelStudioChannelConfig(channel).apiKey;
+}
+
+export function rootUrlForChannel(channel: ModelStudioChannel = "default") {
+  const config = getModelStudioChannelConfig(channel);
+  const explicit = config.baseUrl.trim().replace(/\/+$/, "");
+  if (explicit) return explicit.endsWith("/api/v1") ? explicit.slice(0, -7) : explicit;
+  if (config.workspaceId) return `https://${config.workspaceId}.ap-southeast-1.maas.aliyuncs.com`;
+  return "https://dashscope-intl.aliyuncs.com";
+}
+
+export function apiBaseForChannel(channel: ModelStudioChannel = "default") {
+  return `${rootUrlForChannel(channel)}/api/v1`;
+}
+
+function apiKey() {
+  return apiKeyForChannel("default");
+}
+
+function rootUrl() {
+  return rootUrlForChannel("default");
+}
+
+function apiBase() {
+  return apiBaseForChannel("default");
+}
+
+export function modelStudioConfigSummary() {
+  const defaultCfg = getModelStudioChannelConfig("default");
+  const happyhorseCfg = getModelStudioChannelConfig("happyhorse");
+  const wanCfg = getModelStudioChannelConfig("wan");
+
+  const endpoint = rootUrlForChannel("default");
+  const isBeijing = endpoint.includes("cn-beijing");
+  return {
+    configured: Boolean(defaultCfg.apiKey || happyhorseCfg.apiKey || wanCfg.apiKey),
+    provider: "modelstudio",
+    regionId: isBeijing ? "cn-beijing" : "ap-southeast-1",
+    regionName: isBeijing ? "北京" : "新加坡",
+    endpoint: endpoint,
+    workspaceDedicatedDomain: Boolean(defaultCfg.workspaceId || defaultCfg.baseUrl),
+    configSource: defaultCfg.sources,
+    channels: {
+      happyhorse: {
+        configured: Boolean(happyhorseCfg.apiKey),
+        endpoint: rootUrlForChannel("happyhorse"),
+        regionId: rootUrlForChannel("happyhorse").includes("cn-beijing") ? "cn-beijing" : "ap-southeast-1",
+        regionName: rootUrlForChannel("happyhorse").includes("cn-beijing") ? "北京" : "新加坡",
+        isOverridden: happyhorseCfg.isOverridden,
+        sources: happyhorseCfg.sources,
+        blockedReason: happyhorseCfg.blockedReason,
+      },
+      wan: {
+        configured: Boolean(wanCfg.apiKey),
+        endpoint: rootUrlForChannel("wan"),
+        regionId: rootUrlForChannel("wan").includes("cn-beijing") ? "cn-beijing" : "ap-southeast-1",
+        regionName: rootUrlForChannel("wan").includes("cn-beijing") ? "北京" : "新加坡",
+        isOverridden: wanCfg.isOverridden,
+        sources: wanCfg.sources,
+        blockedReason: wanCfg.blockedReason,
+      },
+    },
+  };
+}
+
+export function canUseModelStudio(input: VideoInput) {
+  const decision = chooseRoute(input);
+  const channel = resolveChannel(decision.model);
+  const key = apiKeyForChannel(channel);
+  if (!key) return false;
+  const config = getModelStudioChannelConfig(channel);
+  if (config.blockedReason) return false;
+  if (!input.medias.every(media => Boolean(media.url))) return false;
+  if (input.jobType === "reference_to_video" && input.medias.some(media => media.type === "audio")) return false;
+  return true;
+}
+
 
 function diagnosticSuffix(code: string, status?: number, requestIdValue?: unknown) {
   const requestId = String(requestIdValue || "").trim();
@@ -178,9 +258,12 @@ function friendlyProviderMessage(codeValue: unknown, messageValue: unknown, stat
   return withDiagnostics(message ? `百炼视频生成失败：${message}` : `百炼视频接口失败${status ? `（HTTP ${status}）` : ""}`);
 }
 
-async function requestJson(url: string, init: RequestInit) {
-  const key = apiKey();
-  if (!key) throw new Error("未配置百炼 Model Studio API Key：请到设置中填写百炼 API Key");
+async function requestJsonForChannel(channel: ModelStudioChannel, url: string, init: RequestInit) {
+  const key = apiKeyForChannel(channel);
+  if (!key) {
+    const channelName = channel === "happyhorse" ? "HappyHorse" : channel === "wan" ? "Wan" : "百炼 Model Studio";
+    throw new Error(`未配置 ${channelName} API Key：请到设置中填写对应 API Key（或补充通用百炼 Key）`);
+  }
   const response = await fetch(url, {
     ...init,
     headers: {
@@ -198,68 +281,118 @@ async function requestJson(url: string, init: RequestInit) {
   return body;
 }
 
+async function requestJson(url: string, init: RequestInit) {
+  return requestJsonForChannel("default", url, init);
+}
+
 export async function submitModelStudioVideo(input: VideoInput) {
   const decision = chooseRoute(input);
+  const channel = resolveChannel(decision.model);
   const duration = effectiveDuration(input, decision);
   const payload = buildPayload(input, decision);
-  const body = await requestJson(`${apiBase()}/services/aigc/video-generation/video-synthesis`, { method: "POST", body: JSON.stringify(payload) });
+  const endpoint = rootUrlForChannel(channel);
+  const body = await requestJsonForChannel(
+    channel,
+    `${apiBaseForChannel(channel)}/services/aigc/video-generation/video-synthesis`,
+    { method: "POST", body: JSON.stringify(payload) }
+  );
   const taskId = body?.output?.task_id;
   if (!taskId) throw new Error(`百炼没有返回任务编号，请勿重复点击生成。RequestId：${body?.request_id || "未知"}`);
   return {
-    providerJobId: String(taskId), requestId: body?.request_id || null, provider: body, initialStatus: "queued" as JobStatus,
-    details: { pollable: true, engine: "modelstudio", model: decision.model, route: decision.route, routeReason: decision.reason, requestedDuration: input.duration, effectiveDuration: duration, endpoint: rootUrl() },
+    providerJobId: String(taskId),
+    requestId: body?.request_id || null,
+    provider: body,
+    initialStatus: "queued" as JobStatus,
+    details: {
+      pollable: true,
+      engine: "modelstudio",
+      channel,
+      model: decision.model,
+      route: decision.route,
+      routeReason: decision.reason,
+      requestedDuration: input.duration,
+      effectiveDuration: duration,
+      endpoint,
+    },
   };
 }
 
 export async function submitModelStudioVideoExtension(input: VideoExtensionInput) {
   const model = "wan2.7-i2v-2026-04-25";
-  const body = await requestJson(`${apiBase()}/services/aigc/video-generation/video-synthesis`, {
-    method: "POST",
-    body: JSON.stringify({
-      model,
-      input: { prompt: input.prompt, media: [{ type: "first_clip", url: input.sourceUrl }] },
-      parameters: { resolution: input.resolution, duration: input.targetDuration, prompt_extend: true, watermark: false },
-    }),
-  });
+  const channel = "wan" as const;
+  const endpoint = rootUrlForChannel(channel);
+  const body = await requestJsonForChannel(
+    channel,
+    `${apiBaseForChannel(channel)}/services/aigc/video-generation/video-synthesis`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        model,
+        input: { prompt: input.prompt, media: [{ type: "first_clip", url: input.sourceUrl }] },
+        parameters: { resolution: input.resolution, duration: input.targetDuration, prompt_extend: true, watermark: false },
+      }),
+    }
+  );
   const taskId = body?.output?.task_id;
   if (!taskId) throw new Error(`百炼视频延长没有返回任务编号，请勿重复提交。RequestId：${body?.request_id || "未知"}`);
   return {
-    providerJobId: String(taskId), requestId: body?.request_id || null, provider: body, initialStatus: "queued" as JobStatus,
+    providerJobId: String(taskId),
+    requestId: body?.request_id || null,
+    provider: body,
+    initialStatus: "queued" as JobStatus,
     details: {
-      pollable: true, engine: "modelstudio", model, route: "wan-video-extension",
+      pollable: true,
+      engine: "modelstudio",
+      channel,
+      model,
+      route: "wan-video-extension",
       routeReason: "视频延长使用 Wan 2.7 原生 first_clip continuation，不使用 reference-to-video 代替",
-      creationAction: "video_extension", sourceJobId: input.sourceJobId, sourceOutputIndex: input.sourceOutputIndex,
-      sourceDuration: input.sourceDuration, targetDuration: input.targetDuration, endpoint: rootUrl(),
+      creationAction: "video_extension",
+      sourceJobId: input.sourceJobId,
+      sourceOutputIndex: input.sourceOutputIndex,
+      sourceDuration: input.sourceDuration,
+      targetDuration: input.targetDuration,
+      endpoint,
     },
   };
 }
 
 export async function submitModelStudioVideoEditing(input: VideoEditingInput) {
   const model = "wan2.7-videoedit";
+  const channel = "wan" as const;
+  const endpoint = rootUrlForChannel(channel);
   const media = [
     { type: "video", url: input.sourceUrl },
     ...input.referenceImages.map(url => ({ type: "reference_image", url })),
   ];
-  const body = await requestJson(`${apiBase()}/services/aigc/video-generation/video-synthesis`, {
-    method: "POST",
-    body: JSON.stringify({
-      model,
-      input: { prompt: input.prompt, media },
-      parameters: {
-        resolution: input.resolution,
-        prompt_extend: true,
-        watermark: false,
-        audio_setting: input.audioSetting,
-      },
-    }),
-  });
+  const body = await requestJsonForChannel(
+    channel,
+    `${apiBaseForChannel(channel)}/services/aigc/video-generation/video-synthesis`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        model,
+        input: { prompt: input.prompt, media },
+        parameters: {
+          resolution: input.resolution,
+          prompt_extend: true,
+          watermark: false,
+          audio_setting: input.audioSetting,
+        },
+      }),
+    }
+  );
   const taskId = body?.output?.task_id;
   if (!taskId) throw new Error(`百炼视频编辑没有返回任务编号，请勿重复提交。RequestId：${body?.request_id || "未知"}`);
   return {
-    providerJobId: String(taskId), requestId: body?.request_id || null, provider: body, initialStatus: "queued" as JobStatus,
+    providerJobId: String(taskId),
+    requestId: body?.request_id || null,
+    provider: body,
+    initialStatus: "queued" as JobStatus,
     details: {
       pollable: true,
       engine: "modelstudio",
+      channel,
       model,
       route: "wan-video-editing",
       routeReason: "整条视频指令编辑使用 Wan 2.7 Video Editing；当前没有时间段或 mask 参数，不标记为 Retake",
@@ -268,7 +401,7 @@ export async function submitModelStudioVideoEditing(input: VideoEditingInput) {
       sourceOutputIndex: input.sourceOutputIndex,
       sourceDuration: input.sourceDuration,
       referenceImageCount: input.referenceImages.length,
-      endpoint: rootUrl(),
+      endpoint,
     },
   };
 }
@@ -283,7 +416,10 @@ function normalizeStatus(value: string | undefined): JobStatus {
 
 export async function refreshModelStudioVideo(job: StoredJob) {
   if (!job.providerJobId) throw new Error("任务没有百炼 task_id");
-  const body = await requestJson(`${apiBase()}/tasks/${encodeURIComponent(job.providerJobId)}`, { method: "GET" });
+  const channel: "happyhorse" | "wan" = (job.details?.channel as any) || (typeof job.details?.model === "string" ? resolveChannel(job.details.model) : "happyhorse");
+  const endpoint = job.details?.endpoint ? String(job.details.endpoint).replace(/\/+$/, "") : rootUrlForChannel(channel);
+  const taskUrl = `${endpoint}/api/v1/tasks/${encodeURIComponent(job.providerJobId)}`;
+  const body = await requestJsonForChannel(channel, taskUrl, { method: "GET" });
   const output = body?.output || {};
   const status = normalizeStatus(output.task_status);
   const videoUrl = output.video_url;

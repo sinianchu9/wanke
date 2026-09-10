@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BookmarkPlus, Check, ChevronRight, Clock3, Download, ExternalLink, Film, GitBranch, Layers3, LoaderCircle, RefreshCw, Repeat2, RotateCcw, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, BookmarkPlus, Check, ChevronRight, Clock3, Cpu, Download, ExternalLink, Film, GitBranch, Layers3, LoaderCircle, RefreshCw, Repeat2, RotateCcw, ShieldCheck, Sparkles, Timer, Trash2 } from "lucide-react";
 import ContinueCreation from "@/components/continue-creation";
 import VideoExtend from "@/components/video-extend";
 import VideoEdit from "@/components/video-edit";
@@ -100,11 +100,13 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
       <div className="job-list">
         {shown.map(job => {
           const batch = batchMeta(job);
+          const isActive = ["running", "queued", "unknown"].includes(job.status);
           return <button key={job.id} className={`job-row ${current?.id === job.id ? "active" : ""}`} onClick={() => setSelected(job.id)}>
             <StatusIcon status={job.status}/>
             <div className="job-row-main">
               <strong>{job.title}</strong>
               <span>{batch ? `批量版本 ${batch.index}/${batch.total} · ` : ""}{kindName[job.kind]} · {ago(job.createdAt)}</span>
+              {isActive && <JobRowProgress job={job}/>}
             </div>
             <ChevronRight size={15}/>
           </button>;
@@ -141,7 +143,7 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
         {current.outputs.length > 0 ? <div>
           <div className="subhead"><h3>生成结果</h3><span>{current.outputs.length} 个输出 · 可直接查看和保存</span></div>
           <div className={`result-grid ${current.outputs.length === 1 ? "single" : ""}`}>{current.outputs.map((output, index) => <ResultCard output={output} key={`${output.outputUrl}-${index}`} index={index} onArchive={() => archive(current, index)} onSaveWork={current.status === "succeeded" && onSaveWork ? () => onSaveWork(current, index) : undefined} busy={busy !== ""}/>)}</div>
-        </div> : <PendingState job={current}/>} 
+        </div> : <PendingState job={current} onRefresh={() => action(current, "refresh")} onRetry={() => action(current, "retry")} busy={busy !== ""}/>} 
 
         <ContinueCreation job={current} onCreated={selectCreated}/>
         <VideoExtend job={current} modelStudioAvailable={modelStudioAvailable} onCreated={selectCreated}/>
@@ -175,26 +177,196 @@ function statusShort(status: string) {
   return JOB_STATUS_COPY[status as JobStatus] || "状态确认中";
 }
 
-function PendingState({ job }: { job: StoredJob }) {
-  let title = "等待生成结果";
-  let text = "刷新任务查看最新状态。";
+function formatDuration(sec: number) {
+  if (sec < 60) return `${sec} 秒`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m} 分 ${s} 秒`;
+}
+
+function PendingState({ job, onRefresh, onRetry, busy }: { job: StoredJob; onRefresh?: () => void; onRetry?: () => void; busy?: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const elapsed = useMemo(() => {
+    const start = new Date(job.createdAt).getTime();
+    return Math.max(0, Math.floor((now - start) / 1000));
+  }, [job.createdAt, now]);
+
+  const targetDuration = Number(
+    job.details?.effectiveDuration ||
+    job.details?.targetDuration ||
+    (job.request as any)?.duration ||
+    5
+  );
+
+  const estimatedTotal = useMemo(() => {
+    if (job.kind === "video_extension") return 75;
+    if (job.kind === "video_editing") return 80;
+    if (job.kind === "storyboard") {
+      const shots = Array.isArray(job.details?.storyboardInfo) ? job.details.storyboardInfo.length : 4;
+      return Math.max(90, shots * 22);
+    }
+    return Math.max(60, Math.round(48 + targetDuration * 3.6));
+  }, [job.kind, targetDuration, job.details]);
+
   if (job.status === "failed") {
-    title = "没有可用输出";
-    text = "查看上方提示后，可以点击“重试失败任务”。";
-  } else if (job.status === "running") {
-    text = job.kind === "video_extension"
-      ? "正在沿原视频时间轴生成连续内容，完成后会返回包含原片的完整延长视频。"
-      : job.kind === "video_editing"
-        ? "正在按编辑指令处理整条输入视频，完成后会返回编辑后的完整视频。"
-        : job.kind === "video_generation"
-          ? "正在生成视频，完成后结果会自动出现。"
-          : "任务正在执行，Wanke 会自动检查进度。";
-  } else if (job.status === "queued") {
-    text = "任务已进入生成队列，Wanke 会自动检查进度。";
-  } else if (job.details?.pollable === false) {
-    text = String(job.details?.note || "任务已提交，但当前没有可查询的进度接口。");
+    return (
+      <div className="job-progress-failed">
+        <div className="job-progress-failed-icon">
+          <AlertTriangle size={22} />
+        </div>
+        <div className="job-progress-failed-content">
+          <strong>任务没有生成可用结果</strong>
+          <p>{job.error || "生成过程遇到云端异常或超时中断，本次生成的点数若已预扣除系统将自动退回。"}</p>
+          {onRetry && (
+            <button className="secondary" disabled={busy} onClick={onRetry}>
+              <Repeat2 size={14} /> 重试失败任务
+            </button>
+          )}
+        </div>
+      </div>
+    );
   }
-  return <div className="pending-card"><LoaderCircle className={job.status === "running" || job.status === "queued" ? "spin" : ""} size={24}/><div><strong>{title}</strong><span>{text}</span></div></div>;
+
+  let step = 1;
+  let statusTitle = "任务已提交";
+  let statusDesc = "已完成任务参数校验与资源初始化。";
+  let progress = 10;
+  let etaLabel = `预计总需约 ${estimatedTotal} 秒`;
+
+  if (job.status === "queued") {
+    step = 2;
+    statusTitle = "任务已进入云端生成队列";
+    statusDesc = "已连接阿里云 GPU 算力集群，正在排队调度等待模型实例开始推理。";
+    const queueClimb = Math.min(13, Math.floor((elapsed / 30) * 13));
+    progress = 15 + queueClimb;
+    const remaining = Math.max(10, estimatedTotal - elapsed);
+    etaLabel = `算力排队中，预计排队约 ${remaining <= 15 ? "10~20" : remaining} 秒`;
+  } else if (job.status === "running") {
+    step = 3;
+    statusTitle = job.kind === "video_extension"
+      ? "正在沿原片时间轴延长视频"
+      : job.kind === "video_editing"
+        ? "正在根据指令逐帧编辑处理视频"
+        : "AI 视频画面扩散推理中";
+    statusDesc = job.kind === "video_extension"
+      ? "正在保持主体与画风连续性，生成高质量延长动作与运镜。"
+      : job.kind === "video_editing"
+        ? "正在按编辑提示词逐帧优化主体结构、色彩与运动细节。"
+        : "Wan 2.7 视频大模型正在进行多步扩散推理与高精度画面合成。";
+
+    const storyboardShots = Array.isArray(job.details?.storyboardInfo) ? job.details.storyboardInfo : [];
+    if (storyboardShots.length > 0) {
+      const finished = storyboardShots.filter((s: any) => s.status === "succeeded" || s.status === "finished" || s.status === "done").length;
+      progress = Math.min(95, Math.round(25 + (finished / storyboardShots.length) * 70));
+      etaLabel = `分镜头执行进度：${finished}/${storyboardShots.length} 镜头完成`;
+    } else {
+      const ratio = Math.min(2.5, elapsed / estimatedTotal);
+      const curve = 1 - Math.exp(-2.2 * ratio);
+      progress = Math.min(92, Math.round(32 + curve * 58));
+      if (elapsed < estimatedTotal) {
+        const remain = Math.max(5, Math.round(estimatedTotal - elapsed));
+        etaLabel = `预计还需约 ${remain} 秒完成`;
+      } else {
+        etaLabel = "正在进行最终画质优化与转码编码，即将完成";
+      }
+    }
+  } else if (job.status === "unknown") {
+    step = 2;
+    statusTitle = "远端状态确认中";
+    statusDesc = "任务已提交，系统正在自动同步最新生成进度，请稍候。";
+    progress = 30;
+    etaLabel = "状态确认中…";
+  }
+
+  if (job.details?.pollable === false) {
+    statusDesc = String(job.details?.note || "任务已提交，但当前类型没有可查询的轮询接口。");
+  }
+
+  const isOvertime = elapsed > 240;
+
+  return (
+    <div className="job-progress-card">
+      <div className="job-progress-header">
+        <div className="job-progress-title-wrap">
+          <div className="job-progress-icon">
+            <Sparkles size={20} />
+          </div>
+          <div>
+            <strong>{statusTitle}</strong>
+            <span>{statusDesc}</span>
+          </div>
+        </div>
+        <div className="job-progress-badge">
+          <strong>{progress}</strong>
+          <small>%</small>
+        </div>
+      </div>
+
+      <div className="job-progress-track">
+        <div className="job-progress-fill" style={{ width: `${progress}%` }} />
+      </div>
+
+      <div className="job-progress-steps">
+        <div className={`job-step ${step > 1 ? "done" : step === 1 ? "active" : "pending"}`}>
+          <div className="job-step-dot">{step > 1 ? <Check size={12} /> : 1}</div>
+          <span className="job-step-name">提交校验</span>
+        </div>
+        <div className={`job-step ${step > 2 ? "done" : step === 2 ? "active" : "pending"}`}>
+          <div className="job-step-dot">{step > 2 ? <Check size={12} /> : step === 2 ? <LoaderCircle className="spin" size={12} /> : 2}</div>
+          <span className="job-step-name">队列排队</span>
+        </div>
+        <div className={`job-step ${step > 3 ? "done" : step === 3 ? "active" : "pending"}`}>
+          <div className="job-step-dot">{step > 3 ? <Check size={12} /> : step === 3 ? <LoaderCircle className="spin" size={12} /> : 3}</div>
+          <span className="job-step-name">AI 渲染</span>
+        </div>
+        <div className={`job-step ${step >= 4 ? "done" : "pending"}`}>
+          <div className="job-step-dot">{step >= 4 ? <Check size={12} /> : 4}</div>
+          <span className="job-step-name">完成交付</span>
+        </div>
+      </div>
+
+      <div className="job-progress-metrics">
+        <div className="time-stat">
+          <Timer size={14} />
+          <span>已耗时 <b className="highlight">{formatDuration(elapsed)}</b></span>
+        </div>
+        <div className="eta-stat">
+          <Clock3 size={14} />
+          <span>{etaLabel}</span>
+        </div>
+      </div>
+
+      {isOvertime && (
+        <div className="job-progress-warning">
+          <span>当前排队或渲染时间较长（可能正值云端算力高峰），后台仍在正常计算中。</span>
+          {onRefresh && (
+            <button onClick={onRefresh} disabled={busy}>
+              <RefreshCw size={12} className={busy ? "spin" : ""} />
+              {busy ? "正在同步…" : "手动检查状态"}
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="job-progress-footer">
+        <div className="job-progress-reassure">
+          <ShieldCheck size={14} />
+          <span>后台自动同步 · 关闭标签页或断网都不会中断生成任务</span>
+        </div>
+        {onRefresh && (
+          <button className="link-button" onClick={onRefresh} disabled={busy} style={{ padding: 0 }}>
+            <RefreshCw size={12} className={busy ? "spin" : ""} /> 同步进度
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function ResultCard({ output, index, onArchive, onSaveWork, busy }: { output: ResultMedia; index: number; onArchive: () => void; onSaveWork?: () => void; busy: boolean }) {
@@ -254,4 +426,33 @@ function ago(date: string) {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
   return new Date(date).toLocaleDateString();
+}
+
+function JobRowProgress({ job }: { job: StoredJob }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const elapsed = Math.max(0, Math.floor((now - new Date(job.createdAt).getTime()) / 1000));
+  let progress = 15;
+  if (job.status === "queued") {
+    progress = Math.min(28, Math.round(15 + (elapsed / 30) * 13));
+  } else if (job.status === "running") {
+    const ratio = Math.min(2.5, elapsed / 70);
+    const curve = 1 - Math.exp(-2.2 * ratio);
+    progress = Math.min(92, Math.round(32 + curve * 58));
+  } else if (job.status === "unknown") {
+    progress = 30;
+  }
+
+  return (
+    <div className="job-row-progress">
+      <div className="job-row-progress-track">
+        <div className="job-row-progress-fill" style={{ width: `${progress}%` }} />
+      </div>
+      <span className="job-row-progress-pct">{progress}%</span>
+    </div>
+  );
 }

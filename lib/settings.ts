@@ -11,13 +11,20 @@ db.exec(`CREATE TABLE IF NOT EXISTS settings (
 )`);
 
 export type VideoProviderMode = "auto" | "modelstudio" | "yike";
-export type SettingsSource = "ui" | "environment" | "default";
+export type SettingsSource = "ui" | "environment" | "inherited_ui" | "inherited_env" | "default";
+export type ModelStudioChannel = "happyhorse" | "wan" | "default";
 
 type SettingKey =
   | "video_provider_mode"
   | "modelstudio_api_key"
   | "modelstudio_workspace_id"
   | "modelstudio_base_url"
+  | "happyhorse_api_key"
+  | "happyhorse_workspace_id"
+  | "happyhorse_base_url"
+  | "wan_api_key"
+  | "wan_workspace_id"
+  | "wan_base_url"
   | "yike_access_key_id"
   | "yike_access_key_secret"
   | "yike_region_id"
@@ -28,11 +35,19 @@ type UpdateInput = {
   modelStudioApiKey?: string;
   modelStudioWorkspaceId?: string;
   modelStudioBaseUrl?: string;
+  happyhorseApiKey?: string;
+  happyhorseWorkspaceId?: string;
+  happyhorseBaseUrl?: string;
+  wanApiKey?: string;
+  wanWorkspaceId?: string;
+  wanBaseUrl?: string;
   yikeAccessKeyId?: string;
   yikeAccessKeySecret?: string;
   yikeRegionId?: "ap-southeast-1" | "cn-shanghai";
   yikeEndpoint?: string;
   clearModelStudioApiKey?: boolean;
+  clearHappyhorseApiKey?: boolean;
+  clearWanApiKey?: boolean;
   clearYikeAccessKeyId?: boolean;
   clearYikeAccessKeySecret?: boolean;
 };
@@ -49,6 +64,8 @@ const COMPATIBLE_URL_BLOCK = "这里需要百炼原生视频 API Root，不是 /
  */
 const SECRET_BACKED_KEYS: ReadonlySet<SettingKey> = new Set<SettingKey>([
   "modelstudio_api_key",
+  "happyhorse_api_key",
+  "wan_api_key",
   "yike_access_key_id",
   "yike_access_key_secret",
 ]);
@@ -98,6 +115,22 @@ function effective(stored: string, env: string | undefined, fallback = "") {
   return { value: fallback, source: "default" as SettingsSource };
 }
 
+function channelEffective(
+  dedicatedStored: string,
+  dedicatedEnv: string | undefined,
+  fallbackStored: string,
+  fallbackEnv: string | undefined,
+  defaultFallback = ""
+): { value: string; source: SettingsSource } {
+  if (dedicatedStored) return { value: dedicatedStored, source: "ui" };
+  const dEnv = dedicatedEnv?.trim() || "";
+  if (dEnv) return { value: dEnv, source: "environment" };
+  if (fallbackStored) return { value: fallbackStored, source: "inherited_ui" };
+  const fEnv = fallbackEnv?.trim() || "";
+  if (fEnv) return { value: fEnv, source: "inherited_env" };
+  return { value: defaultFallback, source: "default" };
+}
+
 function masked(value: string) {
   if (!value) return "";
   if (value.length <= 8) return "••••••••";
@@ -142,20 +175,56 @@ export function getVideoProviderMode(): VideoProviderMode {
   return value === "modelstudio" || value === "yike" ? value : "auto";
 }
 
-export function getModelStudioRuntimeConfig() {
-  const values = modelStudioEffectiveValues();
-  const blockedReason = modelStudioDirectUseBlockReason(values.apiKey.value, values.baseUrl.value);
+export function getModelStudioChannelConfig(channel: ModelStudioChannel = "default") {
+  const universal = modelStudioEffectiveValues();
+  if (channel === "default") {
+    const blockedReason = modelStudioDirectUseBlockReason(universal.apiKey.value, universal.baseUrl.value);
+    return {
+      channel: "default" as const,
+      apiKey: blockedReason ? "" : universal.apiKey.value,
+      workspaceId: universal.workspaceId.value,
+      baseUrl: universal.baseUrl.value,
+      blockedReason,
+      credentialPresent: Boolean(universal.apiKey.value),
+      apiKeyMasked: masked(universal.apiKey.value),
+      sources: { apiKey: universal.apiKey.source, workspaceId: universal.workspaceId.source, baseUrl: universal.baseUrl.source },
+      isOverridden: { apiKey: false, workspaceId: false, baseUrl: false },
+    };
+  }
+
+  const prefix = channel === "happyhorse" ? "happyhorse" : "wan";
+  const dedicatedApiKey = storedValue(`${prefix}_api_key` as SettingKey);
+  const dedicatedEnvKey = (channel === "happyhorse" ? process.env.HAPPYHORSE_API_KEY : process.env.WAN_API_KEY)?.trim() || "";
+  const apiKey = channelEffective(dedicatedApiKey, dedicatedEnvKey, storedValue("modelstudio_api_key"), modelStudioEnvironmentApiKey());
+
+  const dedicatedWs = storedValue(`${prefix}_workspace_id` as SettingKey);
+  const dedicatedEnvWs = (channel === "happyhorse" ? process.env.HAPPYHORSE_WORKSPACE_ID : process.env.WAN_WORKSPACE_ID)?.trim() || "";
+  const workspaceId = channelEffective(dedicatedWs, dedicatedEnvWs, storedValue("modelstudio_workspace_id"), process.env.ALIYUN_MODELSTUDIO_WORKSPACE_ID);
+
+  const dedicatedUrl = storedValue(`${prefix}_base_url` as SettingKey);
+  const dedicatedEnvUrl = (channel === "happyhorse" ? process.env.HAPPYHORSE_BASE_URL : process.env.WAN_BASE_URL)?.trim() || "";
+  const baseUrl = channelEffective(dedicatedUrl, dedicatedEnvUrl, storedValue("modelstudio_base_url"), modelStudioEnvironmentBaseUrl());
+
+  const blockedReason = modelStudioDirectUseBlockReason(apiKey.value, baseUrl.value);
   return {
-    // Treat an unsupported plan as unavailable at runtime so Wanke never sends a
-    // custom-backend request with a Token Plan / Coding Plan credential.
-    apiKey: blockedReason ? "" : values.apiKey.value,
-    workspaceId: values.workspaceId.value,
-    baseUrl: values.baseUrl.value,
+    channel,
+    apiKey: blockedReason ? "" : apiKey.value,
+    workspaceId: workspaceId.value,
+    baseUrl: baseUrl.value,
     blockedReason,
-    credentialPresent: Boolean(values.apiKey.value),
-    apiKeyMasked: masked(values.apiKey.value),
-    sources: { apiKey: values.apiKey.source, workspaceId: values.workspaceId.source, baseUrl: values.baseUrl.source },
+    credentialPresent: Boolean(apiKey.value),
+    apiKeyMasked: masked(apiKey.value),
+    sources: { apiKey: apiKey.source, workspaceId: workspaceId.source, baseUrl: baseUrl.source },
+    isOverridden: {
+      apiKey: apiKey.source === "ui" || apiKey.source === "environment",
+      workspaceId: workspaceId.source === "ui" || workspaceId.source === "environment",
+      baseUrl: baseUrl.source === "ui" || baseUrl.source === "environment",
+    },
   };
+}
+
+export function getModelStudioRuntimeConfig() {
+  return getModelStudioChannelConfig("default");
 }
 
 export function getYikeRuntimeConfig() {
@@ -178,7 +247,9 @@ export function getYikeRuntimeConfig() {
 }
 
 export function getPublicSettings() {
-  const modelStudio = getModelStudioRuntimeConfig();
+  const modelStudio = getModelStudioChannelConfig("default");
+  const happyhorse = getModelStudioChannelConfig("happyhorse");
+  const wan = getModelStudioChannelConfig("wan");
   const yike = getYikeRuntimeConfig();
   return {
     videoProviderMode: getVideoProviderMode(),
@@ -191,6 +262,28 @@ export function getPublicSettings() {
       baseUrl: modelStudio.baseUrl,
       baseUrlSource: modelStudio.sources.baseUrl,
       blockedReason: modelStudio.blockedReason,
+    },
+    happyhorse: {
+      apiKeyConfigured: happyhorse.credentialPresent,
+      apiKeyMasked: happyhorse.apiKeyMasked,
+      apiKeySource: happyhorse.sources.apiKey,
+      workspaceId: happyhorse.workspaceId,
+      workspaceIdSource: happyhorse.sources.workspaceId,
+      baseUrl: happyhorse.baseUrl,
+      baseUrlSource: happyhorse.sources.baseUrl,
+      blockedReason: happyhorse.blockedReason,
+      isOverridden: happyhorse.isOverridden,
+    },
+    wan: {
+      apiKeyConfigured: wan.credentialPresent,
+      apiKeyMasked: wan.apiKeyMasked,
+      apiKeySource: wan.sources.apiKey,
+      workspaceId: wan.workspaceId,
+      workspaceIdSource: wan.sources.workspaceId,
+      baseUrl: wan.baseUrl,
+      baseUrlSource: wan.sources.baseUrl,
+      blockedReason: wan.blockedReason,
+      isOverridden: wan.isOverridden,
     },
     yike: {
       accessKeyIdConfigured: Boolean(yike.accessKeyId),
@@ -218,6 +311,16 @@ export function updateAppSettings(input: UpdateInput) {
   const blockReason = modelStudioDirectUseBlockReason(nextModelStudioApiKey, nextModelStudioBaseUrl);
   if (blockReason) throw new Error(`${blockReason} 请清除 Token Plan/Coding Plan Key 或兼容模式 Base URL 后再保存。`);
 
+  if (input.happyhorseApiKey || input.happyhorseBaseUrl) {
+    const hhBlock = modelStudioDirectUseBlockReason(input.happyhorseApiKey || "", input.happyhorseBaseUrl || "");
+    if (hhBlock) throw new Error(`HappyHorse 配置校验未通过：${hhBlock}`);
+  }
+
+  if (input.wanApiKey || input.wanBaseUrl) {
+    const wanBlock = modelStudioDirectUseBlockReason(input.wanApiKey || "", input.wanBaseUrl || "");
+    if (wanBlock) throw new Error(`Wan 配置校验未通过：${wanBlock}`);
+  }
+
   const transaction = db.transaction(() => {
     if (input.videoProviderMode) writeValue("video_provider_mode", input.videoProviderMode);
 
@@ -225,6 +328,16 @@ export function updateAppSettings(input: UpdateInput) {
     else if (input.modelStudioApiKey?.trim()) writeValue("modelstudio_api_key", input.modelStudioApiKey);
     if (input.modelStudioWorkspaceId !== undefined) writeValue("modelstudio_workspace_id", input.modelStudioWorkspaceId);
     if (input.modelStudioBaseUrl !== undefined) writeValue("modelstudio_base_url", input.modelStudioBaseUrl);
+
+    if (input.clearHappyhorseApiKey) removeValue("happyhorse_api_key");
+    else if (input.happyhorseApiKey?.trim()) writeValue("happyhorse_api_key", input.happyhorseApiKey);
+    if (input.happyhorseWorkspaceId !== undefined) writeValue("happyhorse_workspace_id", input.happyhorseWorkspaceId);
+    if (input.happyhorseBaseUrl !== undefined) writeValue("happyhorse_base_url", input.happyhorseBaseUrl);
+
+    if (input.clearWanApiKey) removeValue("wan_api_key");
+    else if (input.wanApiKey?.trim()) writeValue("wan_api_key", input.wanApiKey);
+    if (input.wanWorkspaceId !== undefined) writeValue("wan_workspace_id", input.wanWorkspaceId);
+    if (input.wanBaseUrl !== undefined) writeValue("wan_base_url", input.wanBaseUrl);
 
     if (input.clearYikeAccessKeyId) removeValue("yike_access_key_id");
     else if (input.yikeAccessKeyId?.trim()) writeValue("yike_access_key_id", input.yikeAccessKeyId);
@@ -236,3 +349,4 @@ export function updateAppSettings(input: UpdateInput) {
   transaction();
   return getPublicSettings();
 }
+

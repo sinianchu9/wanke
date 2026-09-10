@@ -237,14 +237,21 @@ function ShotCard({ shot, index, jobMap, unassignedJobs, busy, canMoveUp, canMov
 
     <div className="subhead" style={{marginTop:14}}><h3>候选版本</h3><span>{candidates.length} 个任务</span></div>
     <div className="job-list">
-      {candidates.map(job => <div className="job-row" key={job.id} style={{cursor:"default"}}>
-        <span className={`status-icon ${job.status === "succeeded" ? "success" : job.status === "failed" ? "fail" : "queued"}`}>{job.status === "succeeded" ? <Check size={14}/> : <Clapperboard size={14}/>}</span>
-        <div className="job-row-main"><strong>{job.title}</strong><span>{JOB_KIND_LABELS[job.kind]} · {statusLabel(job.status)}{job.outputs.length ? ` · ${job.outputs.length} 个结果` : ""}</span></div>
-        <div className="inline-actions">
-          {job.status === "succeeded" && hasVideoResult(job) && <button className={shot.selectedJobId === job.id ? "primary" : "secondary"} disabled={busy} onClick={async () => { try { await onSelect(job.id); } catch { /* parent surfaces the error */ } }}>{shot.selectedJobId === job.id ? <><Check size={14}/>已采用</> : "采用"}</button>}
-          <button className="icon-button" disabled={busy} title="从这个镜头移除，但不删除任务" onClick={async () => { try { await onUnassign(job.id); } catch { /* parent surfaces the error */ } }}><Unlink size={14}/></button>
-        </div>
-      </div>)}
+      {candidates.map(job => {
+        const isActive = ["running", "queued", "unknown"].includes(job.status);
+        return <div className="job-row" key={job.id} style={{cursor:"default"}}>
+          <span className={`status-icon ${job.status === "succeeded" ? "success" : job.status === "failed" ? "fail" : "queued"}`}>{job.status === "succeeded" ? <Check size={14}/> : <Clapperboard size={14}/>}</span>
+          <div className="job-row-main">
+            <strong>{job.title}</strong>
+            <span>{JOB_KIND_LABELS[job.kind]} · {statusLabel(job.status)}{job.outputs.length ? ` · ${job.outputs.length} 个结果` : ""}</span>
+            {isActive && <WorkspaceJobProgress job={job}/>}
+          </div>
+          <div className="inline-actions">
+            {job.status === "succeeded" && hasVideoResult(job) && <button className={shot.selectedJobId === job.id ? "primary" : "secondary"} disabled={busy} onClick={async () => { try { await onSelect(job.id); } catch { /* parent surfaces the error */ } }}>{shot.selectedJobId === job.id ? <><Check size={14}/>已采用</> : "采用"}</button>}
+            <button className="icon-button" disabled={busy} title="从这个镜头移除，但不删除任务" onClick={async () => { try { await onUnassign(job.id); } catch { /* parent surfaces the error */ } }}><Unlink size={14}/></button>
+          </div>
+        </div>;
+      })}
       {!candidates.length && <div className="empty-list">还没有候选任务</div>}
     </div>
 
@@ -269,4 +276,33 @@ function hasVideoResult(job: StoredJob) {
 
 function statusLabel(status: string) {
   return status === "succeeded" ? "已完成" : status === "failed" ? "失败" : status === "running" ? "生成中" : status === "queued" ? "排队中" : "待确认";
+}
+
+function WorkspaceJobProgress({ job }: { job: StoredJob }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const elapsed = Math.max(0, Math.floor((now - new Date(job.createdAt).getTime()) / 1000));
+  let progress = 15;
+  if (job.status === "queued") {
+    progress = Math.min(28, Math.round(15 + (elapsed / 30) * 13));
+  } else if (job.status === "running") {
+    const ratio = Math.min(2.5, elapsed / 70);
+    const curve = 1 - Math.exp(-2.2 * ratio);
+    progress = Math.min(92, Math.round(32 + curve * 58));
+  } else if (job.status === "unknown") {
+    progress = 30;
+  }
+
+  return (
+    <div className="job-row-progress">
+      <div className="job-row-progress-track">
+        <div className="job-row-progress-fill" style={{ width: `${progress}%` }} />
+      </div>
+      <span className="job-row-progress-pct">{progress}%</span>
+    </div>
+  );
 }

@@ -4,6 +4,7 @@ import { createAsset, deleteAsset, getAssetForUser, listAssetsForUser } from "@/
 import { detachAssetFromSubjectCards } from "@/lib/subjects";
 import { deleteAssetCloud, registerAsset } from "@/lib/yike/provider";
 import { getYikeRuntimeConfig } from "@/lib/settings";
+import { deleteStorageObjectNow } from "@/lib/storage";
 import { describeError } from "@/lib/errors";
 import { errorResponse, requireUser } from "@/lib/auth";
 
@@ -94,7 +95,18 @@ export async function DELETE(request: Request) {
   const asset = getAssetForUser(id, user.id, user.role === "admin");
   if (!asset) return NextResponse.json({ error: "素材不存在" }, { status: 404 });
   try {
-    if (url.searchParams.get("cloud") === "1" && (asset.providerMediaId || asset.provider)) await deleteAssetCloud(asset.provider, asset.providerMediaId);
+    if (url.searchParams.get("cloud") === "1" && (asset.providerMediaId || asset.provider)) {
+      await deleteAssetCloud(asset.provider, asset.providerMediaId);
+    }
+    const provider: any = asset.provider || {};
+    const localKey = provider.storageKey || (/api\/assets\/file\/([a-zA-Z0-9._-]+)/.exec(asset.sourceUrl)?.[1]);
+    if (localKey) {
+      try {
+        deleteStorageObjectNow("inputs", localKey);
+      } catch (e) {
+        console.warn("[assets] Failed to delete local storage file:", localKey, e);
+      }
+    }
     if (!deleteAsset(id)) return NextResponse.json({ error: "本地素材删除失败" }, { status: 500 });
     detachAssetFromSubjectCards(id);
     return NextResponse.json({ ok: true });

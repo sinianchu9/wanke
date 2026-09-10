@@ -2,10 +2,10 @@ import "server-only";
 import type { JobKind, StoredJob } from "@/lib/types";
 import { validateJobInput } from "@/lib/yike/schemas";
 import { refreshJob as refreshYikeJob, resumeStoryboard, submitJob as submitYikeJob } from "@/lib/yike/jobs";
-import { canUseModelStudio, refreshModelStudioVideo, submitModelStudioVideo, submitModelStudioVideoEditing, submitModelStudioVideoExtension } from "@/lib/video/modelstudio";
+import { canUseModelStudio, chooseRoute, refreshModelStudioVideo, resolveChannel, submitModelStudioVideo, submitModelStudioVideoEditing, submitModelStudioVideoExtension } from "@/lib/video/modelstudio";
 import { validateVideoExtensionInput } from "@/lib/video/extension";
 import { validateVideoEditingInput } from "@/lib/video/editing";
-import { getModelStudioRuntimeConfig, getVideoProviderMode } from "@/lib/settings";
+import { getModelStudioChannelConfig, getModelStudioRuntimeConfig, getVideoProviderMode } from "@/lib/settings";
 import { applyVideoRecipe, getVideoRecipe, recipeSupportsMode } from "@/lib/video/recipes";
 
 export { resumeStoryboard };
@@ -57,22 +57,22 @@ async function submitThroughYike(kind: JobKind, input: any, routeReason: string,
 export async function submitJob(kind: JobKind, rawInput: unknown, options: SubmitJobOptions = {}) {
   if (kind === "video_extension") {
     const input = validateVideoExtensionInput(rawInput);
-    const config = getModelStudioRuntimeConfig();
+    const config = getModelStudioChannelConfig("wan");
     const blocked = blockedModelStudioMessage(config);
     if (blocked) throw new Error(blocked);
     if (!config.apiKey) {
-      throw new Error("视频延长当前使用百炼 Wan 2.7 原生 continuation。请先在设置中配置百炼 Pay-As-You-Go API Key。");
+      throw new Error("视频延长当前使用百炼 Wan 2.7 原生 continuation。请先在设置中配置 Wan 专属 API Key（或通用百炼 Key）。");
     }
     return submitModelStudioVideoExtension(input);
   }
 
   if (kind === "video_editing") {
     const input = validateVideoEditingInput(rawInput);
-    const config = getModelStudioRuntimeConfig();
+    const config = getModelStudioChannelConfig("wan");
     const blocked = blockedModelStudioMessage(config);
     if (blocked) throw new Error(blocked);
     if (!config.apiKey) {
-      throw new Error("视频编辑当前使用百炼 Wan 2.7 Video Editing。请先在设置中配置百炼 Pay-As-You-Go API Key。");
+      throw new Error("视频编辑当前使用百炼 Wan 2.7 Video Editing。请先在设置中配置 Wan 专属 API Key（或通用百炼 Key）。");
     }
     return submitModelStudioVideoEditing(input);
   }
@@ -95,12 +95,17 @@ export async function submitJob(kind: JobKind, rawInput: unknown, options: Submi
     return submitThroughYike(kind, executionInput, `${routeScope}已指定基础视频生成使用万镜一刻`, recipe);
   }
 
-  const modelStudioConfig = getModelStudioRuntimeConfig();
-  const blocked = blockedModelStudioMessage(modelStudioConfig);
+  const decision = chooseRoute(executionInput);
+  const targetChannel = resolveChannel(decision.model);
+  const channelConfig = getModelStudioChannelConfig(targetChannel);
+  const blocked = blockedModelStudioMessage(channelConfig);
 
   if (mode === "modelstudio") {
     if (blocked) throw new Error(blocked);
-    if (!modelStudioConfig.apiKey) throw new Error("当前已强制使用百炼，但还没有配置 Pay-As-You-Go API Key。请到设置填写后再生成。");
+    if (!channelConfig.apiKey) {
+      const channelLabel = targetChannel === "wan" ? "Wan 专属" : "HappyHorse 专属";
+      throw new Error(`当前已强制使用百炼，但还没有配置 ${channelLabel} API Key（或通用百炼 Key）。请到设置填写后再生成。`);
+    }
     if (!canUseModelStudio(executionInput)) {
       throw new Error("当前任务参数不能通过百炼直连提交。请检查参考素材是否有可访问 URL，或把本次生成线路切回“自动路由”。");
     }

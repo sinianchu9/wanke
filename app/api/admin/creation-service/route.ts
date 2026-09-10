@@ -35,7 +35,7 @@ export async function GET(request: Request) {
 
   if (!generationReady) {
     const error = providerMode === "modelstudio"
-      ? "当前已选择百炼，但百炼 API Key 未配置"
+      ? "当前已选择百炼，但未检测到有效 API Key（请配置通用百炼 Key 或 HappyHorse / Wan 专属 Key）"
       : providerMode === "yike"
         ? "当前已选择万镜一刻，但 AccessKey 未配置完整"
         : "未配置百炼或万镜一刻凭证";

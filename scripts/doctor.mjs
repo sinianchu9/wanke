@@ -17,25 +17,38 @@ const modelStudioKey = effective("modelstudio_api_key", process.env.DASHSCOPE_AP
 const workspaceId = effective("modelstudio_workspace_id", process.env.ALIYUN_MODELSTUDIO_WORKSPACE_ID);
 const baseUrl = effective("modelstudio_base_url", process.env.ALIYUN_MODELSTUDIO_BASE_URL);
 const modelStudioBlockReason = modelStudioDirectBlockReason(modelStudioKey, baseUrl);
+
+const hhKey = effective("happyhorse_api_key", process.env.HAPPYHORSE_API_KEY) || modelStudioKey;
+const hhWs = effective("happyhorse_workspace_id", process.env.HAPPYHORSE_WORKSPACE_ID) || workspaceId;
+const hhBaseUrl = effective("happyhorse_base_url", process.env.HAPPYHORSE_BASE_URL) || baseUrl;
+const hhBlockReason = modelStudioDirectBlockReason(hhKey, hhBaseUrl);
+const hhEndpoint = hhBaseUrl || (hhWs ? `${hhWs}.ap-southeast-1.maas.aliyuncs.com` : "dashscope-intl.aliyuncs.com");
+
+const wanKey = effective("wan_api_key", process.env.WAN_API_KEY) || modelStudioKey;
+const wanWs = effective("wan_workspace_id", process.env.WAN_WORKSPACE_ID) || workspaceId;
+const wanBaseUrl = effective("wan_base_url", process.env.WAN_BASE_URL) || baseUrl;
+const wanBlockReason = modelStudioDirectBlockReason(wanKey, wanBaseUrl);
+const wanEndpoint = wanBaseUrl || (wanWs ? `${wanWs}.ap-southeast-1.maas.aliyuncs.com` : "dashscope-intl.aliyuncs.com");
+
 const yikeAccessKeyId = effective("yike_access_key_id", process.env.ALIYUN_ACCESS_KEY_ID);
 const yikeAccessKeySecret = effective("yike_access_key_secret", process.env.ALIYUN_ACCESS_KEY_SECRET);
-const modelStudioReady = Boolean(modelStudioKey) && !modelStudioBlockReason;
+const modelStudioReady = Boolean(hhKey || wanKey || modelStudioKey) && (!modelStudioBlockReason && !hhBlockReason && !wanBlockReason);
 const yikeReady = Boolean(yikeAccessKeyId && yikeAccessKeySecret);
 const generationReady = providerMode === "modelstudio" ? modelStudioReady : providerMode === "yike" ? yikeReady : modelStudioReady || yikeReady;
 
 checks.push(["Node.js", Number(process.versions.node.split(".")[0]) >= 22, `v${process.versions.node}（要求 22+）`]);
 checks.push(["视频引擎模式", true, providerMode === "auto" ? "自动" : providerMode === "modelstudio" ? "百炼" : "万镜一刻"]);
 checks.push(["视频生成凭证", generationReady, generationReady
-  ? providerMode === "yike" ? "万镜一刻已配置" : modelStudioReady ? "百炼 Model Studio 已配置" : "万镜一刻已配置"
+  ? providerMode === "yike" ? "万镜一刻已配置" : modelStudioReady ? "百炼 Model Studio 已配置（双通道就绪）" : "万镜一刻已配置"
   : modelStudioBlockReason || (providerMode === "modelstudio" ? "当前选择百炼，但 API Key 未配置" : providerMode === "yike" ? "当前选择万镜一刻，但 AccessKey 未配置完整" : "缺少百炼 API Key / 万镜一刻 AccessKey")]);
-checks.push(["百炼直连计费通道", !modelStudioBlockReason, modelStudioBlockReason || "未检测到 Token Plan/Coding Plan 或兼容模式地址"]);
-checks.push(["百炼 Model Studio", true, modelStudioReady ? "Pay-As-You-Go 直连配置已就绪；Key、Workspace 和模型权限在首次生成时校验" : modelStudioBlockReason ? "已阻止不适合应用后端直连的套餐配置" : "未配置或未启用"]);
+checks.push(["百炼直连计费通道", !modelStudioBlockReason && !hhBlockReason && !wanBlockReason, modelStudioBlockReason || hhBlockReason || wanBlockReason || "未检测到 Token Plan/Coding Plan 或兼容模式地址"]);
+checks.push(["HappyHorse 通道", Boolean(hhKey) && !hhBlockReason, Boolean(hhKey) ? (hhBlockReason || `已配置；Endpoint: ${hhEndpoint}`) : "未配置（可继承通用百炼 Key）"]);
+checks.push(["Wan 通道", Boolean(wanKey) && !wanBlockReason, Boolean(wanKey) ? (wanBlockReason || `已配置；Endpoint: ${wanEndpoint}`) : "未配置（可继承通用百炼 Key）"]);
 checks.push(["扩展工作流", true, yikeReady ? "已配置，复刻 / 数字人 / 故事板可用" : "未配置，不影响百炼直连基础视频生成"]);
 
 const region = effective("yike_region_id", process.env.ALIYUN_REGION_ID, "ap-southeast-1");
 const validRegion = ["cn-shanghai", "ap-southeast-1"].includes(region);
 checks.push(["扩展工作流地域", !yikeReady || validRegion, yikeReady ? region : "未启用，不参与基础生成检查"]);
-checks.push(["Model Studio Endpoint", !modelStudioBlockReason, modelStudioBlockReason || baseUrl || (workspaceId ? `${workspaceId}.ap-southeast-1.maas.aliyuncs.com` : "dashscope-intl.aliyuncs.com（可用；建议配置 Workspace ID）")]);
 
 for (const [name, target] of [["数据库目录", path.dirname(db)], ["本地输入目录", inputs], ["归档目录", out]]) {
   try { fs.mkdirSync(target, { recursive: true }); fs.accessSync(target, fs.constants.W_OK); checks.push([name, true, target]); }
@@ -77,6 +90,12 @@ function readStoredSettings(dbPath) {
     const hasSettings = connection.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'").get();
     if (hasSettings) {
       for (const row of connection.prepare("SELECT key, value FROM settings").all()) values.set(String(row.key), String(row.value || ""));
+    }
+    const hasSecrets = connection.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='secrets'").get();
+    if (hasSecrets) {
+      for (const row of connection.prepare("SELECT key, ciphertext FROM secrets").all()) {
+        if (row.ciphertext && !values.has(row.key)) values.set(String(row.key), String(row.ciphertext));
+      }
     }
     connection.close();
   } catch {
