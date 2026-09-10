@@ -142,7 +142,7 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
 
         {current.outputs.length > 0 ? <div>
           <div className="subhead"><h3>生成结果</h3><span>{current.outputs.length} 个输出 · 可直接查看和保存</span></div>
-          <div className={`result-grid ${current.outputs.length === 1 ? "single" : ""}`}>{current.outputs.map((output, index) => <ResultCard output={output} key={`${output.outputUrl}-${index}`} index={index} onArchive={() => archive(current, index)} onSaveWork={current.status === "succeeded" && onSaveWork ? () => onSaveWork(current, index) : undefined} busy={busy !== ""}/>)}</div>
+          <div className={`result-grid ${current.outputs.length === 1 ? "single" : ""}`}>{current.outputs.map((output, index) => <ResultCard output={output} job={current} key={`${output.outputUrl}-${index}`} index={index} onArchive={() => archive(current, index)} onSaveWork={current.status === "succeeded" && onSaveWork ? () => onSaveWork(current, index) : undefined} busy={busy !== ""}/>)}</div>
         </div> : <PendingState job={current} onRefresh={() => action(current, "refresh")} onRetry={() => action(current, "retry")} busy={busy !== ""}/>} 
 
         <ContinueCreation job={current} onCreated={selectCreated}/>
@@ -371,26 +371,153 @@ function PendingState({ job, onRefresh, onRetry, busy }: { job: StoredJob; onRef
   );
 }
 
-function ResultCard({ output, index, onArchive, onSaveWork, busy }: { output: ResultMedia; index: number; onArchive: () => void; onSaveWork?: () => void; busy: boolean }) {
+function ResultCard({ output, job, index, onArchive, onSaveWork, busy }: { output: ResultMedia; job?: StoredJob; index: number; onArchive: () => void; onSaveWork?: () => void; busy: boolean }) {
+  const [videoMeta, setVideoMeta] = useState<{ width: number; height: number; duration: number } | null>(null);
   const remote = output.outputUrl || "";
   const url = output.archivedFile ? `/api/archive/${encodeURIComponent(output.archivedFile)}` : remote;
   const subtitle = output.kind === "subtitle" || /\.srt(\?|$)/i.test(url);
   const json = output.kind === "json" || /\.json(\?|$)/i.test(url);
   const isVideo = !subtitle && !json && output.kind !== "other" && Boolean(url);
+
+  // 提取结构化视频参数
+  const req: any = job?.request || {};
+  const details: any = job?.details || {};
+
+  // 1. 清晰度
+  let resolution = String(details.resolution || req.resolution || "").toUpperCase();
+  if (!resolution || resolution === "UNDEFINED") {
+    if (videoMeta?.height) {
+      const minDim = Math.min(videoMeta.width, videoMeta.height);
+      if (minDim >= 1080) resolution = "1080P";
+      else if (minDim >= 720) resolution = "720P";
+      else if (minDim >= 480) resolution = "480P";
+      else resolution = `${minDim}P`;
+    } else {
+      resolution = "1080P";
+    }
+  }
+
+  // 2. 模型标识
+  const rawModel = String(details.model || req.model || details.route || "");
+  const modelLabel = rawModel.toLowerCase().includes("happyhorse") ? "HappyHorse 1.1" : "Wan 3.0";
+
+  // 3. 视频时长
+  const durationSec = videoMeta?.duration
+    ? Math.round(videoMeta.duration)
+    : Number(details.effectiveDuration || details.duration || req.duration || 5);
+
+  // 4. 画幅比例
+  let ratio = String(details.ratio || details.aspectRatio || req.aspectRatio || "");
+  if (!ratio && videoMeta?.width && videoMeta?.height) {
+    const r = videoMeta.width / videoMeta.height;
+    if (Math.abs(r - 9 / 16) < 0.08) ratio = "9:16";
+    else if (Math.abs(r - 16 / 9) < 0.08) ratio = "16:9";
+    else if (Math.abs(r - 3 / 4) < 0.08) ratio = "3:4";
+    else if (Math.abs(r - 4 / 3) < 0.08) ratio = "4:3";
+    else if (Math.abs(r - 1) < 0.08) ratio = "1:1";
+  }
+  if (!ratio) ratio = "16:9";
+
+  // 5. 任务模式
+  let modeLabel = "AI 视频生成";
+  if (job?.kind === "video_extension") modeLabel = "原生延长";
+  else if (job?.kind === "video_editing") modeLabel = "指令编辑";
+  else if (job?.kind === "storyboard") modeLabel = "故事板";
+  else if (req.jobType === "image_to_video") modeLabel = "图生视频";
+  else if (req.jobType === "reference_to_video") modeLabel = "多参考生视频";
+  else if (req.jobType === "first_last_frame") modeLabel = "首尾帧";
+  else if (req.jobType === "text_to_video") modeLabel = "文生视频";
+
+  const dimensionText = videoMeta?.width && videoMeta?.height ? `${videoMeta.width}×${videoMeta.height}` : "";
+
   return <article className="result-card">
-    {subtitle ? <div className="subtitle-result"><strong>SRT</strong><span>{output.label || "字幕文件"}</span></div>
-      : json ? <div className="subtitle-result json-result"><strong>JSON</strong><span>{output.label || "结构化生产文件"}</span></div>
-        : output.kind === "other" ? <div className="subtitle-result"><strong>FILE</strong><span>{output.label || "结果文件"}</span></div>
-          : url ? <video src={url} controls preload="metadata"/> : <div className="no-preview">无预览 URL</div>}
+    <div className="result-media-wrap">
+      {subtitle ? <div className="subtitle-result"><strong>SRT</strong><span>{output.label || "字幕文件"}</span></div>
+        : json ? <div className="subtitle-result json-result"><strong>JSON</strong><span>{output.label || "结构化生产文件"}</span></div>
+          : output.kind === "other" ? <div className="subtitle-result"><strong>FILE</strong><span>{output.label || "结果文件"}</span></div>
+            : url ? (
+              <>
+                <video
+                  src={url}
+                  controls
+                  preload="metadata"
+                  onLoadedMetadata={e => {
+                    setVideoMeta({
+                      width: e.currentTarget.videoWidth,
+                      height: e.currentTarget.videoHeight,
+                      duration: e.currentTarget.duration,
+                    });
+                  }}
+                />
+                {isVideo && (
+                  <div className="video-badge-overlay">
+                    <span className={`res-pill res-${resolution.toLowerCase()}`}>
+                      {resolution}
+                    </span>
+                    {dimensionText && <span className="dim-pill">{dimensionText}</span>}
+                  </div>
+                )}
+              </>
+            ) : <div className="no-preview">无预览 URL</div>}
+    </div>
+
     <div className="result-info">
-      <div>
-        <strong>{output.label || `版本 ${index + 1}`}{output.outputLanguage ? ` · ${output.outputLanguage}` : ""}</strong>
-        {output.archivedFile ? <span className="archive-ok">已保存到本机 · {output.archivedFile}</span> : remote && <span>云端结果链接会过期，满意后建议保存到本机。</span>}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
+          <strong style={{ fontSize: "13px" }}>{output.label || `版本 ${index + 1}`}{output.outputLanguage ? ` · ${output.outputLanguage}` : ""}</strong>
+          {isVideo && (
+            <span className={`badge-res badge-res-${resolution.toLowerCase()}`}>
+              {resolution} 高清
+            </span>
+          )}
+        </div>
+
+        {isVideo && (
+          <div className="video-specs-row">
+            <span className="spec-tag" title="清晰度与实际分辨率像素">
+              <Layers3 size={11} />
+              <b>{resolution}</b>
+              {dimensionText ? <small>({dimensionText})</small> : null}
+            </span>
+            <span className="spec-tag" title="生成模型">
+              <Cpu size={11} />
+              <b>{modelLabel}</b>
+            </span>
+            <span className="spec-tag" title="视频时长">
+              <Clock3 size={11} />
+              <b>{durationSec} 秒</b>
+            </span>
+            <span className="spec-tag" title="画幅比例">
+              <Film size={11} />
+              <b>{ratio}</b>
+            </span>
+            <span className="spec-tag" title="生成类型">
+              <Sparkles size={11} />
+              <b>{modeLabel}</b>
+            </span>
+            <span className="spec-tag" title="帧率与原生音频">
+              <b>30fps · 原生音频</b>
+            </span>
+          </div>
+        )}
+
+        <div style={{ marginTop: "6px" }}>
+          {output.archivedFile ? (
+            <span className="archive-ok" style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+              <Check size={13} /> 已保存到本机 · {output.archivedFile}
+            </span>
+          ) : remote && (
+            <span className="archive-warning-text">
+              <Clock3 size={12} /> 云端结果链接会过期，满意后建议点击右侧保存到本机。
+            </span>
+          )}
+        </div>
       </div>
-      <div className="result-actions">
-        {isVideo && onSaveWork && <button className="icon-button" disabled={busy} title="保存到「我的作品」，长期管理" onClick={onSaveWork}><BookmarkPlus size={15}/></button>}
-        {remote && !output.archivedFile && <button className="icon-button" disabled={busy} title="保存到本机（推荐），避免云端结果链接过期" onClick={onArchive}><Download size={15}/></button>}
-        {url && <a className="icon-button" href={url} target="_blank" rel="noreferrer" title="打开结果"><ExternalLink size={15}/></a>}
+
+      <div className="result-actions" style={{ alignSelf: "flex-start", flexShrink: 0 }}>
+        {isVideo && onSaveWork && <button className="icon-button" disabled={busy} title="保存到「我的作品」，长期管理" onClick={onSaveWork}><BookmarkPlus size={16}/></button>}
+        {remote && !output.archivedFile && <button className="icon-button" disabled={busy} title="保存到本机（推荐），避免云端结果链接过期" onClick={onArchive}><Download size={16}/></button>}
+        {url && <a className="icon-button" href={url} target="_blank" rel="noreferrer" title="新标签页打开结果"><ExternalLink size={16}/></a>}
       </div>
     </div>
   </article>;
