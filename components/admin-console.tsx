@@ -10,12 +10,13 @@ import SettingsPanel from "@/components/settings-panel";
 import { JOB_STATUS_COPY, PAYMENT_STATUS_COPY, REFUND_STATUS_COPY } from "@/lib/copy";
 import { JOB_KIND_LABELS } from "@/lib/types";
 
-type Section = "dashboard" | "users" | "plans" | "orders" | "refunds" | "jobs" | "works" | "service" | "settings" | "audit";
+type Section = "dashboard" | "users" | "pricing" | "plans" | "orders" | "refunds" | "jobs" | "works" | "service" | "settings" | "audit";
 
 const NAV: Array<{ group: string; items: Array<{ id: Section; label: string; icon: typeof Users }> }> = [
   { group: "经营", items: [{ id: "dashboard", label: "经营概览", icon: BarChart3 }] },
   { group: "用户", items: [{ id: "users", label: "用户管理", icon: Users }] },
   { group: "商业", items: [
+    { id: "pricing", label: "模型定价与成本", icon: Coins },
     { id: "plans", label: "商品与套餐", icon: Package },
     { id: "orders", label: "订单管理", icon: Receipt },
     { id: "refunds", label: "退款与售后", icon: Coins },
@@ -79,13 +80,14 @@ export default function AdminConsole() {
       <div className="member-body">
         {section === "dashboard" && <Dashboard />}
         {section === "users" && <UsersSection />}
-        {section === "plans" && <PlansSection />}
+        {section === "pricing" && <ModelPricingSection onNavigate={setSection} />}
+        {section === "plans" && <PlansSection onNavigate={setSection} />}
         {section === "orders" && <OrdersSection />}
         {section === "refunds" && <RefundsSection />}
         {section === "jobs" && <JobsSection />}
         {section === "works" && <WorksSection />}
         {section === "service" && <ServiceSection />}
-        {section === "settings" && <SystemSettingsSection />}
+        {section === "settings" && <SystemSettingsSection onNavigate={setSection} />}
         {section === "audit" && <AuditSection />}
       </div>
     </div>
@@ -306,13 +308,13 @@ function UsersSection() {
   </div>;
 }
 
-function ModelPricingPanel() {
+function ModelPricingSection({ onNavigate }: { onNavigate?: (sec: Section) => void }) {
   const { data, error, loading, reload } = useLoad<any>("/api/admin/pricing", []);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [values, setValues] = useState({
-    wan: "1",
-    happyhorse: "2",
+    wan: "2",
+    happyhorse: "1",
     defaultRate: "1",
     baseCredits: "0",
     minCredits: "1",
@@ -321,6 +323,9 @@ function ModelPricingPanel() {
     res1080p: "1.0",
     res2k: "1.5",
     res4k: "2.0",
+    costWan3: "15",
+    costHappyhorse: "10",
+    costDefault: "10",
   });
 
   useEffect(() => {
@@ -328,9 +333,10 @@ function ModelPricingPanel() {
     const rule = data.defaultRule;
     const map = rule.modelCreditsPerSecond || {};
     const res = rule.resolutionMultiplier || {};
+    const costs = data.costs || {};
     setValues({
-      wan: String(map["wan3.0"] ?? 1),
-      happyhorse: String(map["happyhorse-1.1"] ?? 2),
+      wan: String(map["wan3.0"] ?? 2),
+      happyhorse: String(map["happyhorse-1.1"] ?? 1),
       defaultRate: String(map["default"] ?? rule.perSecondCredits ?? 1),
       baseCredits: String(rule.baseCredits ?? 0),
       minCredits: String(rule.minCredits ?? 1),
@@ -339,6 +345,9 @@ function ModelPricingPanel() {
       res1080p: String(res["1080p"] ?? 1.0),
       res2k: String(res["2k"] ?? 1.5),
       res4k: String(res["4k"] ?? 2.0),
+      costWan3: String(costs.wan3_cost_cents_per_second ?? 15),
+      costHappyhorse: String(costs.happyhorse_cost_cents_per_second ?? 10),
+      costDefault: String(costs.default_cost_cents_per_second ?? 10),
     });
   }, [data]);
 
@@ -354,8 +363,8 @@ function ModelPricingPanel() {
           baseCredits: Math.max(0, Number(values.baseCredits) || 0),
           perSecondCredits: Math.max(0, Number(values.defaultRate) || 1),
           modelCreditsPerSecond: {
-            "wan3.0": Math.max(0, Number(values.wan) || 1),
-            "happyhorse-1.1": Math.max(0, Number(values.happyhorse) || 2),
+            "wan3.0": Math.max(0, Number(values.wan) || 2),
+            "happyhorse-1.1": Math.max(0, Number(values.happyhorse) || 1),
             "default": Math.max(0, Number(values.defaultRate) || 1),
           },
           minCredits: Math.max(0, Math.round(Number(values.minCredits) || 1)),
@@ -366,10 +375,15 @@ function ModelPricingPanel() {
             "2k": Math.max(0, Number(values.res2k) || 1.5),
             "4k": Math.max(0, Number(values.res4k) || 2.0),
           },
-          note: "由管理后台更新按秒计费模型定价",
+          modelCostsPerSecondCents: {
+            "wan3.0": Math.max(0, Number(values.costWan3) || 15),
+            "happyhorse-1.1": Math.max(0, Number(values.costHappyhorse) || 10),
+            "default": Math.max(0, Number(values.costDefault) || 10),
+          },
+          note: "由管理后台更新按秒计费模型定价与上游成本",
         }),
       });
-      setMessage("模型按秒计费定价已保存，全站视频生成即时按新定价计费。");
+      setMessage("模型定价（以秒为单位 · 积分计价）与上游成本已成功保存并全站实时生效。");
       await reload();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
@@ -378,135 +392,277 @@ function ModelPricingPanel() {
     }
   }
 
-  const previewWan20s = Math.max(Number(values.minCredits) || 1, Math.round((Number(values.baseCredits) || 0) + 20 * (Number(values.wan) || 1) * (Number(values.res1080p) || 1)));
-  const previewHh5s = Math.max(Number(values.minCredits) || 1, Math.round((Number(values.baseCredits) || 0) + 5 * (Number(values.happyhorse) || 2) * (Number(values.res1080p) || 1)));
-  const previewHh15s = Math.max(Number(values.minCredits) || 1, Math.round((Number(values.baseCredits) || 0) + 15 * (Number(values.happyhorse) || 2) * (Number(values.res1080p) || 1)));
+  // 1 积分在平台的最优折现现金价值（分）
+  const creditCents = Number(data?.creditUnit?.cents || 15);
+  const creditYuan = creditCents / 100;
+
+  // Wan 3.0 商业指标
+  const wanRate = Number(values.wan) || 2;
+  const wanCostCents = Number(values.costWan3) || 15;
+  const wanRevCents = wanRate * creditCents;
+  const wanMarginRate = wanRevCents > 0 ? Math.round(((wanRevCents - wanCostCents) / wanRevCents) * 100) : 0;
+
+  // HappyHorse 1.1 商业指标
+  const hhRate = Number(values.happyhorse) || 1;
+  const hhCostCents = Number(values.costHappyhorse) || 10;
+  const hhRevCents = hhRate * creditCents;
+  const hhMarginRate = hhRevCents > 0 ? Math.round(((hhRevCents - hhCostCents) / hhRevCents) * 100) : 0;
 
   return (
-    <section className="panel" style={{ marginBottom: 20 }}>
+    <div className="admin-panel">
       <div className="admin-panel-head">
         <div>
-          <h3>模型生成计费定价（按秒计费 · 积分定价）</h3>
-          <span className="muted mini">按视频生成实际秒数精确计算积分消耗；不同的模型支持设置不同的每秒积分单价</span>
+          <h2>模型定价与成本（按秒计价体系）</h2>
+          <span className="muted mini">以秒为单位配置各模型的销售定价（积分/秒）与上游真实成本（分/秒），实时核算单秒毛利率</span>
         </div>
         <div className="inline-actions">
           <button className="secondary" onClick={reload} disabled={loading}><RefreshCw size={13} />刷新</button>
           <button className="primary" onClick={save} disabled={busy || loading}>
-            {busy ? <LoaderCircle className="spin" size={13} /> : null} 保存计费设置
+            {busy ? <LoaderCircle className="spin" size={13} /> : null} 保存定价与成本
           </button>
         </div>
       </div>
-      {message && <div className="notice" style={{ margin: "0 0 12px" }}>{message}</div>}
+
+      {message && <div className="notice" style={{ margin: "0 0 16px" }}>{message}</div>}
+
       {loading ? <Loading /> : error ? <ErrorNote message={error} /> : (
         <>
-          <div className="form-grid three">
-            <div className="field">
-              <span className="field-label">Wan 3.0 定价（积分/秒）</span>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                value={values.wan}
-                onChange={e => setValues({ ...values, wan: e.target.value })}
-                placeholder="例如 1"
-              />
-              <span className="muted mini">支持 2–30 秒超长直出与多模态生成</span>
+          {/* 顶层商业毛利看板 */}
+          <div className="form-grid two" style={{ marginBottom: 20 }}>
+            <div className="panel" style={{ background: "linear-gradient(135deg, rgba(2, 132, 199, 0.05), rgba(14, 165, 233, 0.08))", border: "1px solid rgba(14, 165, 233, 0.25)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <strong style={{ fontSize: "15px", color: "#0369a1" }}>🚀 Wan 3.0 大模型（超长/原生直出）</strong>
+                <span className={`stage-state ${wanMarginRate >= 30 ? "succeeded" : "queued"}`} style={{ fontSize: "11px" }}>
+                  毛利率：{wanMarginRate}%
+                </span>
+              </div>
+              <div className="form-grid three" style={{ fontSize: "12px", marginTop: 10 }}>
+                <div><span className="muted mini">用户定价</span><div><b>{wanRate}</b> 积分/秒 (约 ¥{(wanRevCents / 100).toFixed(2)}/s)</div></div>
+                <div><span className="muted mini">上游成本</span><div><b>{wanCostCents}</b> 分/秒 (¥{(wanCostCents / 100).toFixed(2)}/s)</div></div>
+                <div><span className="muted mini">单秒毛利</span><div style={{ color: wanRevCents >= wanCostCents ? "#16a34a" : "#dc2626" }}><b>¥{((wanRevCents - wanCostCents) / 100).toFixed(2)}</b> / 秒</div></div>
+              </div>
             </div>
-            <div className="field">
-              <span className="field-label">HappyHorse 1.1 定价（积分/秒）</span>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                value={values.happyhorse}
-                onChange={e => setValues({ ...values, happyhorse: e.target.value })}
-                placeholder="例如 2"
-              />
-              <span className="muted mini">高一致性与生动动态，超 15 秒智能平滑切分</span>
-            </div>
-            <div className="field">
-              <span className="field-label">默认/其他模型定价（积分/秒）</span>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                value={values.defaultRate}
-                onChange={e => setValues({ ...values, defaultRate: e.target.value })}
-                placeholder="例如 1"
-              />
-              <span className="muted mini">未指定或回退线路的每秒基准单价</span>
-            </div>
-            <div className="field">
-              <span className="field-label">单次基础消耗（积分/次）</span>
-              <input
-                type="number"
-                min="0"
-                value={values.baseCredits}
-                onChange={e => setValues({ ...values, baseCredits: e.target.value })}
-                placeholder="0"
-              />
-              <span className="muted mini">每次任务额外扣减的基础点数（通常为 0）</span>
-            </div>
-            <div className="field">
-              <span className="field-label">最低起扣积分（积分/次）</span>
-              <input
-                type="number"
-                min="0"
-                value={values.minCredits}
-                onChange={e => setValues({ ...values, minCredits: e.target.value })}
-                placeholder="1"
-              />
-              <span className="muted mini">单次生成不论时长至少扣减的积分</span>
-            </div>
-            <div className="field">
-              <span className="field-label">1080P 清晰度系数</span>
-              <input
-                type="number"
-                step="0.1"
-                min="0.1"
-                value={values.res1080p}
-                onChange={e => setValues({ ...values, res1080p: e.target.value })}
-                placeholder="1.0"
-              />
-              <span className="muted mini">高清标准基准倍率（通常为 1.0）</span>
+
+            <div className="panel" style={{ background: "linear-gradient(135deg, rgba(147, 51, 234, 0.05), rgba(79, 70, 229, 0.08))", border: "1px solid rgba(147, 51, 234, 0.25)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <strong style={{ fontSize: "15px", color: "#6b21a8" }}>✨ HappyHorse 1.1（运镜质感/分段）</strong>
+                <span className={`stage-state ${hhMarginRate >= 30 ? "succeeded" : "queued"}`} style={{ fontSize: "11px" }}>
+                  毛利率：{hhMarginRate}%
+                </span>
+              </div>
+              <div className="form-grid three" style={{ fontSize: "12px", marginTop: 10 }}>
+                <div><span className="muted mini">用户定价</span><div><b>{hhRate}</b> 积分/秒 (约 ¥{(hhRevCents / 100).toFixed(2)}/s)</div></div>
+                <div><span className="muted mini">上游成本</span><div><b>{hhCostCents}</b> 分/秒 (¥{(hhCostCents / 100).toFixed(2)}/s)</div></div>
+                <div><span className="muted mini">单秒毛利</span><div style={{ color: hhRevCents >= hhCostCents ? "#16a34a" : "#dc2626" }}><b>¥{((hhRevCents - hhCostCents) / 100).toFixed(2)}</b> / 秒</div></div>
+              </div>
             </div>
           </div>
 
-          <details style={{ marginTop: 12 }}>
-            <summary className="muted mini" style={{ cursor: "pointer" }}>高级：其他清晰度倍率（480P / 720P / 2K / 4K）</summary>
-            <div className="form-grid four" style={{ marginTop: 10 }}>
+          {/* 模块一：用户定价 */}
+          <section className="panel" style={{ marginBottom: 18 }}>
+            <div className="panel-head">
+              <h3>1. 销售定价体系（面向用户 · 按秒收取积分）</h3>
+              <span className="muted mini">前台各视频入口（对话创作、快捷向导、简单成片、高级表单）自动动态应用这里的每秒积分单价</span>
+            </div>
+            <div className="form-grid three" style={{ marginTop: 12 }}>
               <div className="field">
-                <span className="field-label">480P 倍率</span>
-                <input type="number" step="0.1" min="0" value={values.res480p} onChange={e => setValues({ ...values, res480p: e.target.value })} />
+                <span className="field-label">Wan 3.0 定价（积分/秒）</span>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0.1"
+                  value={values.wan}
+                  onChange={e => setValues({ ...values, wan: e.target.value })}
+                  placeholder="例如 2"
+                />
+                <span className="muted mini">支持 2–30 秒单镜头原生超长直出</span>
               </div>
               <div className="field">
-                <span className="field-label">720P 倍率</span>
-                <input type="number" step="0.1" min="0" value={values.res720p} onChange={e => setValues({ ...values, res720p: e.target.value })} />
+                <span className="field-label">HappyHorse 1.1 定价（积分/秒）</span>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0.1"
+                  value={values.happyhorse}
+                  onChange={e => setValues({ ...values, happyhorse: e.target.value })}
+                  placeholder="例如 1"
+                />
+                <span className="muted mini">高画质运镜，单镜头上限 15 秒（超长自动多镜头切分）</span>
               </div>
               <div className="field">
-                <span className="field-label">2K 倍率</span>
-                <input type="number" step="0.1" min="0" value={values.res2k} onChange={e => setValues({ ...values, res2k: e.target.value })} />
+                <span className="field-label">默认/回退模型定价（积分/秒）</span>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0.1"
+                  value={values.defaultRate}
+                  onChange={e => setValues({ ...values, defaultRate: e.target.value })}
+                  placeholder="例如 1"
+                />
+                <span className="muted mini">未明确指定模型时的回退基准费率</span>
               </div>
               <div className="field">
-                <span className="field-label">4K 倍率</span>
-                <input type="number" step="0.1" min="0" value={values.res4k} onChange={e => setValues({ ...values, res4k: e.target.value })} />
+                <span className="field-label">单次基础消耗（积分/次）</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={values.baseCredits}
+                  onChange={e => setValues({ ...values, baseCredits: e.target.value })}
+                  placeholder="0"
+                />
+                <span className="muted mini">每次任务额外扣减的基础积分（通常为 0）</span>
+              </div>
+              <div className="field">
+                <span className="field-label">单次最低起扣（积分）</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={values.minCredits}
+                  onChange={e => setValues({ ...values, minCredits: e.target.value })}
+                  placeholder="1"
+                />
+                <span className="muted mini">单次生成无论时长至少扣除的积分（防微秒刷量）</span>
+              </div>
+              <div className="field">
+                <span className="field-label">1080P 高清系数</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  value={values.res1080p}
+                  onChange={e => setValues({ ...values, res1080p: e.target.value })}
+                  placeholder="1.0"
+                />
+                <span className="muted mini">全站主流默认分辨率倍率（基准 1.0）</span>
               </div>
             </div>
-          </details>
 
-          <div className="notice" style={{ marginTop: 14, background: "rgba(99, 102, 241, 0.08)", border: "1px solid rgba(99, 102, 241, 0.2)" }}>
-            <strong>💡 实时计费试算预览（1080P）：</strong>
-            <span style={{ marginLeft: 8 }}>
-              5秒 HappyHorse = <b>{previewHh5s}</b> 积分 · 15秒 HappyHorse = <b>{previewHh15s}</b> 积分 · 20秒 Wan 3.0 = <b>{previewWan20s}</b> 积分
-            </span>
-          </div>
+            <details style={{ marginTop: 12 }}>
+              <summary className="muted mini" style={{ cursor: "pointer" }}>高级分辨率倍率设置（480P / 720P / 2K / 4K）</summary>
+              <div className="form-grid four" style={{ marginTop: 10 }}>
+                <div className="field">
+                  <span className="field-label">480P 倍率</span>
+                  <input type="number" step="0.1" min="0" value={values.res480p} onChange={e => setValues({ ...values, res480p: e.target.value })} />
+                </div>
+                <div className="field">
+                  <span className="field-label">720P 倍率</span>
+                  <input type="number" step="0.1" min="0" value={values.res720p} onChange={e => setValues({ ...values, res720p: e.target.value })} />
+                </div>
+                <div className="field">
+                  <span className="field-label">2K 倍率</span>
+                  <input type="number" step="0.1" min="0" value={values.res2k} onChange={e => setValues({ ...values, res2k: e.target.value })} />
+                </div>
+                <div className="field">
+                  <span className="field-label">4K 倍率</span>
+                  <input type="number" step="0.1" min="0" value={values.res4k} onChange={e => setValues({ ...values, res4k: e.target.value })} />
+                </div>
+              </div>
+            </details>
+          </section>
+
+          {/* 模块二：内部成本 */}
+          <section className="panel" style={{ marginBottom: 18 }}>
+            <div className="panel-head">
+              <h3>2. 平台内部成本核算（面向平台 · 单位：分/秒）</h3>
+              <span className="muted mini">用于精确核算每个任务的实际耗费与毛利表现，彻底替代原有单一粗糙成本</span>
+            </div>
+            <div className="form-grid three" style={{ marginTop: 12 }}>
+              <div className="field">
+                <span className="field-label">Wan 3.0 每秒内部成本（分）</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={values.costWan3}
+                  onChange={e => setValues({ ...values, costWan3: e.target.value })}
+                  placeholder="例如 15 (即 0.15 元/秒)"
+                />
+                <span className="muted mini">阿里百炼按生成时长结算给我们的实际成本</span>
+              </div>
+              <div className="field">
+                <span className="field-label">HappyHorse 1.1 每秒内部成本（分）</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={values.costHappyhorse}
+                  onChange={e => setValues({ ...values, costHappyhorse: e.target.value })}
+                  placeholder="例如 10 (即 0.10 元/秒)"
+                />
+                <span className="muted mini">万镜一刻上游结算给我们的实际成本</span>
+              </div>
+              <div className="field">
+                <span className="field-label">通用默认每秒内部成本（分）</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={values.costDefault}
+                  onChange={e => setValues({ ...values, costDefault: e.target.value })}
+                  placeholder="例如 10"
+                />
+                <span className="muted mini">其他未指定模型的视频任务回退成本</span>
+              </div>
+            </div>
+          </section>
+
+          {/* 模块三：典型场景试算对照 */}
+          <section className="panel">
+            <div className="panel-head">
+              <h3>3. 常见时长收费与成本试算（1080P 高清）</h3>
+              <span className="muted mini">依据当前设置的费率与当前套餐折合价值（1 积分 ≈ ¥{creditYuan.toFixed(2)}）自动计算</span>
+            </div>
+            <table className="admin-table" style={{ marginTop: 12 }}>
+              <thead>
+                <tr>
+                  <th>生成时长</th>
+                  <th>HappyHorse 消耗积分</th>
+                  <th>HappyHorse 折合售价/成本</th>
+                  <th>Wan 3.0 消耗积分</th>
+                  <th>Wan 3.0 折合售价/成本</th>
+                  <th>模式说明</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>5 秒</strong>（短运镜）</td>
+                  <td><b>{Math.max(Number(values.minCredits) || 1, Math.round(5 * hhRate))}</b> 积分</td>
+                  <td>¥{((5 * hhRate * creditCents) / 100).toFixed(2)} / ¥{((5 * hhCostCents) / 100).toFixed(2)}</td>
+                  <td><b>{Math.max(Number(values.minCredits) || 1, Math.round(5 * wanRate))}</b> 积分</td>
+                  <td>¥{((5 * wanRate * creditCents) / 100).toFixed(2)} / ¥{((5 * wanCostCents) / 100).toFixed(2)}</td>
+                  <td>两个模型均支持单镜头直出</td>
+                </tr>
+                <tr>
+                  <td><strong>10 秒</strong>（常规广告）</td>
+                  <td><b>{Math.max(Number(values.minCredits) || 1, Math.round(10 * hhRate))}</b> 积分</td>
+                  <td>¥{((10 * hhRate * creditCents) / 100).toFixed(2)} / ¥{((10 * hhCostCents) / 100).toFixed(2)}</td>
+                  <td><b>{Math.max(Number(values.minCredits) || 1, Math.round(10 * wanRate))}</b> 积分</td>
+                  <td>¥{((10 * wanRate * creditCents) / 100).toFixed(2)} / ¥{((10 * wanCostCents) / 100).toFixed(2)}</td>
+                  <td>两个模型均支持单镜头直出</td>
+                </tr>
+                <tr>
+                  <td><strong>15 秒</strong>（上限分水岭）</td>
+                  <td><b>{Math.max(Number(values.minCredits) || 1, Math.round(15 * hhRate))}</b> 积分</td>
+                  <td>¥{((15 * hhRate * creditCents) / 100).toFixed(2)} / ¥{((15 * hhCostCents) / 100).toFixed(2)}</td>
+                  <td><b>{Math.max(Number(values.minCredits) || 1, Math.round(15 * wanRate))}</b> 积分</td>
+                  <td>¥{((15 * wanRate * creditCents) / 100).toFixed(2)} / ¥{((15 * wanCostCents) / 100).toFixed(2)}</td>
+                  <td>HappyHorse 单镜头直出极限时长</td>
+                </tr>
+                <tr>
+                  <td><strong>30 秒</strong>（超长成片）</td>
+                  <td><b>{Math.max(Number(values.minCredits) || 1, Math.round(30 * hhRate))}</b> 积分</td>
+                  <td>¥{((30 * hhRate * creditCents) / 100).toFixed(2)} / ¥{((30 * hhCostCents) / 100).toFixed(2)}</td>
+                  <td><b>{Math.max(Number(values.minCredits) || 1, Math.round(30 * wanRate))}</b> 积分</td>
+                  <td>¥{((30 * wanRate * creditCents) / 100).toFixed(2)} / ¥{((30 * wanCostCents) / 100).toFixed(2)}</td>
+                  <td>HappyHorse 自动拆为多镜头转场；Wan 3.0 原生单镜头直出</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
         </>
       )}
-    </section>
+    </div>
   );
 }
 
-function PlansSection() {
+function PlansSection({ onNavigate }: { onNavigate?: (sec: Section) => void }) {
   const { data, error, loading, reload } = useLoad<any>("/api/admin/plans", []);
   const [draft, setDraft] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -587,7 +743,17 @@ function PlansSection() {
   }
 
   return <div className="admin-panel">
-    <ModelPricingPanel />
+    <div className="notice" style={{ margin: "0 0 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div>
+        <strong>💎 模型按秒计费定价与内部成本中心</strong>
+        <div className="muted mini">按秒精确计费、多模型（Wan 3.0 / HappyHorse 1.1）差异化积分定价及上游成本核算已移至独立控制台。</div>
+      </div>
+      {onNavigate && (
+        <button type="button" className="secondary" onClick={() => onNavigate("pricing")}>
+          进入模型定价与成本中心 →
+        </button>
+      )}
+    </div>
 
     <div className="admin-panel-head">
       <div>
@@ -1026,7 +1192,7 @@ function ServiceSection() {
   </div>;
 }
 
-function SystemSettingsSection() {
+function SystemSettingsSection({ onNavigate }: { onNavigate?: (sec: Section) => void }) {
   const { data, error, loading, reload } = useLoad<any>("/api/admin/system-settings", []);
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -1109,7 +1275,19 @@ function SystemSettingsSection() {
           const items = (data.settings || []).filter((item: any) => item.scope === scope);
           if (!items.length) return null;
           return <section className="panel" key={scope}>
-            <h3>{label}</h3>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+              <h3>{label}</h3>
+              {scope === "cost" && onNavigate && (
+                <button type="button" className="secondary" style={{ padding: "4px 10px", fontSize: "12px" }} onClick={() => onNavigate("pricing")}>
+                  进入模型定价与成本中心 →
+                </button>
+              )}
+            </div>
+            {scope === "cost" && (
+              <div className="notice" style={{ marginTop: 8, padding: "8px 12px" }}>
+                <strong>🌟 提示：</strong>推荐前往左侧商业分类下的「模型定价与成本」控制台，可一站式查看并配置各模型（Wan 3.0 / HappyHorse 1.1）的每秒销售定价、内部成本与单秒毛利率测算。
+              </div>
+            )}
             <div className="form-stack" style={{ marginTop: 10 }}>
               {items.map((item: any) => {
                 const isBoolean = item.type === "boolean";

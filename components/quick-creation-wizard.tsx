@@ -1,10 +1,11 @@
 "use client";
 
 import OSS from "ali-oss";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Box, Image as ImageIcon, Play, Sparkles, UserRound, WandSparkles } from "lucide-react";
 import type { PublicSubjectCard } from "@/components/subject-library";
 import type { StoredAsset } from "@/lib/types";
+import { fetchModelPricing, calculateCredits, getModelUnitRate, type ModelPricing } from "@/lib/pricing-client";
 
 type CreationType = "text_video" | "product_ad" | "person_short" | "image_video";
 type Platform = "douyin" | "xiaohongshu" | "youtube" | "landscape" | "square";
@@ -44,6 +45,11 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<any>(null);
+  const [pricing, setPricing] = useState<ModelPricing | null>(null);
+
+  useEffect(() => {
+    fetchModelPricing().then(setPricing).catch(() => undefined);
+  }, []);
 
   const availableSubjects = useMemo(() => subjects.filter(subject => type === "product_ad" ? subject.subjectType === "product" : subject.subjectType === "person"), [subjects, type]);
   const images = useMemo(() => assets.filter(asset => asset.mediaType === "image"), [assets]);
@@ -53,6 +59,10 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   const interactionLocked = busy || localUploading;
   const ready = generationReady === true && Boolean(goal.trim()) && referenceReady && !interactionLocked;
   const canChooseComputerImage = directAvailable || extendedUploadAvailable;
+
+  const effectiveModel = preferredModel === "auto" ? (duration > 15 || duration < 3 ? "wan3.0" : "happyhorse-1.1") : preferredModel;
+  const estimatedCredits = calculateCredits(pricing, effectiveModel, duration, "1080P");
+  const unitRate = getModelUnitRate(pricing, effectiveModel);
 
   function clearLocal() {
     if (localInput) discardLocalImage(localInput.ref);
@@ -321,9 +331,14 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
       </div>
 
       <div className="field" style={{marginTop:16}}>
-        <span className="field-label" style={{ display: "flex", justifyContent: "space-between" }}>
+        <span className="field-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span>6. 视频时长（滑动调节）</span>
-          <b style={{ color: "#4F46E5" }}>{duration} 秒</b>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+            <b style={{ color: "#4F46E5" }}>{duration} 秒</b>
+            <span style={{ fontSize: "11px", color: "#4338CA", background: "rgba(99, 102, 241, 0.12)", padding: "2px 8px", borderRadius: "12px", fontWeight: 600 }}>
+              预估 {estimatedCredits} 积分 ({unitRate}积分/秒)
+            </span>
+          </span>
         </span>
         <input
           type="range"

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import type { PublicSubjectCard } from "@/components/subject-library";
 import type { StoredAsset } from "@/lib/types";
+import { fetchModelPricing, calculateCredits, getModelUnitRate, type ModelPricing } from "@/lib/pricing-client";
 import styles from "@/components/studio-shell.module.css";
 
 type CreationType = "text_video" | "product_ad" | "person_short" | "image_video";
@@ -123,7 +124,12 @@ export default function ChatCreationHome({
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [pricing, setPricing] = useState<ModelPricing | null>(null);
   const popoverOpen = plusOpen || optionsOpen;
+
+  useEffect(() => {
+    fetchModelPricing().then(setPricing).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!popoverOpen) return;
@@ -191,6 +197,9 @@ export default function ChatCreationHome({
       ? yikeAvailable
       : modelStudioAvailable || yikeAvailable;
   const referenceLabel = type === "text_video" ? "" : (selectedSubject?.name || selectedImage?.name || localInput?.name || (referenceUrl.trim() ? "图片链接" : imageAssetId ? "已上传图片" : ""));
+  const effectiveModel = preferredModel === "auto" ? (duration > 15 || duration < 3 ? "wan3.0" : "happyhorse-1.1") : preferredModel;
+  const estimatedCredits = calculateCredits(pricing, effectiveModel, duration, "1080P");
+  const unitRate = getModelUnitRate(pricing, effectiveModel);
 
   function clearLocal() {
     if (localInput) discardLocalImage(localInput.ref);
@@ -522,7 +531,7 @@ export default function ChatCreationHome({
             <div className={styles.popoverAnchor}>
               <button disabled={interactionLocked} className={styles.optionButton} onClick={() => { const next = !optionsOpen; closePopovers(); setOptionsOpen(next); }}>
                 <Settings2 size={15} />
-                {platform === "landscape" ? "通用横屏 (16:9)" : platform === "youtube" ? "YouTube (16:9)" : platform === "xiaohongshu" ? "小红书 (3:4)" : platform === "square" ? "方形 (1:1)" : "抖音竖屏 (9:16)"} · {duration} 秒 · {preferredModel === "wan3.0" ? "Wan 3.0" : preferredModel === "happyhorse-1.1" ? "HappyHorse" : "智能模型"}
+                {platform === "landscape" ? "通用横屏 (16:9)" : platform === "youtube" ? "YouTube (16:9)" : platform === "xiaohongshu" ? "小红书 (3:4)" : platform === "square" ? "方形 (1:1)" : "抖音竖屏 (9:16)"} · {duration} 秒 ({estimatedCredits}积分) · {preferredModel === "wan3.0" ? "Wan 3.0" : preferredModel === "happyhorse-1.1" ? "HappyHorse" : "智能模型"}
                 <ChevronDown size={14} />
               </button>
               {optionsOpen && (
@@ -618,6 +627,10 @@ export default function ChatCreationHome({
                           ✨ <strong>智能自适应双通道</strong>：HappyHorse 1.1 / Wan 3.0 质感协同调度
                         </span>
                       )}
+                    </div>
+                    <div style={{ marginTop: "10px", padding: "6px 10px", background: "rgba(99, 102, 241, 0.08)", borderRadius: "6px", border: "1px solid rgba(99, 102, 241, 0.2)", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px" }}>
+                      <span>预计消耗：<strong style={{ color: "#4338CA" }}>{estimatedCredits} 积分</strong></span>
+                      <span style={{ color: "#64748B" }}>{unitRate} 积分/秒 · 按模型以秒计费</span>
                     </div>
                   </div>
                 </div>

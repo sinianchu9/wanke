@@ -29,9 +29,20 @@ export const COST_SOURCE_COPY: Record<CostSource, string> = {
 };
 
 /** Internal price of one second of generated video, in cents. 0 = we do not know yet. */
-export function costPerSecondCents(): number {
-  const value = Math.round(getNumberSetting("cost_per_video_second_cents", 0));
-  return Number.isFinite(value) && value > 0 ? value : 0;
+export function costPerSecondCents(modelKey?: string): number {
+  if (modelKey) {
+    const k = String(modelKey).toLowerCase();
+    if (k.includes("wan")) {
+      const v = Math.round(getNumberSetting("cost_wan3_per_second_cents", 0));
+      if (v > 0) return v;
+    }
+    if (k.includes("happyhorse")) {
+      const v = Math.round(getNumberSetting("cost_happyhorse_per_second_cents", 0));
+      if (v > 0) return v;
+    }
+  }
+  const fallback = Math.round(getNumberSetting("cost_per_video_second_cents", 0));
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
 }
 
 /**
@@ -83,8 +94,9 @@ export function assessTaskCost(input: {
   estimatedCostCents: number;
   durationSeconds: number | null;
   succeeded: boolean;
+  modelKey?: string;
 }): TaskCostAssessment {
-  const rate = costPerSecondCents();
+  const rate = costPerSecondCents(input.modelKey);
   const seconds = input.durationSeconds;
   const canMeasure = input.succeeded && rate > 0 && seconds !== null && seconds > 0;
   return {

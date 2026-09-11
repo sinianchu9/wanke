@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { HelpCircle, Image as ImageIcon, Images, Send, Sparkles, WandSparkles, Waypoints } from "lucide-react";
 import type { PublicSubjectCard } from "@/components/subject-library";
 import type { StoredAsset } from "@/lib/types";
 import { VIDEO_RECIPES, getVideoRecipe, recipeSupportsMode, type VideoRecipeId } from "@/lib/video/recipes";
+import { calculateCredits, fetchModelPricing, getModelUnitRate, type ModelPricing } from "@/lib/pricing-client";
 
 type Mode = "text_to_video" | "image_to_video" | "first_last_frame" | "reference_to_video";
 type LocalInput = { ref: string; name: string; size: number };
@@ -49,6 +50,11 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
   const [enhancing, setEnhancing] = useState(false);
   const [enhanceNote, setEnhanceNote] = useState("");
   const [enhanceError, setEnhanceError] = useState("");
+  const [pricing, setPricing] = useState<ModelPricing | null>(null);
+
+  useEffect(() => {
+    fetchModelPricing().then(setPricing).catch(() => undefined);
+  }, []);
 
   const recipe = useMemo(() => getVideoRecipe(recipeId), [recipeId]);
   const imageAssets = useMemo(() => assets.filter(asset => asset.mediaType === "image"), [assets]);
@@ -221,7 +227,12 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
     return shouldUseWan ? "wan3.0" : "happyhorse-1.1";
   }, [preferredModel, effectiveDuration, resolution, mode, hasVideoReference]);
 
-  const estimatedCredits = (actualModel === "wan3.0" ? effectiveDuration * 2 : effectiveDuration * 1) * versionCount;
+  const unitCredits = useMemo(() => {
+    return calculateCredits(pricing, actualModel, effectiveDuration, resolution);
+  }, [pricing, actualModel, effectiveDuration, resolution]);
+
+  const estimatedCredits = unitCredits * versionCount;
+  const currentRate = getModelUnitRate(pricing, actualModel);
 
   function buildRequestInput() {
     return {
@@ -369,11 +380,11 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
               </div>
             ) : actualModel === "wan3.0" ? (
               <div className="muted mini" style={{marginTop: 6, color: "var(--accent, #6366f1)"}}>
-                ✨ 当前采用阿里 Wan 3.0 视频大模型原生直出（时长 {effectiveDuration} 秒，费率按 2 积分/秒计）。
+                ✨ 当前采用阿里 Wan 3.0 视频大模型原生直出（时长 {effectiveDuration} 秒，费率按 {currentRate} 积分/秒计）。
               </div>
             ) : (
               <div className="muted mini" style={{marginTop: 6, color: "var(--accent, #6366f1)"}}>
-                ✨ 当前采用 HappyHorse 1.1 质感模型直出（时长 {effectiveDuration} 秒，费率按 1 积分/秒计）。
+                ✨ 当前采用 HappyHorse 1.1 质感模型直出（时长 {effectiveDuration} 秒，费率按 {currentRate} 积分/秒计）。
               </div>
             )}
           </div>

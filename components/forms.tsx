@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BookmarkPlus, ChevronDown, CircleHelp, Plus, Send, Trash2 } from "lucide-react";
 import type { StoredAsset, StoredJob } from "@/lib/types";
+import { calculateCredits, fetchModelPricing, getModelUnitRate, type ModelPricing } from "@/lib/pricing-client";
 
 type Mode = "generate" | "remake" | "clone" | "avatar" | "voice" | "storyboard" | "translation";
 type Props = { mode: Mode; assets: StoredAsset[]; jobs: StoredJob[]; onSubmit: (kind: string, input: Record<string, unknown>, title?: string, parentJobId?: string) => Promise<any>; submitting: boolean };
@@ -34,11 +35,17 @@ export default function CreatorForms(props: Props) {
 function GenerateForm({ assets, onSubmit, submitting }: Props) {
   const initial = { title: "", prompt: "", jobType: "text_to_video", aspectRatio: "16:9", duration: 5, resolution: "1080P", model: "wan3.0", n: 1, medias: [] as { type: string; url: string; mediaId?: string }[], expertText: "" };
   const [v, setV] = useDraft("video_generation", initial);
+  const [pricing, setPricing] = useState<ModelPricing | null>(null);
+
+  useEffect(() => {
+    fetchModelPricing().then(setPricing).catch(() => undefined);
+  }, []);
+
   const need = v.jobType === "image_to_video" ? "1 张图片" : v.jobType === "first_last_frame" ? "首帧 + 尾帧 2 张图片" : v.jobType === "reference_to_video" ? "1–9 个参考素材" : "无需素材";
   const isHappyHorse = String(v.model).includes("happyhorse");
   const isOver15 = v.duration > 15;
-  const rate = isHappyHorse ? 1 : 2;
-  const unitCredits = v.duration * rate;
+  const unitRate = getModelUnitRate(pricing, v.model);
+  const unitCredits = calculateCredits(pricing, v.model, v.duration, v.resolution);
   const totalCredits = unitCredits * v.n;
 
   return <FormFrame title="AI 视频生成" subtitle="把四种基础生成模式统一在一个工作台；支持阿里 Wan 3.0（最高 30 秒）与 HappyHorse 1.1（最高 15 秒）。一次可生成 1–4 个版本直接对比。" kind="video_generation" value={v} setValue={setV} onRun={() => onSubmit("video_generation", withExpert(v), v.title)} submitting={submitting} creditEstimate={`每版本 ${unitCredits} 积分 · 共 ${v.n} 个版本 · 预计消耗 ${totalCredits} 积分`}>
@@ -57,7 +64,7 @@ function GenerateForm({ assets, onSubmit, submitting }: Props) {
       <div className="field">
         <span className="field-label">预估费用说明</span>
         <div className="muted mini" style={{ padding: "8px 12px", background: "var(--surface-sunken, rgba(0,0,0,0.03))", borderRadius: "6px", height: "38px", display: "flex", alignItems: "center" }}>
-          {isHappyHorse ? "HappyHorse 费率：1 积分/秒" : "Wan 3.0 费率：2 积分/秒"} · 当前单版本约 {unitCredits} 积分
+          {isHappyHorse ? `HappyHorse 费率：${unitRate} 积分/秒` : `Wan 3.0 费率：${unitRate} 积分/秒`} · 当前单版本约 {unitCredits} 积分
         </div>
       </div>
     </div>

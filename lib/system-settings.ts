@@ -81,7 +81,9 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   { key: "guard_burst_window_seconds", scope: "guard", label: "异常高速判定窗口（秒）", help: "在这么短的时间内提交很多次，会被判定为异常高速创建。", type: "number", default: "10" },
   { key: "guard_burst_max_submits", scope: "guard", label: "异常高速提交次数", help: "在上面窗口内达到这个提交次数就会拦截，并记录到后台异常。", type: "number", default: "5" },
   { key: "guard_user_daily_cost_cents", scope: "guard", label: "单用户当日成本报警（分）", help: "单个用户当天预计生成成本超过这个金额（单位：分）时，在后台异常里报警。0 表示不报警。", type: "number", default: "2000" },
-  { key: "cost_per_video_second_cents", scope: "cost", label: "每秒视频内部成本（分）", help: "用于把上游返回的真实时长换算成实际成本。填 0 表示暂时不知道真实成本，后台只会展示预估成本，不会伪装成实际成本。", type: "number", default: "0" },
+  { key: "cost_wan3_per_second_cents", scope: "cost", label: "Wan 3.0 每秒内部成本（分）", help: "阿里百炼 Wan 3.0 大模型上游每秒视频实际成本（单位：分）。例如 15 表示 0.15 元/秒。填 0 表示使用默认核算。", type: "number", default: "15" },
+  { key: "cost_happyhorse_per_second_cents", scope: "cost", label: "HappyHorse 1.1 每秒内部成本（分）", help: "万镜一刻 HappyHorse 1.1 质感模型上游每秒视频实际成本（单位：分）。例如 10 表示 0.10 元/秒。填 0 表示使用默认核算。", type: "number", default: "10" },
+  { key: "cost_per_video_second_cents", scope: "cost", label: "通用默认每秒内部成本（分）", help: "未单独指定模型的其他视频任务上游实际成本（单位：分）。填 0 表示暂时不计成本。", type: "number", default: "10" },
 ];
 
 function nowIso() {

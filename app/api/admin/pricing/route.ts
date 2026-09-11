@@ -4,6 +4,8 @@ import { errorResponse, requireAdmin } from "@/lib/auth";
 import { writeAudit } from "@/lib/admin";
 import { describeError } from "@/lib/errors";
 import { getPricingRule, listPricingRules, upsertPricingRule } from "@/lib/billing/pricing";
+import { getNumberSetting, setSetting } from "@/lib/system-settings";
+import { creditUnitValueCents } from "@/lib/billing/costs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +18,7 @@ const schema = z.object({
   minCredits: z.number().min(0).default(1),
   maxCreditsPerUnit: z.number().min(1).default(2000),
   resolutionMultiplier: z.record(z.string(), z.number().min(0)).optional(),
+  modelCostsPerSecondCents: z.record(z.string(), z.number().min(0)).optional(),
   note: z.string().max(200).optional(),
   enabled: z.boolean().optional(),
 });
@@ -25,7 +28,13 @@ export async function GET(request: Request) {
     requireAdmin(request);
     const rules = listPricingRules();
     const defaultRule = getPricingRule("*");
-    return NextResponse.json({ ok: true, rules, defaultRule });
+    const costs = {
+      wan3_cost_cents_per_second: getNumberSetting("cost_wan3_per_second_cents", 15),
+      happyhorse_cost_cents_per_second: getNumberSetting("cost_happyhorse_per_second_cents", 10),
+      default_cost_cents_per_second: getNumberSetting("cost_per_video_second_cents", 10),
+    };
+    const creditUnit = creditUnitValueCents();
+    return NextResponse.json({ ok: true, rules, defaultRule, costs, creditUnit });
   } catch (error) {
     const handled = errorResponse(error);
     return handled || NextResponse.json({ error: "服务器错误" }, { status: 500 });
@@ -50,17 +59,39 @@ export async function POST(request: Request) {
       note: input.note,
     });
 
+    if (input.modelCostsPerSecondCents) {
+      if (input.modelCostsPerSecondCents["wan3.0"] !== undefined) {
+        setSetting("cost_wan3_per_second_cents", String(Math.round(input.modelCostsPerSecondCents["wan3.0"])));
+      }
+      if (input.modelCostsPerSecondCents["happyhorse-1.1"] !== undefined) {
+        setSetting("cost_happyhorse_per_second_cents", String(Math.round(input.modelCostsPerSecondCents["happyhorse-1.1"])));
+      }
+      if (input.modelCostsPerSecondCents["default"] !== undefined) {
+        setSetting("cost_per_video_second_cents", String(Math.round(input.modelCostsPerSecondCents["default"])));
+      }
+    }
+
     writeAudit(admin.id, "pricing_rules.update", "pricing", input.jobKind, {
       baseCredits: input.baseCredits,
       modelCreditsPerSecond: input.modelCreditsPerSecond,
+      modelCostsPerSecondCents: input.modelCostsPerSecondCents,
       perSecondCredits: input.perSecondCredits,
     });
+
+    const costs = {
+      wan3_cost_cents_per_second: getNumberSetting("cost_wan3_per_second_cents", 15),
+      happyhorse_cost_cents_per_second: getNumberSetting("cost_happyhorse_per_second_cents", 10),
+      default_cost_cents_per_second: getNumberSetting("cost_per_video_second_cents", 10),
+    };
+    const creditUnit = creditUnitValueCents();
 
     return NextResponse.json({
       ok: true,
       rule,
       defaultRule: getPricingRule("*"),
       rules: listPricingRules(),
+      costs,
+      creditUnit,
     });
   } catch (error) {
     const handled = errorResponse(error);
