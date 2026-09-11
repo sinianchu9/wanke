@@ -61,7 +61,7 @@ function newClientRequestId(prefix: string) {
 
 function creditNote(quote: { credits?: number } | undefined) {
   const credits = Number(quote?.credits || 0);
-  return credits > 0 ? `（本次消耗 ${credits} 个创作额度）` : "";
+  return credits > 0 ? `（本次消耗 ${credits} 积分）` : "";
 }
 type QuickCreateResult = { submitted?: number; failed?: number; projectName?: string };
 
@@ -516,8 +516,8 @@ export default function Studio() {
           <div className={styles.topbarSpacer} />
           <div className={styles.topbarStats}>
             {me?.membership && (
-              <Link href="/account" className={styles.statPill} title={`${me.membership.planName || ""} · 剩余 ${me.membership.credits?.available ?? 0} 个创作额度 · 点击进入会员中心`}>
-                <b>{me.membership.credits?.available ?? 0}</b>创作额度
+              <Link href="/account" className={styles.statPill} title={`${me.membership.planName || ""} · 剩余 ${me.membership.credits?.available ?? 0} 积分 · 点击进入会员中心`}>
+                <b>{me.membership.credits?.available ?? 0}</b>积分
               </Link>
             )}
             <span className={styles.statPill}><b>{stats.active}</b>处理中</span>

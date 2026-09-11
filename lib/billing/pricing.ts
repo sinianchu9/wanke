@@ -64,7 +64,7 @@ const DEFAULT_RULE_BODY = {
     "4k": 2.0,
   } as Record<string, number>,
   quantityFields: ["count", "batchSize", "shots", "variants"],
-  durationFields: ["durationSeconds", "duration", "videoDuration", "targetDuration"],
+  durationFields: ["durationSeconds", "duration", "videoDuration", "targetDuration", "voiceDuration"],
   resolutionFields: ["resolution", "quality", "size", "videoResolution"],
   estimatedCostCentsPerUnit: 0,
 };
@@ -165,7 +165,10 @@ function readResolution(input: Record<string, unknown>, fields: string[]): strin
   return "";
 }
 
-export function readModelKey(input: Record<string, unknown>, durationSeconds: number): { key: string; label: string } {
+export function readModelKey(input: Record<string, unknown>, durationSeconds: number, jobKind?: string): { key: string; label: string } {
+  if (jobKind === "video_extension" || jobKind === "video_editing") {
+    return { key: "wan3.0", label: "Wan 3.0" };
+  }
   const fields = ["model", "preferredModel", "videoModel", "route", "shotModel"];
   for (const field of fields) {
     const raw = input[field];
@@ -207,12 +210,19 @@ export function quoteForJob(jobKind: string, input: Record<string, unknown> = {}
   const rule = getPricingRule(jobKind);
   const quantity = Math.max(1, Math.min(50, Math.floor(readNumber(input, rule.quantityFields) || 1)));
   let durationSeconds = readNumber(input, rule.durationFields);
-  const isVideoJob = jobKind.includes("video") || jobKind === "storyboard";
+
+  if (jobKind === "video_extension" && input.targetDuration && input.sourceDuration) {
+    // 视频延长按新延长的差值秒数计费，公平透明
+    const diff = Number(input.targetDuration) - Number(input.sourceDuration);
+    if (diff > 0) durationSeconds = diff;
+  }
+
+  const isVideoJob = jobKind.includes("video") || jobKind === "storyboard" || jobKind.includes("narrator");
   if (isVideoJob && durationSeconds <= 0) {
     durationSeconds = 5; // 视频生成未指定时长时，按标准 5 秒计算
   }
 
-  const { key: modelKey, label: modelLabel } = readModelKey(input, durationSeconds);
+  const { key: modelKey, label: modelLabel } = readModelKey(input, durationSeconds, jobKind);
   const ratePerSecond = getModelRate(rule, modelKey);
   const resolution = readResolution(input, rule.resolutionFields);
   const { multiplier, label } = multiplierFor(rule, resolution);

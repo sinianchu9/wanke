@@ -32,6 +32,7 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
   const [resolution, setResolution] = useState<"480P" | "720P" | "1080P">("1080P");
   const [duration, setDuration] = useState(5);
   const [aspectRatio, setAspectRatio] = useState("16:9");
+  const [preferredModel, setPreferredModel] = useState<"auto" | "wan3.0" | "happyhorse-1.1">("auto");
   const [versionCount, setVersionCount] = useState(1);
   const [firstAssetId, setFirstAssetId] = useState("");
   const [lastAssetId, setLastAssetId] = useState("");
@@ -208,8 +209,21 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
     } finally { setEnhancing(false); }
   }
 
-  function buildRequestInput() {
+  const actualModel = useMemo(() => {
+    if (preferredModel === "wan3.0") return "wan3.0";
+    if (preferredModel === "happyhorse-1.1") {
+      if (effectiveDuration > 15 || effectiveDuration < 3 || resolution === "480P" || mode === "first_last_frame" || hasVideoReference) {
+        return "wan3.0";
+      }
+      return "happyhorse-1.1";
+    }
     const shouldUseWan = effectiveDuration > 15 || effectiveDuration < 3 || resolution === "480P" || mode === "first_last_frame" || hasVideoReference;
+    return shouldUseWan ? "wan3.0" : "happyhorse-1.1";
+  }, [preferredModel, effectiveDuration, resolution, mode, hasVideoReference]);
+
+  const estimatedCredits = (actualModel === "wan3.0" ? effectiveDuration * 2 : effectiveDuration * 1) * versionCount;
+
+  function buildRequestInput() {
     return {
       title,
       prompt: prompt.trim(),
@@ -219,7 +233,7 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
       aspectRatio,
       duration: effectiveDuration,
       resolution,
-      model: shouldUseWan ? "wan3.0" : "happyhorse-1.1",
+      model: actualModel,
       n: 1,
       _subjectCardIds: mode === "reference_to_video" ? subjectIds : [],
     };
@@ -335,18 +349,33 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
 
         {localError && <div className="error-banner">{localError}</div>}
 
-        <details className="advanced">
-          <summary>画面设置</summary>
+        <details className="advanced" open>
+          <summary>画面与模型设置</summary>
           <div className="advanced-body">
             <div className="form-grid four">
               {(mode === "text_to_video" || mode === "reference_to_video") && <SimpleSelect label="画幅" value={aspectRatio} onChange={setAspectRatio} options={["16:9", "9:16", "1:1", "4:3", "3:4"]} />}
               <SimpleSelect label="时长" value={String(effectiveDuration)} onChange={value => setDuration(Number(value))} options={durationOptions} suffix="秒" />
+              <SimpleSelect label="偏好模型" value={preferredModel} onChange={value => setPreferredModel(value as any)} options={[
+                ["auto", "智能推荐（协同调度）"],
+                ["wan3.0", "Wan 3.0（原生 2–30s）"],
+                ["happyhorse-1.1", "HappyHorse 1.1（运镜质感/≤15s）"],
+              ]} />
               <SimpleSelect label="清晰度" value={resolution} onChange={value => setResolution(value as "480P" | "720P" | "1080P")} options={["1080P", "720P", "480P"]} />
               <div className="field"><span className="field-label">任务名称<small>可不填</small></span><input value={title} onChange={event => setTitle(event.target.value)} placeholder="例如：新品广告主镜头" /></div>
             </div>
-            {(effectiveDuration > 15 || effectiveDuration < 3 || resolution === "480P") && <div className="muted mini" style={{marginTop: 6, color: "var(--accent, #6366f1)"}}>
-              ✨ 当前设置时长（{effectiveDuration}秒）或 480P 将自动启用阿里 Wan 3.0 超长多模态模型进行原生渲染（最长支持 30 秒）。
-            </div>}
+            {preferredModel === "happyhorse-1.1" && effectiveDuration > 15 ? (
+              <div className="muted mini" style={{marginTop: 6, color: "#d97706"}}>
+                ⚠️ HappyHorse 1.1 单镜头生成最长支持 15 秒；当前所选时长为 {effectiveDuration} 秒，将自动切换为 Wan 3.0 超长大模型原生直出。若想体验 HappyHorse 质感运镜，请将时长调至 15 秒及以内。
+              </div>
+            ) : actualModel === "wan3.0" ? (
+              <div className="muted mini" style={{marginTop: 6, color: "var(--accent, #6366f1)"}}>
+                ✨ 当前采用阿里 Wan 3.0 视频大模型原生直出（时长 {effectiveDuration} 秒，费率按 2 积分/秒计）。
+              </div>
+            ) : (
+              <div className="muted mini" style={{marginTop: 6, color: "var(--accent, #6366f1)"}}>
+                ✨ 当前采用 HappyHorse 1.1 质感模型直出（时长 {effectiveDuration} 秒，费率按 1 积分/秒计）。
+              </div>
+            )}
           </div>
         </details>
 
@@ -372,10 +401,10 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
 
         <div className="stage-run">
           <button className="primary" disabled={submitting || !ready} onClick={run}>
-            <Send size={16} />{submitting ? "正在提交…" : localUploading ? "正在准备图片…" : versionCount > 1 ? `生成 ${versionCount} 个版本` : "开始生成"}
+            <Send size={16} />{submitting ? "正在提交…" : localUploading ? "正在准备图片…" : versionCount > 1 ? `生成 ${versionCount} 个版本（预计 ${estimatedCredits} 积分）` : `开始生成（预计 ${estimatedCredits} 积分）`}
           </button>
           {!ready && <span className="muted mini">填写描述并补齐当前模式需要的素材后即可生成</span>}
-          {ready && <span className="muted mini">当前：{recipe.label} · {subjectIds.length ? `${subjectIds.length} 个主体 · ` : ""}{versionCount > 1 ? `${versionCount} 个独立版本 · ` : ""}创作服务由平台自动安排</span>}
+          {ready && <span className="muted mini">当前：{recipe.label} · 模型：{actualModel === "wan3.0" ? "Wan 3.0" : "HappyHorse 1.1"} · {versionCount > 1 ? `${versionCount} 个独立版本 · ` : ""}预计消耗 {estimatedCredits} 积分</span>}
         </div>
       </div>
     </section>
@@ -460,11 +489,14 @@ function discardLocalImage(ref: string) {
   fetch(`/api/video-inputs?ref=${encodeURIComponent(ref)}`, { method: "DELETE" }).catch(() => undefined);
 }
 
-function SimpleSelect({ label, value, onChange, options, suffix = "" }: { label: string; value: string; onChange: (value: string) => void; options: string[]; suffix?: string }) {
+function SimpleSelect({ label, value, onChange, options, suffix = "" }: { label: string; value: string; onChange: (value: string) => void; options: (string | [string, string])[]; suffix?: string }) {
   return <div className="field">
     <span className="field-label">{label}</span>
     <select value={value} onChange={event => onChange(event.target.value)}>
-      {options.map(option => <option key={option} value={option}>{option}{suffix}</option>)}
+      {options.map(option => {
+        const [optVal, optLabel] = Array.isArray(option) ? option : [option, `${option}${suffix}`];
+        return <option key={optVal} value={optVal}>{optLabel}</option>;
+      })}
     </select>
   </div>;
 }

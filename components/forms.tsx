@@ -35,18 +35,38 @@ function GenerateForm({ assets, onSubmit, submitting }: Props) {
   const initial = { title: "", prompt: "", jobType: "text_to_video", aspectRatio: "16:9", duration: 5, resolution: "1080P", model: "wan3.0", n: 1, medias: [] as { type: string; url: string; mediaId?: string }[], expertText: "" };
   const [v, setV] = useDraft("video_generation", initial);
   const need = v.jobType === "image_to_video" ? "1 张图片" : v.jobType === "first_last_frame" ? "首帧 + 尾帧 2 张图片" : v.jobType === "reference_to_video" ? "1–9 个参考素材" : "无需素材";
-  return <FormFrame title="AI 视频生成" subtitle="把四种基础生成模式统一在一个工作台；支持阿里 Wan 3.0（最高 30 秒）与 HappyHorse 1.1（最高 15 秒）。一次可生成 1–4 个版本直接对比。" kind="video_generation" value={v} setValue={setV} onRun={() => onSubmit("video_generation", withExpert(v), v.title)} submitting={submitting}>
+  const isHappyHorse = String(v.model).includes("happyhorse");
+  const isOver15 = v.duration > 15;
+  const rate = isHappyHorse ? 1 : 2;
+  const unitCredits = v.duration * rate;
+  const totalCredits = unitCredits * v.n;
+
+  return <FormFrame title="AI 视频生成" subtitle="把四种基础生成模式统一在一个工作台；支持阿里 Wan 3.0（最高 30 秒）与 HappyHorse 1.1（最高 15 秒）。一次可生成 1–4 个版本直接对比。" kind="video_generation" value={v} setValue={setV} onRun={() => onSubmit("video_generation", withExpert(v), v.title)} submitting={submitting} creditEstimate={`每版本 ${unitCredits} 积分 · 共 ${v.n} 个版本 · 预计消耗 ${totalCredits} 积分`}>
     <Field label="任务名称"><input value={v.title} onChange={e => setV({ ...v, title: e.target.value })} placeholder="例如：产品主视觉 · 夜景版" /></Field>
     <Field label="生成模式"><Segment value={v.jobType} onChange={jobType => setV({ ...v, jobType })} options={[["text_to_video","文生视频"],["image_to_video","图生视频"],["first_last_frame","首尾帧"],["reference_to_video","多参考"]]} /></Field>
     <Field label="提示词" hint="描述主体、动作、镜头、环境、光线与节奏；不要把参数塞进提示词。"><textarea className="big-text" value={v.prompt} onChange={e => setV({ ...v, prompt: e.target.value })} placeholder="一位穿黑色风衣的男子在雨夜霓虹街道缓慢走向镜头，低机位跟拍，浅景深，电影感光线……" /></Field>
     {v.jobType !== "text_to_video" && <ReferenceEditor value={v.medias} onChange={medias => setV({ ...v, medias })} assets={assets} hint={need} imageOnly={v.jobType !== "reference_to_video"} />}
     <div className="form-grid four">
+      <SelectField label="偏好模型" value={v.model} onChange={model => setV({ ...v, model })} options={[["wan3.0","Wan 3.0 (2–30秒)"],["happyhorse-1.1","HappyHorse 1.1 (≤15秒)"],["wan2.7","Wan 2.7 (快速)"],["happyhorse-1.0","HappyHorse 1.0 (基础)"]]} />
       <SelectField label="画幅" value={v.aspectRatio} onChange={aspectRatio => setV({...v,aspectRatio})} options={["16:9","9:16","4:3","3:4","1:1"]} />
       <SelectField label="时长" value={String(v.duration)} onChange={duration => setV({...v,duration:Number(duration)})} options={["2","3","4","5","6","8","10","12","15","20","25","30"]} suffix="秒" />
-      <SelectField label="清晰度" value={v.resolution} onChange={resolution => setV({...v,resolution})} options={["480P","720P","1080P"]} />
-      <SelectField label="版本数" value={String(v.n)} onChange={n => setV({...v,n:Number(n)})} options={["1","2","3","4"]} suffix="个" />
+      <SelectField label="清晰度" value={v.resolution} onChange={resolution => setV({...v,resolution})} options={["1080P","720P","480P"]} />
     </div>
-    <details className="advanced"><summary><ChevronDown size={16}/>高级参数</summary><div className="advanced-body"><SelectField label="模型" value={v.model} onChange={model=>setV({...v,model})} options={[["wan3.0","Wan 3.0 (2–30秒/画质优先)"],["happyhorse-1.1","HappyHorse 1.1 (3–15秒/运镜质感)"],["wan2.7","Wan 2.7 (快速)"],["happyhorse-1.0","HappyHorse 1.0 (基础)"]]}/><Expert value={v.expertText} onChange={expertText=>setV({...v,expertText})} example='{"scene":"general"}' /></div></details>
+    <div className="form-grid two">
+      <SelectField label="版本数" value={String(v.n)} onChange={n => setV({...v,n:Number(n)})} options={["1","2","3","4"]} suffix="个" />
+      <div className="field">
+        <span className="field-label">预估费用说明</span>
+        <div className="muted mini" style={{ padding: "8px 12px", background: "var(--surface-sunken, rgba(0,0,0,0.03))", borderRadius: "6px", height: "38px", display: "flex", alignItems: "center" }}>
+          {isHappyHorse ? "HappyHorse 费率：1 积分/秒" : "Wan 3.0 费率：2 积分/秒"} · 当前单版本约 {unitCredits} 积分
+        </div>
+      </div>
+    </div>
+    {isHappyHorse && isOver15 && (
+      <div className="error-banner warning" style={{ marginTop: 8 }}>
+        <span>⚠️ HappyHorse 1.1 单镜头生成最长支持 15 秒；当前所选时长（{v.duration} 秒）超过上限，将自动由阿里 Wan 3.0 大模型原生直出，或请将时长设为 15 秒及以内。</span>
+      </div>
+    )}
+    <details className="advanced"><summary><ChevronDown size={16}/>专家参数</summary><div className="advanced-body"><Expert value={v.expertText} onChange={expertText=>setV({...v,expertText})} example='{"scene":"general"}' /></div></details>
   </FormFrame>;
 }
 
@@ -197,8 +217,8 @@ function StoryboardForm({assets,onSubmit,submitting}:Props){
   </FormFrame>;
 }
 
-function FormFrame({title,subtitle,kind,value,setValue,onRun,submitting,children}:any){
-  return <div className="creator-layout"><div className="creator-card"><div className="section-head"><div><div className="eyebrow">CREATE</div><h2>{title}</h2><p>{subtitle}</p></div><Recipe kind={kind} value={value} setValue={setValue}/></div><div className="form-stack">{children}</div><div className="runbar"><span className="muted mini">提交后自动进入任务中心；关闭页面也不会丢失本地记录。</span><button className="primary" disabled={submitting} onClick={async()=>{try{await onRun()}catch(e){if(!(e instanceof Error&&e.message.includes("任务"))) alert(e instanceof Error?e.message:String(e))}}}><Send size={17}/>{submitting?"提交中…":"开始生成"}</button></div></div><aside className="tips-card"><CircleHelp size={18}/><h3>工作流建议</h3><p>先用低成本参数验证构图和节奏，再升到更高分辨率。需要多次试验时，把稳定参数保存成“配方”。</p><p>生成结果不满意不要覆盖原任务；任务中心保留父子重试链，方便回看哪些参数有效。</p></aside></div>;
+function FormFrame({title,subtitle,kind,value,setValue,onRun,submitting,creditEstimate,children}:any){
+  return <div className="creator-layout"><div className="creator-card"><div className="section-head"><div><div className="eyebrow">CREATE</div><h2>{title}</h2><p>{subtitle}</p></div><Recipe kind={kind} value={value} setValue={setValue}/></div><div className="form-stack">{children}</div><div className="runbar"><span className="muted mini">{creditEstimate ? `${creditEstimate}；提交后扣除，生成失败自动退还。` : "提交后自动进入任务中心；关闭页面也不会丢失本地记录。"}</span><button className="primary" disabled={submitting} onClick={async()=>{try{await onRun()}catch(e){if(!(e instanceof Error&&e.message.includes("任务"))) alert(e instanceof Error?e.message:String(e))}}}><Send size={17}/>{submitting?"提交中…":"开始生成"}</button></div></div><aside className="tips-card"><CircleHelp size={18}/><h3>工作流建议</h3><p>先用低成本参数验证构图和节奏，再升到更高分辨率。需要多次试验时，把稳定参数保存成“配方”。</p><p>生成结果不满意不要覆盖原任务；任务中心保留父子重试链，方便回看哪些参数有效。</p></aside></div>;
 }
 
 function Field({label,hint,children}:any){return <label className="field"><span className="field-label">{label}{hint&&<small>{hint}</small>}</span>{children}</label>}

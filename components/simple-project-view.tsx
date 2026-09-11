@@ -160,7 +160,23 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
               <span className={`kind-pill ${state.status}`}>{state.label}</span>
             </div>
 
-            {state.chosenOutput && <div className="result-grid single" style={{marginTop:12}}><article className="result-card"><video src={mediaUrl(state.chosenOutput)} controls preload="metadata"/><div className="result-info"><div><strong>当前版本</strong><span>{state.detail}</span></div>{state.status === "done" && !state.needsChoice && <Check size={16}/>}</div></article></div>}
+            {state.chosenOutput && (() => {
+              const { modelLabel, modelClass, resolution } = resolveJobModelAndRes(state.chosen);
+              return (
+                <div className="result-grid single" style={{marginTop:12}}>
+                  <article className="result-card">
+                    <div className="result-media-wrap">
+                      <video src={mediaUrl(state.chosenOutput)} controls preload="metadata"/>
+                      <div className="video-badge-overlay">
+                        <span className={`res-pill res-${resolution.toLowerCase()}`}>{resolution}</span>
+                        <span className={`model-pill model-${modelClass}`}>{modelLabel}</span>
+                      </div>
+                    </div>
+                    <div className="result-info"><div><strong>当前版本</strong><span>{state.detail}</span></div>{state.status === "done" && !state.needsChoice && <Check size={16}/>}</div>
+                  </article>
+                </div>
+              );
+            })()}
 
             {state.successful.length > 1 && state.status !== "waiting" && <div style={{marginTop:12}}>
               <div className="subhead"><h3>{state.needsChoice ? "选择你喜欢的版本" : "可随时更换版本"}</h3><span>{state.successful.length} 个可用候选</span></div>
@@ -168,8 +184,15 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
                 {state.successful.map((job, candidateIndex) => {
                   const output = firstVideoOutput(job.outputs)!;
                   const selected = shot.selectedJobId === job.id;
+                  const { modelLabel, modelClass, resolution } = resolveJobModelAndRes(job);
                   return <article className="result-card" key={job.id}>
-                    <video src={mediaUrl(output)} controls preload="metadata"/>
+                    <div className="result-media-wrap">
+                      <video src={mediaUrl(output)} controls preload="metadata"/>
+                      <div className="video-badge-overlay">
+                        <span className={`res-pill res-${resolution.toLowerCase()}`}>{resolution}</span>
+                        <span className={`model-pill model-${modelClass}`}>{modelLabel}</span>
+                      </div>
+                    </div>
                     <div className="result-info">
                       <div><strong>版本 {candidateIndex + 1}</strong><span>{selected ? "当前已采用" : "预览后可以切换"}</span></div>
                       <button className={selected ? "secondary" : "primary"} disabled={actionLocked || selected} onClick={() => chooseCandidate(shot.id, job.id)}>{selected ? <><Check size={14}/>已选择</> : "选这个"}</button>
@@ -341,4 +364,14 @@ function CompactShotProgress({ job, label, detail }: { job: StoredJob; label: st
       </div>
     </div>
   );
+}
+
+function resolveJobModelAndRes(job: StoredJob | null | undefined) {
+  const req = (job?.request || {}) as Record<string, any>;
+  const rawModel = String(req.model || req.preferredModel || job?.details?.model || "wan3.0");
+  const isHappyHorse = rawModel.toLowerCase().includes("happyhorse");
+  const modelLabel = isHappyHorse ? "HappyHorse 1.1" : "Wan 3.0";
+  const modelClass = isHappyHorse ? "happyhorse" : "wan";
+  const resolution = String(req.resolution || "1080P").toUpperCase();
+  return { rawModel, modelLabel, modelClass, resolution };
 }
