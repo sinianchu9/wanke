@@ -423,6 +423,10 @@ function ResultCard({ output, job, index, onArchive, onSaveWork, busy }: { outpu
   if (job?.kind === "video_extension") modeLabel = "原生延长";
   else if (job?.kind === "video_editing") modeLabel = "指令编辑";
   else if (job?.kind === "storyboard") modeLabel = "故事板";
+  else if (req._quickCreation?.type === "person_short") modeLabel = "人物短片";
+  else if (req._quickCreation?.type === "product_ad") modeLabel = "产品广告";
+  else if (req._quickCreation?.type === "text_video") modeLabel = "文字生视频";
+  else if (req._quickCreation?.type === "image_video") modeLabel = "图片动起来";
   else if (req.jobType === "image_to_video") modeLabel = "图生视频";
   else if (req.jobType === "reference_to_video") modeLabel = "多参考生视频";
   else if (req.jobType === "first_last_frame") modeLabel = "首尾帧";

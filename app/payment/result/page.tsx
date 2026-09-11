@@ -24,6 +24,5 @@ export default async function PaymentResultPage({ searchParams }: { searchParams
   const params = await searchParams;
   const orderNo = (first(params.orderNo) || first(params.out_trade_no)).trim();
   const user = await getPageUser();
-  if (!user) redirect(`/login?next=${encodeURIComponent(`/payment/result?orderNo=${encodeURIComponent(orderNo)}`)}`);
-  return <PaymentResult orderNo={orderNo} />;
+  return <PaymentResult orderNo={orderNo} isLoggedIn={Boolean(user)} />;
 }

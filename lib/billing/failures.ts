@@ -100,31 +100,43 @@ export function classifyFailure(errorText: string | null | undefined, stage: Fai
   if (LOCAL_ERROR_CODES.some(code => message.includes(code))) return "platform";
   if (stage === "submit" && /InvalidParameter|BadRequest|input|prompt|image|format|unsupported/i.test(message)) return "user_input";
   if (/Throttling|InternalError|ServiceUnavailable|GatewayTimeout|socket hang up|ECONNRESET|ETIMEDOUT|fetch failed|\b5\d{2}\b/.test(message)) return "provider";
-  if (/DataInspection|risk|审核|违规|sensitive/i.test(message)) return "content";
+  if (/DataInspection|risk|审核|违规|sensitive|portrait|face|肖像|肖像权|公众人物|celebrity/i.test(message)) return "content";
   return "unknown";
 }
 
 export function refundPolicyFor(failureClass: FailureClass): RefundPolicy {
-  return getFailureRule(failureClass)?.refundPolicy ?? "manual_review";
+  // 商业退款原则：除 user_input 属于未发往上游外，其余失败状态均优先自动退回额度
+  if (failureClass === "content" || failureClass === "unknown" || failureClass === "provider" || failureClass === "platform") {
+    return getFailureRule(failureClass)?.refundPolicy ?? "auto_refund";
+  }
+  return getFailureRule(failureClass)?.refundPolicy ?? "auto_refund";
 }
 
 /**
  * Decide the credit outcome of a terminal failure.
  * `user_input` never consumed credits in the first place (rejected before submit),
  * so it voids the reservation instead of refunding a real charge.
+ * All other failures (content moderation / portrait rights, upstream errors, unknown)
+ * are auto-refunded to protect the user's credits.
  */
 export function resolveFailureChargeAction(failureClass: FailureClass): "void" | "refund" | "hold" {
   if (failureClass === "user_input") return "void";
   const policy = refundPolicyFor(failureClass);
-  if (policy === "auto_refund") return "refund";
   if (policy === "no_refund") return "hold";
-  return "hold";
+  return "refund";
 }
 
 export function userMessageFor(failureClass: FailureClass): string {
-  return getFailureRule(failureClass)?.userMessage || "本次创作没有完成，请稍后重试。";
+  if (failureClass === "content") {
+    return "本次内容未通过服务安全审核（如人物肖像权或敏感内容），无法生成视频，创作额度已全额退回。请更换素材或调整描述后重试。";
+  }
+  if (failureClass === "unknown") {
+    return "本次创作未能完成，创作额度已全额退回，请稍后重试。";
+  }
+  return getFailureRule(failureClass)?.userMessage || "本次创作没有完成，创作额度已退回，请稍后重试。";
 }
 
 export function labelFor(failureClass: FailureClass): string {
   return getFailureRule(failureClass)?.label || "状态确认中";
 }
+

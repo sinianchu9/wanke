@@ -1,15 +1,19 @@
 import type { Metadata } from "next";
+import { BaiduAnalytics } from "@/components/baidu-analytics";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Wanke · AI 视频生产平台",
-  description: "面向创作者与小团队的商业级 AI 视频 SaaS：生成、复刻、口播、故事板与多语言翻译，一站完成。",
+  title: "好秀，AI视频一键秀出来",
+  description: "好秀 · 商业级 AI 视频创作平台。好秀，AI视频一键秀出来！把创意变成成片，一个工作台完成全部 AI 视频生产。",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <BaiduAnalytics />
+        {children}
+      </body>
     </html>
   );
 }

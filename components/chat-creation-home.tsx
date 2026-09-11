@@ -32,6 +32,8 @@ type QuickCreateResult = {
   failed?: number;
   providerMode?: ProviderMode;
 };
+type ModelOption = "auto" | "wan3.0" | "happyhorse-1.1";
+
 type DraftState = {
   restored: boolean;
   type: CreationType;
@@ -39,6 +41,7 @@ type DraftState = {
   platform: Platform;
   duration: number;
   providerMode: ProviderMode;
+  preferredModel: ModelOption;
   subjectId: string;
   imageAssetId: string;
   referenceUrl: string;
@@ -73,18 +76,18 @@ const creationTypes: Array<{ id: CreationType; label: string; hint: string; icon
 
 const promptExamples: Record<CreationType, string> = {
   text_video: "例如：东京雨夜，一辆黑色跑车穿过霓虹街道，低机位跟拍，电影感光影，镜头自然推进。",
-  product_ad: "例如：为这款智能手环做一条 10 秒竖屏广告，突出循环震动提醒，画面简洁、有科技感。",
+  product_ad: "例如：为这款智能手环做一条广告，突出循环震动提醒，画面简洁、有科技感。",
   person_short: "例如：让这个女孩走进咖啡店，在门口回头看镜头，动作自然，镜头轻微跟随。",
   image_video: "例如：主体保持不变，加入轻微风吹效果，镜头缓慢推近，整体自然真实。",
 };
 
 const toolShortcuts = [
-  { id: "remake" as const, label: "高级复刻" },
-  { id: "clone" as const, label: "快速复刻" },
-  { id: "avatar" as const, label: "数字人口播" },
-  { id: "voice" as const, label: "旁白成片" },
-  { id: "storyboard" as const, label: "故事板" },
-  { id: "translation" as const, label: "视频翻译" },
+  { id: "remake" as const, label: "高级复刻", desc: "拆解脚本与独立渲染" },
+  { id: "clone" as const, label: "快速复刻", desc: "同结构替换人像与产品" },
+  { id: "avatar" as const, label: "数字人口播", desc: "真人驱动与讲解成片" },
+  { id: "voice" as const, label: "旁白成片", desc: "素材自动拼接与解说" },
+  { id: "storyboard" as const, label: "故事板", desc: "小说长文拆镜与合成" },
+  { id: "translation" as const, label: "视频翻译", desc: "语音克隆翻译与字幕" },
 ];
 
 export default function ChatCreationHome({
@@ -108,6 +111,7 @@ export default function ChatCreationHome({
   const [prompt, setPrompt] = useState(draftSeed.prompt);
   const [platform, setPlatform] = useState<Platform>(draftSeed.platform);
   const [duration, setDuration] = useState<number>(draftSeed.duration);
+  const [preferredModel, setPreferredModel] = useState<ModelOption>(draftSeed.preferredModel || "auto");
   // Members never pick an upstream service; the platform routes each creation.
   const [providerMode] = useState<ProviderMode>("auto");
   const [subjectId, setSubjectId] = useState(draftSeed.subjectId);
@@ -139,6 +143,7 @@ export default function ChatCreationHome({
       prompt,
       platform,
       duration,
+      preferredModel,
       providerMode,
       subjectId,
       imageAssetId,
@@ -147,11 +152,11 @@ export default function ChatCreationHome({
     };
     const meaningful = Boolean(
       prompt.trim() || subjectId || imageAssetId || referenceUrl.trim() || localInput ||
-      type !== "product_ad" || platform !== "douyin" || duration !== 10 || providerMode !== defaultProviderMode,
+      type !== "text_video" || platform !== "douyin" || duration !== 5 || preferredModel !== "auto" || providerMode !== defaultProviderMode,
     );
     if (meaningful) window.sessionStorage.setItem(CHAT_DRAFT_KEY, JSON.stringify(draft));
     else window.sessionStorage.removeItem(CHAT_DRAFT_KEY);
-  }, [type, prompt, platform, duration, providerMode, subjectId, imageAssetId, referenceUrl, localInput, defaultProviderMode]);
+  }, [type, prompt, platform, duration, preferredModel, providerMode, subjectId, imageAssetId, referenceUrl, localInput, defaultProviderMode]);
 
   useEffect(() => {
     if (subjectId && subjects.length > 0 && !subjects.some(subject => subject.id === subjectId)) setSubjectId("");
@@ -368,6 +373,7 @@ export default function ChatCreationHome({
           goal: prompt.trim(),
           platform,
           totalDuration: duration,
+          preferredModel,
           providerMode,
           subjectId: type === "text_video" || type === "image_video" ? null : (subjectId || null),
           imageAssetId: type === "text_video" ? null : (imageAssetId || null),
@@ -516,7 +522,7 @@ export default function ChatCreationHome({
             <div className={styles.popoverAnchor}>
               <button disabled={interactionLocked} className={styles.optionButton} onClick={() => { const next = !optionsOpen; closePopovers(); setOptionsOpen(next); }}>
                 <Settings2 size={15} />
-                {platform === "landscape" ? "通用横屏 (16:9)" : platform === "youtube" ? "YouTube (16:9)" : platform === "xiaohongshu" ? "小红书 (3:4)" : platform === "square" ? "方形 (1:1)" : "抖音竖屏 (9:16)"} · {duration} 秒
+                {platform === "landscape" ? "通用横屏 (16:9)" : platform === "youtube" ? "YouTube (16:9)" : platform === "xiaohongshu" ? "小红书 (3:4)" : platform === "square" ? "方形 (1:1)" : "抖音竖屏 (9:16)"} · {duration} 秒 · {preferredModel === "wan3.0" ? "Wan 3.0" : preferredModel === "happyhorse-1.1" ? "HappyHorse" : "智能模型"}
                 <ChevronDown size={14} />
               </button>
               {optionsOpen && (
@@ -525,11 +531,31 @@ export default function ChatCreationHome({
                     <div className={styles.popoverTitle}>输出偏好</div>
                     <button className={styles.popoverClose} onClick={closePopovers} aria-label="关闭输出偏好"><X size={15} /></button>
                   </div>
-                  <div className={styles.popoverLabel}>平台 / 画幅</div>
+                  <div className={styles.popoverLabel}>AI 视频模型</div>
+                  <div className={styles.choiceGrid} style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+                    {([
+                      ["auto", "智能推荐", "根据时长协同"],
+                      ["wan3.0", "Wan 3.0", "单镜头2–30s"],
+                      ["happyhorse-1.1", "HappyHorse", "运镜质感/分段"],
+                    ] as const).map(([id, label, hint]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={preferredModel === id ? styles.choiceActive : ""}
+                        onClick={() => setPreferredModel(id as ModelOption)}
+                        style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "44px", padding: "4px" }}
+                      >
+                        <span style={{ fontWeight: 650, fontSize: "12px" }}>{label}</span>
+                        <span style={{ fontSize: "9px", opacity: 0.75 }}>{hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className={styles.popoverLabel} style={{ marginTop: "10px" }}>平台 / 画幅</div>
                   <div className={styles.choiceGrid}>
                     {([
                       ["douyin", "抖音竖屏", "9:16"],
                       ["xiaohongshu", "小红书", "3:4"],
+                      ["square", "方形/朋友圈", "1:1"],
                       ["youtube", "YouTube", "16:9"],
                       ["landscape", "通用横屏", "16:9"],
                     ] as const).map(([id, label, ratio]) => (
@@ -569,7 +595,21 @@ export default function ChatCreationHome({
                       <span>30s</span>
                     </div>
                     <div className={styles.sliderTip}>
-                      {duration > 15 || duration < 3 ? (
+                      {preferredModel === "wan3.0" ? (
+                        <span style={{ color: "#b45309" }}>
+                          ⚡ <strong>Wan 3.0 原生直出</strong>：单镜头完整支持 2–30 秒超长原生生成
+                        </span>
+                      ) : preferredModel === "happyhorse-1.1" ? (
+                        duration <= 15 ? (
+                          <span style={{ color: "#4338ca" }}>
+                            ✨ <strong>HappyHorse 1.1 质感模型</strong>：3–15 秒高动态自然运镜，单镜头直出
+                          </span>
+                        ) : (
+                          <span style={{ color: "#b45309" }}>
+                            🎬 <strong>HappyHorse 1.1 多镜头分段</strong>：总时长超过 15 秒（上限15s），自动智能多镜头切分并淡入淡出转场，确保平稳成片（不能单镜头直出）
+                          </span>
+                        )
+                      ) : duration > 15 || duration < 3 ? (
                         <span style={{ color: "#b45309" }}>
                           ⚡ <strong>Wan 3.0 超长通道</strong>：已启用单次 2–30 秒原生生成大模型
                         </span>
@@ -609,7 +649,7 @@ export default function ChatCreationHome({
         <button onClick={onOpenQuick}><WandSparkles size={16} /><span><b>快速向导</b><small>分步选择素材和目标</small></span></button>
         <button onClick={onOpenAdvanced}><Settings2 size={16} /><span><b>高级创作</b><small>Recipe、模型与批量版本</small></span></button>
         {toolShortcuts.map(item => (
-          <button key={item.id} onClick={() => onOpenTool(item.id)}><Sparkles size={16} /><span><b>{item.label}</b><small>打开专业工作流</small></span></button>
+          <button key={item.id} onClick={() => onOpenTool(item.id)}><Sparkles size={16} /><span><b>{item.label}</b><small>{item.desc}</small></span></button>
         ))}
       </div>
     </div>
@@ -619,10 +659,11 @@ export default function ChatCreationHome({
 function readDraft(defaultProviderMode: ProviderMode): DraftState {
   const fallback: DraftState = {
     restored: false,
-    type: "product_ad",
+    type: "text_video",
     prompt: "",
     platform: "douyin",
     duration: 5,
+    preferredModel: "auto",
     providerMode: defaultProviderMode,
     subjectId: "",
     imageAssetId: "",
@@ -637,6 +678,7 @@ function readDraft(defaultProviderMode: ProviderMode): DraftState {
     const type = value.type === "text_video" || value.type === "product_ad" || value.type === "person_short" || value.type === "image_video" ? value.type : fallback.type;
     const platform = value.platform === "douyin" || value.platform === "xiaohongshu" || value.platform === "youtube" || value.platform === "landscape" || value.platform === "square" ? value.platform : fallback.platform;
     const duration = typeof value.duration === "number" && value.duration >= 2 && value.duration <= 30 ? Math.round(value.duration) : fallback.duration;
+    const preferredModel: ModelOption = value.preferredModel === "wan3.0" || value.preferredModel === "happyhorse-1.1" ? value.preferredModel : "auto";
     const providerMode = value.providerMode === "auto" || value.providerMode === "modelstudio" || value.providerMode === "yike" ? value.providerMode : defaultProviderMode;
     const localInput = value.localInput && typeof value.localInput.ref === "string" && value.localInput.ref.startsWith("wanke-input://")
       ? { ref: value.localInput.ref, name: String(value.localInput.name || "本地图片"), size: Number(value.localInput.size || 0) }
@@ -647,6 +689,7 @@ function readDraft(defaultProviderMode: ProviderMode): DraftState {
       prompt: String(value.prompt || ""),
       platform,
       duration,
+      preferredModel,
       providerMode,
       subjectId: String(value.subjectId || ""),
       imageAssetId: String(value.imageAssetId || ""),

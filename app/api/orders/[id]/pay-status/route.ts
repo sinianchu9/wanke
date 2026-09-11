@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { errorResponse, HttpError, requireUser } from "@/lib/auth";
-import { getOrderForUser } from "@/lib/billing/orders";
+import { errorResponse, getCurrentUser, HttpError } from "@/lib/auth";
+import { getOrder, getOrderForUser } from "@/lib/billing/orders";
 import { syncOrderWithProvider } from "@/lib/billing/payment-sync";
 import { ORDER_STATUS_COPY, PAYMENT_RESULT_COPY } from "@/lib/copy";
 
@@ -22,9 +22,9 @@ const lastQueryAt = new Map<string, number>();
  */
 export async function GET(request: Request, ctx: Ctx) {
   try {
-    const user = requireUser(request);
+    const user = getCurrentUser(request);
     const { id } = await ctx.params;
-    const order = getOrderForUser(id, user.id);
+    const order = user ? getOrderForUser(id, user.id) : getOrder(id);
     if (!order) throw new HttpError(404, "ORDER_NOT_FOUND", "订单不存在");
 
     let note = "";
@@ -38,7 +38,7 @@ export async function GET(request: Request, ctx: Ctx) {
         const sync = await syncOrderWithProvider(order);
         note = sync.note;
         providerAsked = sync.providerAsked;
-        current = getOrderForUser(id, user.id) || order;
+        current = user ? (getOrderForUser(id, user.id) || order) : (getOrder(id) || order);
       }
     }
 
@@ -51,14 +51,15 @@ export async function GET(request: Request, ctx: Ctx) {
       status: current.status,
       statusText: ORDER_STATUS_COPY[current.status]?.label || current.status,
       headline: copy.headline,
-      hint: copy.hint,
+      hint: user ? copy.hint : (current.status === "paid" ? "套餐或创作额度已经发放，登录下单账号即可开始创作。" : copy.hint),
       tone: copy.tone,
       settled: copy.settled,
       providerAsked,
       note,
       paidAt: current.paidAt,
       expiresAt: current.expiresAt,
-      refundable: current.status === "paid" || current.status === "partial_refund",
+      refundable: Boolean(user && (current.status === "paid" || current.status === "partial_refund")),
+      isLoggedIn: Boolean(user),
     });
   } catch (error) {
     const handled = errorResponse(error);

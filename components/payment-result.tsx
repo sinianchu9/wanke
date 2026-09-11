@@ -19,6 +19,7 @@ type PayStatus = {
   note: string;
   paidAt: string | null;
   expiresAt: string;
+  isLoggedIn?: boolean;
 };
 
 const POLL_MS = 3000;
@@ -35,7 +36,7 @@ function yuan(cents: number) {
  * polls `pay-status`, which in turn asks Alipay directly; the copy never claims a
  * payment failed and never invites a second payment for the same order.
  */
-export default function PaymentResult({ orderNo }: { orderNo: string }) {
+export default function PaymentResult({ orderNo, isLoggedIn = true }: { orderNo: string; isLoggedIn?: boolean }) {
   const [data, setData] = useState<PayStatus | null>(null);
   const [error, setError] = useState("");
   const [polls, setPolls] = useState(0);
@@ -117,8 +118,17 @@ export default function PaymentResult({ orderNo }: { orderNo: string }) {
           </div> : null}
 
           <div className="inline-actions">
-            {tone === "success" ? <Link className="primary" href="/studio"><Sparkles size={14} />开始创作</Link> : null}
-            <Link className={tone === "success" ? "secondary" : "primary"} href="/account"><Receipt size={14} />查看我的订单</Link>
+            {(data?.isLoggedIn ?? isLoggedIn) ? (
+              <>
+                {tone === "success" ? <Link className="primary" href="/studio"><Sparkles size={14} />开始创作</Link> : null}
+                <Link className={tone === "success" ? "secondary" : "primary"} href="/account"><Receipt size={14} />查看我的订单</Link>
+              </>
+            ) : (
+              <>
+                <Link className="primary" href={`/login?next=${encodeURIComponent(`/payment/result?orderNo=${encodeURIComponent(orderNo)}`)}`}><Sparkles size={14} />登录下单账号查看权益</Link>
+                <Link className="secondary" href="/studio">进入好秀创作中心</Link>
+              </>
+            )}
             {!data.settled ? <button className="secondary" onClick={() => { void fetchStatus(); }}>刷新结果</button> : null}
           </div>
         </>}

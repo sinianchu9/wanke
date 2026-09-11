@@ -4,7 +4,7 @@ import { videoExtensionSchema } from "@/lib/video/extension";
 import { videoEditingSchema } from "@/lib/video/editing";
 
 const ratio = z.enum(["16:9", "9:16", "4:3", "3:4", "1:1"]);
-const standardRatio = z.enum(["16:9", "9:16", "4:3", "3:4"]);
+const standardRatio = z.enum(["16:9", "9:16", "4:3", "3:4", "1:1"]);
 const resolution = z.enum(["480P", "720P", "1080P"]);
 
 function isKnownLandingPageUrl(value: string) {
@@ -136,7 +136,7 @@ const schemas = {
     userMaterialIds: idList,
     avatarPortrait: z.string().url().optional().or(z.literal("")),
     avatarVoice: z.string().optional().default(""),
-    resolution: resolution.default("720P"),
+    resolution: resolution.default("1080P"),
     withSubtitles: z.boolean().default(true),
     title: z.string().optional(),
     expert,
@@ -151,7 +151,7 @@ const schemas = {
     avatarVoice: z.string().optional().default(""),
     voiceDuration: z.coerce.number().int().min(1).max(3600).default(60),
     aspectRatio: standardRatio.default("9:16"),
-    resolution: resolution.default("720P"),
+    resolution: resolution.default("1080P"),
     outputLanguages: z.array(z.enum(["CN", "EN", "YUE"])).min(1).default(["CN"]),
     withSubtitles: z.boolean().default(true),
     title: z.string().optional(),
@@ -168,7 +168,7 @@ const schemas = {
     narrationVoiceId: z.string().default("sys_ElegantProperMiddleAgedWoman"),
     voiceDuration: z.coerce.number().int().min(1).max(3600).default(60),
     aspectRatio: standardRatio.default("16:9"),
-    resolution: resolution.default("720P"),
+    resolution: resolution.default("1080P"),
     outputLanguages: z.array(z.enum(["CN", "EN", "YUE"])).min(1).default(["CN"]),
     withSubtitles: z.boolean().default(true),
     targetAspectRatio: z.enum(["9:16", "3:4"]).optional(),
@@ -199,7 +199,7 @@ const schemas = {
     needCaption: z.boolean().default(true),
     skipFailureShot: z.boolean().default(true),
     audioEnable: z.boolean().default(true),
-    videoModel: z.string().default("wan2.6-r2v-flash"),
+    videoModel: z.string().default("wan3.0-video"),
     expert,
   }),
 } satisfies Record<JobKind, any>;

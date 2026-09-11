@@ -104,7 +104,7 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
   const medias = buildMedias();
   const hasVideoReference = mode === "reference_to_video" && medias.some((media: any) => media?.type === "video");
   const tooManyReferences = mode === "reference_to_video" && medias.length > 5;
-  const durationOptions = ["3", "5", "10", "15", "20", "30"];
+  const durationOptions = ["2", "3", "4", "5", "6", "8", "10", "12", "15", "20", "25", "30"];
   const effectiveDuration = duration;
   const ready = Boolean(prompt.trim()) && !localUploading && !tooManyReferences && (
     mode === "text_to_video" ||
@@ -344,7 +344,7 @@ export default function SimpleVideoGenerator({ assets, subjects, onSubmit, onSub
               <SimpleSelect label="清晰度" value={resolution} onChange={value => setResolution(value as "480P" | "720P" | "1080P")} options={["1080P", "720P", "480P"]} />
               <div className="field"><span className="field-label">任务名称<small>可不填</small></span><input value={title} onChange={event => setTitle(event.target.value)} placeholder="例如：新品广告主镜头" /></div>
             </div>
-            {(effectiveDuration > 15 || resolution === "480P") && <div className="muted mini" style={{marginTop: 6, color: "var(--accent, #6366f1)"}}>
+            {(effectiveDuration > 15 || effectiveDuration < 3 || resolution === "480P") && <div className="muted mini" style={{marginTop: 6, color: "var(--accent, #6366f1)"}}>
               ✨ 当前设置时长（{effectiveDuration}秒）或 480P 将自动启用阿里 Wan 3.0 超长多模态模型进行原生渲染（最长支持 30 秒）。
             </div>}
           </div>

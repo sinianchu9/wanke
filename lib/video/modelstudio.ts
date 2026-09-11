@@ -11,6 +11,7 @@ type VideoInput = {
   aspectRatio: string;
   duration: number;
   resolution: "480P" | "720P" | "1080P";
+  model?: string;
 };
 
 type RouteDecision = {
@@ -28,28 +29,38 @@ export function chooseRoute(input: VideoInput): RouteDecision {
   const hhReady = Boolean(hhConfig.apiKey) && !hhConfig.blockedReason && !isHhBeijing;
   const wanReady = Boolean(wanConfig.apiKey) && !wanConfig.blockedReason;
 
+  const requestedModel = String(input.model || "").toLowerCase();
+  const prefersWan = requestedModel.startsWith("wan");
+  const prefersHh = requestedModel.startsWith("happyhorse");
+
   // Wan 3.0 独占或优先条件判断
   const exceedsHappyHorseDuration = input.duration > 15 || input.duration < 3;
   const requires480P = input.resolution === "480P";
   const isFirstLast = input.jobType === "first_last_frame";
   const hasVideoReference = input.medias.some(media => media.type === "video");
 
-  // 如果 HappyHorse 不可用、或者当前参数超出 HappyHorse 规格（时长>15s或<3s、480P、首尾帧、包含视频参考），只要 Wan 通道就绪则走 Wan 3.0
-  if ((!hhReady || exceedsHappyHorseDuration || requires480P || isFirstLast || hasVideoReference) && wanReady) {
+  // 如果用户明确指定了 Wan 3.0，或当前参数超出 HappyHorse 规格（且用户未显式要求 HappyHorse），只要 Wan 通道就绪则走 Wan 3.0
+  const shouldRouteWan = (prefersWan || (!hhReady && wanReady) || (!prefersHh && (exceedsHappyHorseDuration || requires480P || isFirstLast || hasVideoReference))) && wanReady;
+
+  if (shouldRouteWan && (!prefersHh || !hhReady || requires480P || isFirstLast)) {
     if (input.jobType === "text_to_video") {
-      const reason = exceedsHappyHorseDuration
-        ? `时长为 ${input.duration} 秒，自动使用 Wan 3.0 超长文生视频能力（最长支持 30 秒）`
-        : requires480P
-          ? "清晰度为 480P，自动使用 Wan 3.0 原生文生视频能力"
-          : "Wan 通道已就绪，文生视频使用 Wan 3.0 原生能力";
+      const reason = prefersWan
+        ? "已指定使用 Wan 3.0 视频大模型（支持 2–30 秒原生生成）"
+        : exceedsHappyHorseDuration
+          ? `时长为 ${input.duration} 秒，自动使用 Wan 3.0 超长文生视频能力（最长支持 30 秒）`
+          : requires480P
+            ? "清晰度为 480P，自动使用 Wan 3.0 原生文生视频能力"
+            : "Wan 通道已就绪，文生视频使用 Wan 3.0 原生能力";
       return { model: "wan3.0-video", route: "wan-t2v", reason };
     }
     if (input.jobType === "image_to_video") {
-      const reason = exceedsHappyHorseDuration
-        ? `时长为 ${input.duration} 秒，自动使用 Wan 3.0 超长图生视频能力（最长支持 30 秒）`
-        : requires480P
-          ? "清晰度为 480P，自动使用 Wan 3.0 原生图生视频能力"
-          : "Wan 通道已就绪，单图生视频使用 Wan 3.0 原生能力";
+      const reason = prefersWan
+        ? "已指定使用 Wan 3.0 视频大模型（支持 2–30 秒原生生成）"
+        : exceedsHappyHorseDuration
+          ? `时长为 ${input.duration} 秒，自动使用 Wan 3.0 超长图生视频能力（最长支持 30 秒）`
+          : requires480P
+            ? "清晰度为 480P，自动使用 Wan 3.0 原生图生视频能力"
+            : "Wan 通道已就绪，单图生视频使用 Wan 3.0 原生能力";
       return { model: "wan3.0-video", route: "wan-i2v", reason };
     }
     if (isFirstLast) {
@@ -58,26 +69,28 @@ export function chooseRoute(input: VideoInput): RouteDecision {
     return {
       model: "wan3.0-video",
       route: "wan-r2v",
-      reason: hasVideoReference
-        ? "存在视频参考，自动使用 Wan 3.0 多模态参考能力（输入+输出总时长 ≤30 秒）"
-        : exceedsHappyHorseDuration
-          ? `时长为 ${input.duration} 秒，自动使用 Wan 3.0 超长多参考能力（最长支持 30 秒）`
-          : "Wan 通道已就绪，参考生视频使用 Wan 3.0 多模态能力",
+      reason: prefersWan
+        ? "已指定使用 Wan 3.0 视频大模型"
+        : hasVideoReference
+          ? "存在视频参考，自动使用 Wan 3.0 多模态参考能力（输入+输出总时长 ≤30 秒）"
+          : exceedsHappyHorseDuration
+            ? `时长为 ${input.duration} 秒，自动使用 Wan 3.0 超长多参考能力（最长支持 30 秒）`
+            : "Wan 通道已就绪，参考生视频使用 Wan 3.0 多模态能力",
     };
   }
 
-  // 默认使用 HappyHorse 1.1（适合 3–15 秒，720P/1080P，高动态与一致性）
+  // 默认或指定使用 HappyHorse 1.1（单镜头支持 3–15 秒，720P/1080P，高动态与一致性）
   if (input.jobType === "text_to_video") {
-    return { model: "happyhorse-1.1-t2v", route: "happyhorse-t2v", reason: "文生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动（支持 3–15 秒）" };
+    return { model: "happyhorse-1.1-t2v", route: "happyhorse-t2v", reason: prefersHh ? "已指定使用 HappyHorse 1.1 质感模型（单镜头支持 3–15 秒）" : "文生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动（支持 3–15 秒）" };
   }
   if (input.jobType === "image_to_video") {
-    return { model: "happyhorse-1.1-i2v", route: "happyhorse-i2v", reason: "单图生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动（支持 3–15 秒）" };
+    return { model: "happyhorse-1.1-i2v", route: "happyhorse-i2v", reason: prefersHh ? "已指定使用 HappyHorse 1.1 质感模型（单镜头支持 3–15 秒）" : "单图生视频默认使用 HappyHorse 1.1，优先画面质量与自然运动（支持 3–15 秒）" };
   }
   if (isFirstLast) {
     return { model: "wan3.0-video", route: "wan-i2v", reason: "首尾帧由 Wan 3.0 原生支持" };
   }
   if (input.medias.every(media => media.type === "image")) {
-    return { model: "happyhorse-1.1-r2v", route: "happyhorse-r2v", reason: "纯图片多参考优先 HappyHorse 1.1，强化人物与产品一致性（支持 3–15 秒）" };
+    return { model: "happyhorse-1.1-r2v", route: "happyhorse-r2v", reason: prefersHh ? "已指定使用 HappyHorse 1.1 质感模型，强化人物与产品一致性" : "纯图片多参考优先 HappyHorse 1.1，强化人物与产品一致性（支持 3–15 秒）" };
   }
   return { model: "wan3.0-video", route: "wan-r2v", reason: "存在视频参考，自动使用 Wan 3.0 多模态参考能力" };
 }
@@ -92,7 +105,11 @@ function effectiveDuration(input: VideoInput, decision: RouteDecision) {
   const hasVideoReference = input.medias.some(media => media.type === "video");
   // Wan 3.0 原生支持单次 2-30 秒；有视频参考时总时长 ≤ 30 秒
   if (decision.route === "wan-r2v" && hasVideoReference) return Math.min(input.duration, 30);
-  return input.duration;
+  // HappyHorse 官方单次最大支持 15 秒（3-15s），安全防护 clamp，防止向百炼发起超出规格报错
+  if (decision.model.toLowerCase().includes("happyhorse")) {
+    return Math.max(3, Math.min(input.duration, 15));
+  }
+  return Math.max(2, Math.min(input.duration, 30));
 }
 
 function routedPrompt(input: VideoInput, decision: RouteDecision) {
@@ -285,6 +302,12 @@ function friendlyProviderMessage(codeValue: unknown, messageValue: unknown, stat
   }
   if (haystack.includes("url") && (haystack.includes("invalid") || haystack.includes("download") || haystack.includes("access"))) {
     return withDiagnostics(`参考素材无法被百炼访问。请确认是公网直链，或重新从素材库选择。${message ? ` 原因：${message}` : ""}`);
+  }
+  if (haystack.includes("portrait") || haystack.includes("肖像") || haystack.includes("celebrity") || (haystack.includes("datainspection") && (haystack.includes("face") || haystack.includes("person") || haystack.includes("human")))) {
+    return withDiagnostics("画面或描述中可能包含受保护的人物肖像权或敏感人像信息，生成服务已拦截。本次创作额度已全额退回，请更换无肖像争议的素材或修改描述后重试。");
+  }
+  if (normalizedCode === "datainspectionfailed" || haystack.includes("datainspection") || haystack.includes("sensitive") || haystack.includes("审核") || haystack.includes("违规")) {
+    return withDiagnostics("内容安全审核未通过，画面或描述中可能包含敏感信息。本次创作额度已全额退回，请修改描述或更换素材后重试。");
   }
   if (haystack.includes("invalidparameter") || haystack.includes("invalid parameter")) {
     return withDiagnostics(`素材或画面参数不符合当前模型要求。${message ? ` 原因：${message}` : ""}`);

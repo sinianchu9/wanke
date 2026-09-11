@@ -580,9 +580,9 @@ const DEFAULT_FAILURE_RULES = [
   { failureClass: "user_input", label: "创作要求不符合", userMessage: "本次创作没有开始，未扣除创作额度。请调整素材或描述后重新提交。", policy: "no_refund", sortOrder: 10, match: [] },
   { failureClass: "platform", label: "平台处理异常", userMessage: "本次创作因平台原因没有完成，创作额度已退回。", policy: "auto_refund", sortOrder: 20, match: ["WORKER_", "DATABASE", "STORAGE", "ARCHIVE", "TIMEOUT_LOCAL"] },
   { failureClass: "provider", label: "创作服务异常", userMessage: "创作服务当前繁忙，本次创作额度已退回，请稍后重试。", policy: "auto_refund", sortOrder: 30, match: ["Throttling", "InternalError", "ServiceUnavailable", "500", "502", "503", "504"] },
-  { failureClass: "content", label: "内容无法生成", userMessage: "本次内容无法完成生成，可调整素材或描述后重试。", policy: "manual_review", sortOrder: 40, match: ["DataInspection", "InvalidParameter.Content", "content", "审核"] },
-  { failureClass: "user_cancel", label: "用户取消", userMessage: "已取消本次创作。", policy: "manual_review", sortOrder: 50, match: [] },
-  { failureClass: "unknown", label: "状态确认中", userMessage: "本次创作结果正在确认，如未完成创作额度会自动退回。", policy: "manual_review", sortOrder: 90, match: [] },
+  { failureClass: "content", label: "内容无法生成", userMessage: "本次内容未通过服务安全审核（如人物肖像权或敏感内容），无法生成视频，创作额度已全额退回。请更换素材或调整描述后重试。", policy: "auto_refund", sortOrder: 40, match: ["DataInspection", "InvalidParameter.Content", "content", "审核", "肖像", "肖像权", "portrait", "face"] },
+  { failureClass: "user_cancel", label: "用户取消", userMessage: "已取消本次创作，创作额度已退回。", policy: "auto_refund", sortOrder: 50, match: [] },
+  { failureClass: "unknown", label: "状态确认中", userMessage: "本次创作未能完成，创作额度已全额退回，请稍后重试。", policy: "auto_refund", sortOrder: 90, match: [] },
 ];
 
 function seedCommercialDefaults(db: Database) {
@@ -632,6 +632,14 @@ function seedCommercialDefaults(db: Database) {
       }
     });
     seed();
+  } else {
+    // 自动将现有数据库中的 content / unknown 策略升级为 auto_refund，保证肖像权或生成失败即自动退额度
+    try {
+      db.prepare(`UPDATE failure_rules SET refund_policy='auto_refund', user_message='本次内容未通过服务安全审核（如人物肖像权或敏感内容），无法生成视频，创作额度已全额退回。请更换素材或调整描述后重试。' WHERE failure_class='content' AND refund_policy!='auto_refund'`).run();
+      db.prepare(`UPDATE failure_rules SET refund_policy='auto_refund' WHERE failure_class='unknown' AND refund_policy!='auto_refund'`).run();
+    } catch {
+      // 忽略非关键错误
+    }
   }
 }
 

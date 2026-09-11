@@ -6,7 +6,7 @@ import { Box, Image as ImageIcon, Play, Sparkles, UserRound, WandSparkles } from
 import type { PublicSubjectCard } from "@/components/subject-library";
 import type { StoredAsset } from "@/lib/types";
 
-type CreationType = "product_ad" | "person_short" | "image_video";
+type CreationType = "text_video" | "product_ad" | "person_short" | "image_video";
 type Platform = "douyin" | "xiaohongshu" | "youtube" | "landscape" | "square";
 type LocalInput = { ref: string; name: string; size: number };
 
@@ -23,17 +23,19 @@ type Props = {
 };
 
 const templates: Array<{ id: CreationType; label: string; desc: string; icon: any; demo: string }> = [
-  { id: "product_ad", label: "产品广告", desc: "给一个产品和一个卖点，系统自动拆成广告镜头。", icon: Box, demo: "黑色智能手环，突出循环震动提醒和简洁科技感。" },
-  { id: "person_short", label: "人物短视频", desc: "给一个人物和一句动作要求，系统优先保持人物一致。", icon: UserRound, demo: "让这个女孩走进咖啡店，在门口回头看镜头，轻松自然。" },
-  { id: "image_video", label: "图片变视频", desc: "给一张图，说怎么动，不需要理解生成参数。", icon: ImageIcon, demo: "让画面有轻微风吹效果，镜头慢慢推近，主体不要变形。" },
+  { id: "text_video", label: "文字生视频", desc: "只写描述，无需素材，2–30 秒单次原生直出。", icon: Sparkles, demo: "东京雨夜，一辆黑色跑车穿过霓虹街道，低机位跟拍，电影感光影，镜头自然推进。" },
+  { id: "product_ad", label: "产品广告", desc: "产品 + 卖点，2–30 秒单次原生直出。", icon: Box, demo: "为这款智能手环做一条广告，突出循环震动提醒，画面简洁、有科技感。" },
+  { id: "person_short", label: "人物短片", desc: "人物 + 动作，2–30 秒单次原生直出，优先保持人物一致。", icon: UserRound, demo: "让这个女孩走进咖啡店，在门口回头看镜头，动作自然，镜头轻微跟随。" },
+  { id: "image_video", label: "图片动起来", desc: "图片 + 运动描述，2–30 秒单次原生直出，不改变主体结构。", icon: ImageIcon, demo: "主体保持不变，加入轻微风吹效果，镜头缓慢推近，整体自然真实。" },
 ];
 
 export default function QuickCreationWizard({ assets, subjects, onCreated, onAdvanced, onSettings, onAssetsChanged, generationReady, directAvailable, extendedUploadAvailable }: Props) {
-  const [type, setType] = useState<CreationType>("product_ad");
+  const [type, setType] = useState<CreationType>("text_video");
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
   const [platform, setPlatform] = useState<Platform>("douyin");
   const [duration, setDuration] = useState<number>(5);
+  const [preferredModel, setPreferredModel] = useState<"auto" | "wan3.0" | "happyhorse-1.1">("auto");
   const [subjectId, setSubjectId] = useState("");
   const [imageAssetId, setImageAssetId] = useState("");
   const [referenceUrl, setReferenceUrl] = useState("");
@@ -47,7 +49,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
   const images = useMemo(() => assets.filter(asset => asset.mediaType === "image"), [assets]);
   const selectedTemplate = templates.find(item => item.id === type)!;
   const directReferenceReady = Boolean(localInput || imageAssetId || referenceUrl.trim());
-  const referenceReady = type === "image_video" ? directReferenceReady : Boolean(subjectId) || directReferenceReady;
+  const referenceReady = type === "text_video" ? true : type === "image_video" ? directReferenceReady : Boolean(subjectId) || directReferenceReady;
   const interactionLocked = busy || localUploading;
   const ready = generationReady === true && Boolean(goal.trim()) && referenceReady && !interactionLocked;
   const canChooseComputerImage = directAvailable || extendedUploadAvailable;
@@ -189,10 +191,11 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
           goal: goal.trim(),
           platform,
           totalDuration: duration,
-          subjectId: type === "image_video" ? null : (subjectId || null),
-          imageAssetId: imageAssetId || null,
-          referenceUrl: referenceUrl.trim(),
-          localInputRef: localInput?.ref || "",
+          preferredModel,
+          subjectId: type === "text_video" || type === "image_video" ? null : (subjectId || null),
+          imageAssetId: type === "text_video" ? null : (imageAssetId || null),
+          referenceUrl: type === "text_video" ? "" : referenceUrl.trim(),
+          localInputRef: type === "text_video" ? "" : (localInput?.ref || ""),
         }),
       });
       const body = await response.json();
@@ -234,50 +237,60 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
         <div className="muted mini">{selectedTemplate.desc}</div>
       </div>
 
-      <div className="field" style={{marginTop:16}}>
-        <span className="field-label">2. 主体是什么？<small>{type === "image_video" ? "给一张图片即可" : "可选常用主体，也可本次直接给一张图片"}</small></span>
-
-        {type !== "image_video" && availableSubjects.length > 0 && <div style={{marginBottom:10}}>
-          <select disabled={interactionLocked} value={subjectId} onChange={event => chooseSubject(event.target.value)}>
-            <option value="">— 选择保存过的{type === "product_ad" ? "产品" : "人物"}（可选）—</option>
-            {availableSubjects.map(subject => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
-          </select>
-          <div className="muted mini">保存过的主体适合反复创作；第一次使用不需要先建立主体卡。</div>
-        </div>}
-
-        {!subjectId && <div className="panel" style={{marginTop:8}}>
-          <div className="muted mini"><strong>本次直接使用一张图片</strong></div>
-          <div className="form-grid two" style={{marginTop:8}}>
-            <div className="field">
-              <span className="field-label">从已有图片选择</span>
-              <select disabled={interactionLocked} value={imageAssetId} onChange={event => chooseAsset(event.target.value)}>
-                <option value="">— 可选 —</option>
-                {images.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <span className="field-label">或粘贴图片直链</span>
-              <input disabled={interactionLocked} value={referenceUrl} onChange={event => changeReferenceUrl(event.target.value)} placeholder="https://...jpg / png / webp"/>
-            </div>
+      {type === "text_video" ? (
+        <div className="field" style={{marginTop:16}}>
+          <span className="field-label">2. 素材准备<small>纯文字生成无需素材</small></span>
+          <div className="notice" style={{marginTop:8}}>
+            <Sparkles size={16}/>
+            <span>纯文字生成不依赖任何参考素材，直接在第 3 步用一句话描述画面即可，系统将 2–30 秒单次原生直出。</span>
           </div>
+        </div>
+      ) : (
+        <div className="field" style={{marginTop:16}}>
+          <span className="field-label">2. 主体是什么？<small>{type === "image_video" ? "给一张图片即可" : "可选常用主体，也可本次直接给一张图片"}</small></span>
 
-          {canChooseComputerImage && <div className="field" style={{marginTop:10}}>
-            <span className="field-label">或直接选择电脑里的图片<small>JPG / PNG / WEBP，10MB 内</small></span>
-            <input type="file" accept="image/jpeg,image/png,image/webp" disabled={interactionLocked} onChange={event => { chooseLocal(event.target.files?.[0]); event.currentTarget.value = ""; }}/>
-            {localUploading && <div className="muted mini">正在准备图片…</div>}
-            {localInput && <div className="asset-chips"><button type="button" disabled={interactionLocked} className="selected" onClick={clearLocal}>🖼️ {localInput.name} ×</button></div>}
-            {!directAvailable && extendedUploadAvailable && imageAssetId && <div className="muted mini">电脑图片会自动准备到素材库，可以直接开始创作，以后也能继续复用。</div>}
+          {type !== "image_video" && availableSubjects.length > 0 && <div style={{marginBottom:10}}>
+            <select disabled={interactionLocked} value={subjectId} onChange={event => chooseSubject(event.target.value)}>
+              <option value="">— 选择保存过的{type === "product_ad" ? "产品" : "人物"}（可选）—</option>
+              {availableSubjects.map(subject => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
+            </select>
+            <div className="muted mini">保存过的主体适合反复创作；第一次使用不需要先建立主体卡。</div>
           </div>}
 
-          {!canChooseComputerImage && <div className="muted mini" style={{marginTop:8}}>当前视频服务不能直接准备电脑里的图片；可以从已有图片选择，或粘贴一条公网图片直链。</div>}
-          {!images.length && !canChooseComputerImage && <div className="muted mini">素材库为空也不影响开始，只要粘贴一张公网图片直链即可。</div>}
-        </div>}
-      </div>
+          {!subjectId && <div className="panel" style={{marginTop:8}}>
+            <div className="muted mini"><strong>本次直接使用一张图片</strong></div>
+            <div className="form-grid two" style={{marginTop:8}}>
+              <div className="field">
+                <span className="field-label">从已有图片选择</span>
+                <select disabled={interactionLocked} value={imageAssetId} onChange={event => chooseAsset(event.target.value)}>
+                  <option value="">— 可选 —</option>
+                  {images.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <span className="field-label">或粘贴图片直链</span>
+                <input disabled={interactionLocked} value={referenceUrl} onChange={event => changeReferenceUrl(event.target.value)} placeholder="https://...jpg / png / webp"/>
+              </div>
+            </div>
+
+            {canChooseComputerImage && <div className="field" style={{marginTop:10}}>
+              <span className="field-label">或直接选择电脑里的图片<small>JPG / PNG / WEBP，10MB 内</small></span>
+              <input type="file" accept="image/jpeg,image/png,image/webp" disabled={interactionLocked} onChange={event => { chooseLocal(event.target.files?.[0]); event.currentTarget.value = ""; }}/>
+              {localUploading && <div className="muted mini">正在准备图片…</div>}
+              {localInput && <div className="asset-chips"><button type="button" disabled={interactionLocked} className="selected" onClick={clearLocal}>🖼️ {localInput.name} ×</button></div>}
+              {!directAvailable && extendedUploadAvailable && imageAssetId && <div className="muted mini">电脑图片会自动准备到素材库，可以直接开始创作，以后也能继续复用。</div>}
+            </div>}
+
+            {!canChooseComputerImage && <div className="muted mini" style={{marginTop:8}}>当前视频服务不能直接准备电脑里的图片；可以从已有图片选择，或粘贴一条公网图片直链。</div>}
+            {!images.length && !canChooseComputerImage && <div className="muted mini">素材库为空也不影响开始，只要粘贴一张公网图片直链即可。</div>}
+          </div>}
+        </div>
+      )}
 
       <div className="form-grid two" style={{marginTop:16}}>
         <div className="field">
           <span className="field-label">作品名称<small>可选</small></span>
-          <input disabled={interactionLocked} value={name} onChange={event => setName(event.target.value)} placeholder={type === "product_ad" ? "例如：黑色手环夏季广告" : type === "person_short" ? "例如：咖啡店人物短片" : "例如：产品图动态展示"}/>
+          <input disabled={interactionLocked} value={name} onChange={event => setName(event.target.value)} placeholder={type === "text_video" ? "例如：雨夜霓虹街道微电影" : type === "product_ad" ? "例如：黑色手环夏季广告" : type === "person_short" ? "例如：咖啡店人物短片" : "例如：产品图动态展示"}/>
         </div>
         <div className="field">
           <span className="field-label">3. 你想表达什么？<small>一句话就够</small></span>
@@ -298,32 +311,57 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
           </select>
         </div>
         <div className="field">
-          <span className="field-label" style={{ display: "flex", justifyContent: "space-between" }}>
-            <span>5. 大约多长？</span>
-            <b style={{ color: "#4F46E5" }}>{duration} 秒</b>
-          </span>
-          <input
-            type="range"
-            min={2}
-            max={30}
-            step={1}
-            disabled={interactionLocked}
-            value={duration}
-            onChange={event => setDuration(Number(event.target.value))}
-            style={{ width: "100%", accentColor: "#4F46E5", marginTop: "6px" }}
-          />
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#888", marginTop: "2px" }}>
-            <span>2秒</span>
-            <span>5秒</span>
-            <span>10秒</span>
-            <span>15秒</span>
-            <span>20秒</span>
-            <span>30秒</span>
-          </div>
+          <span className="field-label">5. 偏好模型</span>
+          <select disabled={interactionLocked} value={preferredModel} onChange={event => setPreferredModel(event.target.value as any)}>
+            <option value="auto">智能推荐（按时长智能调度）</option>
+            <option value="wan3.0">Wan 3.0（原生单镜头 2–30 秒直出）</option>
+            <option value="happyhorse-1.1">HappyHorse 1.1（运镜质感 / &gt;15秒多镜头切分）</option>
+          </select>
         </div>
       </div>
 
-      <div className="notice" style={{marginTop:16}}><Sparkles size={16}/><span>{duration > 15 || duration < 3 ? `当前 ${duration} 秒将自动调度 Wan 3.0 超长大模型单次原生生成。` : `当前 ${duration} 秒将智能协同 HappyHorse 1.1 质感模型与 Wan 3.0 大模型。`}</span></div>
+      <div className="field" style={{marginTop:16}}>
+        <span className="field-label" style={{ display: "flex", justifyContent: "space-between" }}>
+          <span>6. 视频时长（滑动调节）</span>
+          <b style={{ color: "#4F46E5" }}>{duration} 秒</b>
+        </span>
+        <input
+          type="range"
+          min={2}
+          max={30}
+          step={1}
+          disabled={interactionLocked}
+          value={duration}
+          onChange={event => setDuration(Number(event.target.value))}
+          style={{ width: "100%", accentColor: "#4F46E5", marginTop: "6px" }}
+        />
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#888", marginTop: "2px" }}>
+          <span>2秒</span>
+          <span>5秒</span>
+          <span>10秒</span>
+          <span>15秒</span>
+          <span>20秒</span>
+          <span>25秒</span>
+          <span>30秒</span>
+        </div>
+      </div>
+
+      <div className="notice" style={{marginTop:16}}>
+        <Sparkles size={16}/>
+        <span>
+          {preferredModel === "wan3.0" ? (
+            `已指定 Wan 3.0 视频大模型：当前 ${duration} 秒将以单镜头原生直出完整超长视频。`
+          ) : preferredModel === "happyhorse-1.1" ? (
+            duration <= 15
+              ? `已指定 HappyHorse 1.1 质感模型：当前 ${duration} 秒将以单镜头高动态自然运镜直出。`
+              : `已指定 HappyHorse 1.1 质感模型：总时长 ${duration} 秒超过模型单次上限 (15s)，将自动规划多镜头智能分段生成与淡入淡出转场衔接（不能单镜头直出）。`
+          ) : (
+            duration > 15 || duration < 3
+              ? `当前 ${duration} 秒将自动调度 Wan 3.0 超长大模型单次原生生成。`
+              : `当前 ${duration} 秒将智能协同 HappyHorse 1.1 质感模型与 Wan 3.0 大模型。`
+          )}
+        </span>
+      </div>
 
       <div className="inline-actions" style={{marginTop:16}}>
         <button className="primary" disabled={!ready} onClick={create}><Play size={15}/>{busy ? "正在建立作品并提交…" : localUploading ? "正在准备图片…" : generationReady === null ? "正在检查服务…" : "开始创作"}</button>
@@ -331,18 +369,19 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
       </div>
       {!referenceReady && <div className="muted mini" style={{marginTop:8}}>先选择一个主体，或直接提供一张图片。</div>}
       {error && <div className="error-banner" style={{marginTop:12}}>{error}</div>}
-      {result && <div className="notice" style={{marginTop:12}}><Sparkles size={16}/><span>已创建「{result.projectName}」：{result.submitted} 个镜头已提交{result.failed ? `，${result.failed} 个提交失败，可以在“我的作品”里直接重试` : ""}。</span></div>}
+      {result && <div className="notice" style={{marginTop:12}}><Sparkles size={16}/><span>已创建「{result.projectName}」：已提交生成{result.failed ? `，${result.failed} 个提交失败，可以在“我的作品”里直接重试` : ""}。</span></div>}
     </section>
 
     <details className="advanced">
       <summary>简单模式替我做了哪些事？</summary>
       <div className="advanced-body">
-        <div className="muted mini"><strong>产品广告：</strong>围绕产品自动规划开场、展示、卖点和收尾，并优先保持产品外观稳定。</div>
-        <div className="muted mini"><strong>人物短视频：</strong>自动规划亮相、动作、互动和收尾，并优先保持人物身份一致。</div>
-        <div className="muted mini"><strong>图片变视频：</strong>以原图为基础规划自然运动，不主动重新设计主体。</div>
+        <div className="muted mini"><strong>文字生视频：</strong>只需一句话画面描述，2–30 秒单次原生直出完整视频。</div>
+        <div className="muted mini"><strong>产品广告：</strong>以产品为核心视觉，清晰展示外观、材质与核心卖点，2–30 秒原生直出。</div>
+        <div className="muted mini"><strong>人物短片：</strong>人物出镜并完成指定动作，优先保持人物身份一致，2–30 秒原生直出。</div>
+        <div className="muted mini"><strong>图片动起来：</strong>以原图为基础规划自然运动，不改变主体结构，2–30 秒原生直出。</div>
+        <div className="muted mini"><strong>单次原生直出：</strong>充分发挥 Wan 3.0 (2–30秒) 与 HappyHorse 1.1 (3–15秒) 模型能力，单次直接出片，不拆分多镜头。</div>
         <div className="muted mini"><strong>主体库不是前置条件：</strong>保存过的主体用于长期复用；第一次做视频可以直接提供一张图片。</div>
         <div className="muted mini"><strong>电脑图片自动适配：</strong>系统会根据当前视频服务选择临时直传或自动上传素材，用户不需要理解底层区别。</div>
-        <div className="muted mini"><strong>不会替你乱选：</strong>如果一个镜头后来有多个好版本，最终成片前会让你明确选择。</div>
       </div>
     </details>
   </div>;

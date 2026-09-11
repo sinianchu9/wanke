@@ -5,8 +5,9 @@ import { HttpError } from "@/lib/auth";
 import { getPlan, planSnapshot, requirePurchasablePlan, type Plan, type PlanSnapshot } from "@/lib/billing/catalog";
 import { grantEntitlementForOrder } from "@/lib/billing/entitlements";
 import { ensurePaymentRecord, markPaymentSuccess } from "@/lib/billing/payments";
-import { alipayAvailable, alipayConfig, buildPaymentUrl, type AlipayChannel } from "@/lib/billing/alipay";
+import { alipayAvailable, alipayConfig, buildPaymentUrl, type AlipayChannel, type AlipayEnv } from "@/lib/billing/alipay";
 import { writeTransaction } from "@/lib/billing/quota";
+import { publicBaseUrl } from "@/lib/mailer";
 
 /**
  * Order domain.
@@ -355,6 +356,57 @@ function safeOrigin(value?: string): string {
   }
 }
 
+function isLocalhostOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1" || url.hostname.endsWith(".local");
+  } catch {
+    return false;
+  }
+}
+
+function resolvePaymentOrigin(requestOrigin?: string, env?: AlipayEnv): string {
+  const fromRequest = safeOrigin(requestOrigin);
+  const fallback = safeOrigin(publicBaseUrl());
+  const origin = fromRequest || fallback;
+  // 生产环境安全加固：支付宝网关与买家终端均无法访问私有本地端口 localhost/127.0.0.1
+  if (env === "production" && (!origin || isLocalhostOrigin(origin))) {
+    const siteUrl = safeOrigin(process.env.WANKE_SITE_URL);
+    return siteUrl && !isLocalhostOrigin(siteUrl) ? siteUrl : "https://www.haoxiu.com";
+  }
+  return origin;
+}
+
+function buildPaymentReturnUrl(configuredReturnUrl: string, origin: string, orderNo: string): string {
+  let base = (configuredReturnUrl || "").trim();
+  // 若配置了固定域名的 return_url，但客户端是从有效主域（如 haoxiu.com 域名矩阵）发起的，优先使用客户端 origin，保证同子域闭环
+  if (base && origin) {
+    try {
+      const confUrl = new URL(base);
+      const reqUrl = new URL(origin);
+      const confHost = confUrl.hostname.toLowerCase();
+      const reqHost = reqUrl.hostname.toLowerCase();
+      const isHaoxiu = (confHost === "haoxiu.com" || confHost.endsWith(".haoxiu.com")) && (reqHost === "haoxiu.com" || reqHost.endsWith(".haoxiu.com"));
+      if (confUrl.protocol === reqUrl.protocol && (confHost === reqHost || isHaoxiu)) {
+        base = `${reqUrl.origin}${confUrl.pathname}`;
+      }
+    } catch { /* fall through */ }
+  }
+  if (!base) {
+    base = origin ? `${origin}/payment/result` : "https://haoxiu.com/payment/result";
+  }
+  try {
+    const url = new URL(base);
+    if (!url.searchParams.has("orderNo") && !url.searchParams.has("out_trade_no")) {
+      url.searchParams.set("orderNo", orderNo);
+    }
+    return url.toString();
+  } catch {
+    const separator = base.includes("?") ? "&" : "?";
+    return `${base}${separator}orderNo=${encodeURIComponent(orderNo)}`;
+  }
+}
+
 /**
  * Open the cashier for an existing order.
  *
@@ -390,10 +442,16 @@ export function startPayment(input: StartPaymentInput): StartPaymentResult {
     throw new HttpError(503, "PAYMENT_CHANNEL_UNAVAILABLE", "支付通道尚未开通，请稍后再试或联系客服");
   }
 
-  const origin = safeOrigin(input.requestOrigin);
-  const notifyUrl = config.notifyUrl || (origin ? `${origin}/api/payments/alipay/notify` : "");
+  const origin = resolvePaymentOrigin(input.requestOrigin, config.env);
+  let notifyUrl = config.notifyUrl || (origin ? `${origin}/api/payments/alipay/notify` : "");
+  if (config.env === "production" && isLocalhostOrigin(notifyUrl)) {
+    notifyUrl = "https://www.haoxiu.com/api/payments/alipay/notify";
+  }
+  let returnUrl = buildPaymentReturnUrl(config.returnUrl, origin, order.orderNo);
+  if (config.env === "production" && isLocalhostOrigin(returnUrl)) {
+    returnUrl = buildPaymentReturnUrl("https://www.haoxiu.com/payment/result", "https://www.haoxiu.com", order.orderNo);
+  }
   const resultUrl = `/payment/result?orderNo=${encodeURIComponent(order.orderNo)}`;
-  const returnUrl = config.returnUrl || (origin ? `${origin}${resultUrl}` : "");
 
   let payUrl: string;
   try {

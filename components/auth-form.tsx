@@ -51,9 +51,29 @@ export default function AuthForm({ mode, siteName, freePlan, registrationEnabled
 
   return <div className="auth-wrap">
     <form className="auth-card" onSubmit={submit}>
-      <Link href="/" className="brand">
-        <span className="brand-mark"><Clapperboard size={19}/></span>
-        <div><strong>{siteName}</strong><span>AI 视频创作平台</span></div>
+      <Link href="/" className="auth-brand-badge">
+        <span className="brand-logo-wrap">
+          <svg className="brand-gold-logo" viewBox="0 0 36 28" fill="none" width="28" height="22">
+            <path
+              d="M3 8C4.5 16 7.5 24 10.5 24C13.5 24 15.5 12 18 12C20.5 12 22.5 24 25.5 24C28.5 24 31.5 16 33 8"
+              stroke="url(#authGoldGrad)"
+              strokeWidth="4.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <defs>
+              <linearGradient id="authGoldGrad" x1="3" y1="8" x2="33" y2="24" gradientUnits="userSpaceOnUse">
+                <stop stopColor="#FFE8A3" />
+                <stop offset="0.5" stopColor="#F5B942" />
+                <stop offset="1" stopColor="#E08B14" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </span>
+        <div className="auth-brand-text">
+          <strong className="auth-brand-name">{siteName}</strong>
+          <span className="auth-brand-sub">AI VIDEO PLATFORM</span>
+        </div>
       </Link>
       <h1>{mode === "login" ? "登录工作台" : "创建账号"}</h1>
       <p className="muted">{mode === "login"

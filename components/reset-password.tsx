@@ -15,9 +15,29 @@ export default function ResetPassword({ token }: { token: string }) {
 }
 
 function Brand() {
-  return <Link href="/" className="brand">
-    <span className="brand-mark"><Clapperboard size={19} /></span>
-    <div><strong>Wanke</strong><span>AI VIDEO PLATFORM</span></div>
+  return <Link href="/" className="auth-brand-badge">
+    <span className="brand-logo-wrap">
+      <svg className="brand-gold-logo" viewBox="0 0 36 28" fill="none" width="28" height="22">
+        <path
+          d="M3 8C4.5 16 7.5 24 10.5 24C13.5 24 15.5 12 18 12C20.5 12 22.5 24 25.5 24C28.5 24 31.5 16 33 8"
+          stroke="url(#rpGoldGrad)"
+          strokeWidth="4.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <defs>
+          <linearGradient id="rpGoldGrad" x1="3" y1="8" x2="33" y2="24" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#FFE8A3" />
+            <stop offset="0.5" stopColor="#F5B942" />
+            <stop offset="1" stopColor="#E08B14" />
+          </linearGradient>
+        </defs>
+      </svg>
+    </span>
+    <div className="auth-brand-text">
+      <strong className="auth-brand-name">好秀</strong>
+      <span className="auth-brand-sub">AI VIDEO PLATFORM</span>
+    </div>
   </Link>;
 }
 

@@ -225,6 +225,12 @@ export function publicErrorMessage(error: unknown): string {
   const trimmed = message.trim();
   if (!trimmed) return "";
   for (const [marker, copy] of WORKER_MARKER_COPY) if (marker.test(trimmed)) return copy;
+  if (/portrait|肖像|肖像权|celebrity/i.test(trimmed)) {
+    return "画面或描述中可能包含受保护的人物肖像权或敏感人像信息，生成服务已拦截。本次创作额度已全额退回，请更换无肖像争议的素材或修改描述后重试。";
+  }
+  if (/DataInspection|内容安全|审核未通过/i.test(trimmed)) {
+    return "内容安全审核未通过，画面或描述中可能包含敏感信息。本次创作额度已全额退回，请修改描述或更换素材后重试。";
+  }
   if (TECHNICAL_PATTERN.test(trimmed)) return GENERIC_SERVICE_MESSAGE;
   if (isValidationMessage(trimmed)) return INPUT_INCOMPLETE_MESSAGE;
   // Anything with a stack trace or long latin run is engineering output.

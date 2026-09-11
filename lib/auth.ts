@@ -170,18 +170,36 @@ function requestIsSecure(request: Request): boolean {
   try { return new URL(request.url).protocol === "https:"; } catch { return false; }
 }
 
+function cookieDomain(request?: Request): string | undefined {
+  if (!request) return undefined;
+  const host = (request.headers.get("x-forwarded-host") || request.headers.get("host") || "").split(":")[0]?.trim().toLowerCase();
+  if (!host || host === "localhost" || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    return undefined;
+  }
+  if (host === "haoxiu.com" || host.endsWith(".haoxiu.com")) {
+    return ".haoxiu.com";
+  }
+  return undefined;
+}
+
 export function sessionCookieOptions(request: Request) {
+  const domain = cookieDomain(request);
   return {
     httpOnly: true,
     sameSite: "lax" as const,
     secure: requestIsSecure(request),
     path: "/",
+    ...(domain ? { domain } : {}),
     maxAge: Math.floor(SESSION_TTL_MS / 1000),
   };
 }
 
-export function clearSessionCookie(response: NextResponse) {
-  response.cookies.set(SESSION_COOKIE, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
+export function clearSessionCookie(response: NextResponse, request?: Request) {
+  const domain = cookieDomain(request);
+  response.cookies.set(SESSION_COOKIE, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0, ...(domain ? { domain } : {}) });
+  if (domain) {
+    response.cookies.set(SESSION_COOKIE, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
+  }
   return response;
 }
 

@@ -32,7 +32,7 @@ export default function CreatorForms(props: Props) {
 }
 
 function GenerateForm({ assets, onSubmit, submitting }: Props) {
-  const initial = { title: "", prompt: "", jobType: "text_to_video", aspectRatio: "16:9", duration: 5, resolution: "720P", model: "wan3.0", n: 1, medias: [] as { type: string; url: string; mediaId?: string }[], expertText: "" };
+  const initial = { title: "", prompt: "", jobType: "text_to_video", aspectRatio: "16:9", duration: 5, resolution: "1080P", model: "wan3.0", n: 1, medias: [] as { type: string; url: string; mediaId?: string }[], expertText: "" };
   const [v, setV] = useDraft("video_generation", initial);
   const need = v.jobType === "image_to_video" ? "1 张图片" : v.jobType === "first_last_frame" ? "首帧 + 尾帧 2 张图片" : v.jobType === "reference_to_video" ? "1–9 个参考素材" : "无需素材";
   return <FormFrame title="AI 视频生成" subtitle="把四种基础生成模式统一在一个工作台；支持阿里 Wan 3.0（最高 30 秒）与 HappyHorse 1.1（最高 15 秒）。一次可生成 1–4 个版本直接对比。" kind="video_generation" value={v} setValue={setV} onRun={() => onSubmit("video_generation", withExpert(v), v.title)} submitting={submitting}>
@@ -46,7 +46,7 @@ function GenerateForm({ assets, onSubmit, submitting }: Props) {
       <SelectField label="清晰度" value={v.resolution} onChange={resolution => setV({...v,resolution})} options={["480P","720P","1080P"]} />
       <SelectField label="版本数" value={String(v.n)} onChange={n => setV({...v,n:Number(n)})} options={["1","2","3","4"]} suffix="个" />
     </div>
-    <details className="advanced"><summary><ChevronDown size={16}/>高级参数</summary><div className="advanced-body"><SelectField label="模型" value={v.model} onChange={model=>setV({...v,model})} options={["wan3.0","happyhorse-1.1","wan2.7","happyhorse-1.0"]}/><Expert value={v.expertText} onChange={expertText=>setV({...v,expertText})} example='{"scene":"general"}' /></div></details>
+    <details className="advanced"><summary><ChevronDown size={16}/>高级参数</summary><div className="advanced-body"><SelectField label="模型" value={v.model} onChange={model=>setV({...v,model})} options={[["wan3.0","Wan 3.0 (2–30秒/画质优先)"],["happyhorse-1.1","HappyHorse 1.1 (3–15秒/运镜质感)"],["wan2.7","Wan 2.7 (快速)"],["happyhorse-1.0","HappyHorse 1.0 (基础)"]]}/><Expert value={v.expertText} onChange={expertText=>setV({...v,expertText})} example='{"scene":"general"}' /></div></details>
   </FormFrame>;
 }
 
@@ -92,7 +92,7 @@ function RemakePipelineForm({ assets, jobs, onSubmit, submitting }: Props) {
     <section className="panel pipeline-card"><div className="pipeline-step"><em>03</em><div><h3>创意渲染</h3><p>脚本与渲染解耦。先确认创意脚本，再选择画幅、分辨率、TTS、BGM 与字幕输出最终视频。</p></div><StageState jobs={jobs} kind="video_render"/></div>
       <div className="form-stack">
         <Field label="复刻脚本" hint="选择上一步结果后，Wanke 服务端会安全读取 JSON 并交给 VideoRender；也可直接粘贴 creative/v1 JSON。"><select value={v.remakeJobId} onChange={e=>setV({...v,remakeJobId:e.target.value,scriptUrl:"",scriptJson:""})}><option value="">— 选择已完成的复刻脚本 —</option>{remakeJobs.map(j=><option key={j.id} value={j.id}>{j.title}</option>)}</select>{!v.remakeJobId&&<><input value={v.scriptUrl} onChange={e=>setV({...v,scriptUrl:e.target.value})} placeholder="脚本 JSON URL"/><textarea className="code-input" value={v.scriptJson} onChange={e=>setV({...v,scriptJson:e.target.value})} placeholder='或直接粘贴 {"schemaVersion":"creative/v1",...}'/></>}</Field>
-        <div className="form-grid four"><SelectField label="画幅" value={v.aspectRatio} onChange={aspectRatio=>setV({...v,aspectRatio})} options={["16:9","9:16","4:3","3:4"]}/><SelectField label="清晰度" value={v.resolution} onChange={resolution=>setV({...v,resolution})} options={["720P","1080P"]}/><Field label="语言"><input value={v.voiceoverLanguage} onChange={e=>setV({...v,voiceoverLanguage:e.target.value})}/></Field><Toggle label="字幕" checked={v.withSubtitles} onChange={withSubtitles=>setV({...v,withSubtitles})}/></div>
+        <div className="form-grid four"><SelectField label="画幅" value={v.aspectRatio} onChange={aspectRatio=>setV({...v,aspectRatio})} options={["16:9","9:16","4:3","3:4","1:1"]}/><SelectField label="清晰度" value={v.resolution} onChange={resolution=>setV({...v,resolution})} options={["720P","1080P"]}/><Field label="语言"><input value={v.voiceoverLanguage} onChange={e=>setV({...v,voiceoverLanguage:e.target.value})}/></Field><Toggle label="字幕" checked={v.withSubtitles} onChange={withSubtitles=>setV({...v,withSubtitles})}/></div>
         <div className="form-grid two"><Field label="TTS 声音 URL（可选）"><input value={v.ttsVoiceUrl} onChange={e=>setV({...v,ttsVoiceUrl:e.target.value})}/></Field><Field label="BGM URL（可选）"><input value={v.bgmUrl} onChange={e=>setV({...v,bgmUrl:e.target.value})}/></Field></div>
         <details className="advanced"><summary><ChevronDown size={16}/>专家参数</summary><div className="advanced-body"><Expert value={v.expertText} onChange={expertText=>setV({...v,expertText})} example='{"settings":{"WithSubtitles":true}}'/></div></details>
         <div className="stage-run"><button className="primary" disabled={submitting||(!scriptUrl&&!v.scriptJson.trim())} onClick={()=>onSubmit("video_render",withExpert({...v,scriptUrl}),v.title,v.remakeJobId||undefined)}><Send size={16}/>开始渲染</button></div>
@@ -101,12 +101,20 @@ function RemakePipelineForm({ assets, jobs, onSubmit, submitting }: Props) {
   </div>;
 }
 
-function TranslationForm({onSubmit,submitting}:Props){
+function TranslationForm({assets, onSubmit, submitting}:Props){
   const initial={title:"",description:"",jobType:"VoiceTranslate",inputVideoOssUri:"",outputOssUri:"",sourceLanguage:"zh",targetLanguage:"en",needDetext:false,needVisualTranslate:false,expertText:""};
   const [v,setV]=useDraft("video_translation",initial);
   return <FormFrame title="视频翻译" subtitle="面向已有 OSS 视频做字幕翻译或语音翻译。当前 2026-07-07 SDK 只公开提交接口，因此 Wanke 会保存 JobId，但不会伪造可查询进度。" kind="video_translation" value={v} setValue={setV} onRun={()=>onSubmit("video_translation",withExpert(v),v.title)} submitting={submitting}>
-    <Field label="翻译类型"><Segment value={v.jobType} onChange={jobType=>setV({...v,jobType})} options={[["VoiceTranslate","语音翻译"],["SubtitleTranslate","字幕翻译"]]}/></Field>
-    <Field label="输入视频 OSS URI" hint="官方当前要求调用账号下的 OSS 地址，不是普通 https URL。"><input value={v.inputVideoOssUri} onChange={e=>setV({...v,inputVideoOssUri:e.target.value})} placeholder="oss://bucket/path/input.mp4"/></Field>
+    <Field label="翻译类型"><Segment value={v.jobType} onChange={jobType=>setV({...v,jobType})} options={[["VoiceTranslate","语音翻译（原声替换+多语种）"],["SubtitleTranslate","字幕翻译（保留原声+字幕翻译）"]]}/></Field>
+    <Field label="输入视频 OSS URI" hint="官方当前要求调用账号下的 OSS 地址，不是普通 https URL。">
+      <input value={v.inputVideoOssUri} onChange={e=>setV({...v,inputVideoOssUri:e.target.value})} placeholder="oss://bucket/path/input.mp4"/>
+      {assets && assets.some(a=>a.mediaType==="video") && (
+        <select defaultValue="" onChange={e=>{if(e.target.value)setV({...v,inputVideoOssUri:e.target.value});e.target.value=""}}>
+          <option value="">— 从素材库快速选择视频 —</option>
+          {assets.filter(a=>a.mediaType==="video").map(a=><option key={a.id} value={a.sourceUrl}>{a.name} ({a.sourceUrl.slice(0, 40)}...)</option>)}
+        </select>
+      )}
+    </Field>
     <Field label="输出 OSS 目录"><input value={v.outputOssUri} onChange={e=>setV({...v,outputOssUri:e.target.value})} placeholder="oss://bucket/output/"/></Field>
     <div className="form-grid two"><Field label="源语言"><input value={v.sourceLanguage} onChange={e=>setV({...v,sourceLanguage:e.target.value})}/></Field><Field label="目标语言"><input value={v.targetLanguage} onChange={e=>setV({...v,targetLanguage:e.target.value})}/></Field></div>
     <div className="toggle-row"><Toggle label="去除画面文字" checked={v.needDetext} onChange={needDetext=>setV({...v,needDetext})}/><Toggle label="视觉文字翻译" checked={v.needVisualTranslate} onChange={needVisualTranslate=>setV({...v,needVisualTranslate})}/></div>
@@ -119,11 +127,14 @@ function StageState({jobs,kind}:{jobs:StoredJob[];kind:string}){const latest=job
 function lines(value:string){return value.split(/\n|,|，/).map(x=>x.trim()).filter(Boolean)}
 
 function CloneForm({ assets, onSubmit, submitting }: Props) {
-  const initial = { title:"", originalMediaId:"", oldProductName:"", productName:"", userMaterialIds:[] as string[], avatarPortrait:"", avatarVoice:"", resolution:"720P", withSubtitles:true, expertText:"" };
+  const initial = { title:"", originalMediaId:"", oldProductName:"", productName:"", userMaterialIds:[] as string[], avatarPortrait:"", avatarVoice:"", resolution:"1080P", withSubtitles:true, expertText:"" };
   const [v,setV]=useDraft("video_clone",initial);
   return <FormFrame title="视频复刻" subtitle="以已有视频为骨架，只替换需要变化的元素；适合同类内容改写和快速变体。" kind="video_clone" value={v} setValue={setV} onRun={()=>onSubmit("video_clone",withExpert(v),v.title)} submitting={submitting}>
     <Field label="任务名称"><input value={v.title} onChange={e=>setV({...v,title:e.target.value})} placeholder="例如：A 产品替换成 B 产品"/></Field>
-    <Field label="原始视频" hint="必须是已注册到万镜一刻的 MediaId。"><AssetSelect assets={assets} type="video" mode="studioMediaId" value={v.originalMediaId} onChange={originalMediaId=>setV({...v,originalMediaId})}/></Field>
+    <Field label="原始视频" hint="必须是已注册到万镜一刻的 MediaId。">
+      <AssetSelect assets={assets} type="video" mode="studioMediaId" value={v.originalMediaId} onChange={originalMediaId=>setV({...v,originalMediaId})}/>
+      <input value={v.originalMediaId} onChange={e=>setV({...v,originalMediaId:e.target.value})} placeholder="或直接输入/粘贴 MediaId"/>
+    </Field>
     <div className="form-grid two"><Field label="原商品名"><input value={v.oldProductName} onChange={e=>setV({...v,oldProductName:e.target.value})}/></Field><Field label="新商品名"><input value={v.productName} onChange={e=>setV({...v,productName:e.target.value})}/></Field></div>
     <Field label="替换素材" hint="可选择多张图片/视频，Yike 会结合复刻场景使用。"><AssetMulti assets={assets} value={v.userMaterialIds} onChange={userMaterialIds=>setV({...v,userMaterialIds})}/></Field>
     <div className="form-grid two"><Field label="数字人人像 URL"><input value={v.avatarPortrait} onChange={e=>setV({...v,avatarPortrait:e.target.value})} placeholder="可选；公网可访问图片 URL"/></Field><Field label="声音参考 / Voice ID"><input value={v.avatarVoice} onChange={e=>setV({...v,avatarVoice:e.target.value})} placeholder="可选：音频 URL 或声音引用"/></Field></div>
@@ -133,7 +144,7 @@ function CloneForm({ assets, onSubmit, submitting }: Props) {
 }
 
 function AvatarForm({ assets, onSubmit, submitting }: Props) {
-  const initial={title:"",sceneType:"creator-talk",textType:2,textContent:"",userMaterialIds:[] as string[],avatarPortrait:"",avatarVoice:"",voiceDuration:60,aspectRatio:"9:16",resolution:"720P",outputLanguages:["CN"],withSubtitles:true,expertText:""};
+  const initial={title:"",sceneType:"creator-talk",textType:2,textContent:"",userMaterialIds:[] as string[],avatarPortrait:"",avatarVoice:"",voiceDuration:60,aspectRatio:"9:16",resolution:"1080P",outputLanguages:["CN"],withSubtitles:true,expertText:""};
   const [v,setV]=useDraft("avatar_narrator",initial);
   const fixed=v.sceneType==="avatar-broadcast";
   return <FormFrame title="数字人口播" subtitle="讲解型支持素材穿插；固定口播适合单镜头数字人。两种场景的限制会在表单里提前挡住。" kind="avatar_narrator" value={v} setValue={setV} onRun={()=>onSubmit("avatar_narrator",withExpert(v),v.title)} submitting={submitting}>
@@ -142,20 +153,20 @@ function AvatarForm({ assets, onSubmit, submitting }: Props) {
     <Field label="文案" hint="最多 10,000 字符。"><textarea className="big-text" value={v.textContent} onChange={e=>setV({...v,textContent:e.target.value})}/><div className="char-count">{v.textContent.length} / 10000</div></Field>
     <div className="form-grid two"><Field label="数字人人像 URL"><input value={v.avatarPortrait} onChange={e=>setV({...v,avatarPortrait:e.target.value})} placeholder="必填：公网可访问的人像图"/></Field><Field label="声音"><input value={v.avatarVoice} onChange={e=>setV({...v,avatarVoice:e.target.value})} placeholder="内置 Voice ID 或声音克隆参考 URL"/></Field></div>
     {!fixed&&<Field label="画面素材"><AssetMulti assets={assets} value={v.userMaterialIds} onChange={userMaterialIds=>setV({...v,userMaterialIds})}/></Field>}
-    <div className="form-grid four"><SelectField label="画幅" value={v.aspectRatio} onChange={aspectRatio=>setV({...v,aspectRatio})} options={["16:9","9:16","4:3","3:4"]}/><SelectField label="清晰度" value={v.resolution} onChange={resolution=>setV({...v,resolution})} options={["720P","1080P"]}/>{v.textType===1?<Field label="目标时长"><input type="number" value={v.voiceDuration} onChange={e=>setV({...v,voiceDuration:Number(e.target.value)})}/></Field>:<div/>}<Toggle label="字幕" checked={v.withSubtitles} onChange={withSubtitles=>setV({...v,withSubtitles})}/></div>
+    <div className="form-grid four"><SelectField label="画幅" value={v.aspectRatio} onChange={aspectRatio=>setV({...v,aspectRatio})} options={["16:9","9:16","4:3","3:4","1:1"]}/><SelectField label="清晰度" value={v.resolution} onChange={resolution=>setV({...v,resolution})} options={["720P","1080P"]}/>{v.textType===1?<Field label="目标时长"><input type="number" value={v.voiceDuration} onChange={e=>setV({...v,voiceDuration:Number(e.target.value)})}/></Field>:<div/>}<Toggle label="字幕" checked={v.withSubtitles} onChange={withSubtitles=>setV({...v,withSubtitles})}/></div>
     <LanguageSelect value={v.outputLanguages} onChange={outputLanguages=>setV({...v,outputLanguages})}/>
     <details className="advanced"><summary><ChevronDown size={16}/>高级参数</summary><div className="advanced-body"><Expert value={v.expertText} onChange={expertText=>setV({...v,expertText})} example='{"jobParams":{"OutputLanguages":["CN"]}}'/></div></details>
   </FormFrame>;
 }
 
 function VoiceForm({assets,onSubmit,submitting}:Props){
-  const initial={title:"",textType:2,textContent:"",userMaterialIds:[] as string[],narrationVoiceId:"sys_ElegantProperMiddleAgedWoman",voiceDuration:60,aspectRatio:"16:9",resolution:"720P",outputLanguages:["CN"],withSubtitles:true,targetAspectRatio:"",heading:"",subHeading:"",date:"",watermarkText:"",enabledAICover:false,ipCharacterMediaId:"",ipCharacterMediaUrl:"",expertText:""};
+  const initial={title:"",textType:2,textContent:"",userMaterialIds:[] as string[],narrationVoiceId:"sys_ElegantProperMiddleAgedWoman",voiceDuration:60,aspectRatio:"16:9",resolution:"1080P",outputLanguages:["CN"],withSubtitles:true,targetAspectRatio:"",heading:"",subHeading:"",date:"",watermarkText:"",enabledAICover:false,ipCharacterMediaId:"",ipCharacterMediaUrl:"",expertText:""};
   const [v,setV]=useDraft("voice_narrator",initial);
   return <FormFrame title="旁白成片" subtitle="把新闻、产品、知识素材自动组织成旁白视频；竖屏包装、标题、水印和 AI 封面集中配置。" kind="voice_narrator" value={v} setValue={setV} onRun={()=>onSubmit("voice_narrator",withExpert(v),v.title)} submitting={submitting}>
     <Field label="文案类型"><Segment value={String(v.textType)} onChange={x=>setV({...v,textType:Number(x)})} options={[["1","原始信息 · 自动改写"],["2","已写好的旁白稿"]]}/></Field>
     <Field label="文案"><textarea className="big-text" value={v.textContent} onChange={e=>setV({...v,textContent:e.target.value})}/><div className="char-count">{v.textContent.length} / 10000</div></Field>
     <Field label="素材"><AssetMulti assets={assets} value={v.userMaterialIds} onChange={userMaterialIds=>setV({...v,userMaterialIds})}/></Field>
-    <div className="form-grid four"><SelectField label="旁白声音" value={v.narrationVoiceId} onChange={narrationVoiceId=>setV({...v,narrationVoiceId})} options={voiceOptions as any}/><SelectField label="画幅" value={v.aspectRatio} onChange={aspectRatio=>setV({...v,aspectRatio})} options={["16:9","9:16","4:3","3:4"]}/><SelectField label="清晰度" value={v.resolution} onChange={resolution=>setV({...v,resolution})} options={["720P","1080P"]}/><Toggle label="字幕" checked={v.withSubtitles} onChange={withSubtitles=>setV({...v,withSubtitles})}/></div>
+    <div className="form-grid four"><SelectField label="旁白声音" value={v.narrationVoiceId} onChange={narrationVoiceId=>setV({...v,narrationVoiceId})} options={voiceOptions as any}/><SelectField label="画幅" value={v.aspectRatio} onChange={aspectRatio=>setV({...v,aspectRatio})} options={["16:9","9:16","4:3","3:4","1:1"]}/><SelectField label="清晰度" value={v.resolution} onChange={resolution=>setV({...v,resolution})} options={["720P","1080P"]}/><Toggle label="字幕" checked={v.withSubtitles} onChange={withSubtitles=>setV({...v,withSubtitles})}/></div>
     {v.textType===1&&<Field label="目标旁白时长"><input type="number" value={v.voiceDuration} onChange={e=>setV({...v,voiceDuration:Number(e.target.value)})}/></Field>}
     <LanguageSelect value={v.outputLanguages} onChange={outputLanguages=>setV({...v,outputLanguages})}/>
     <details className="advanced"><summary><ChevronDown size={16}/>竖屏包装与 AI 封面</summary><div className="advanced-body"><div className="form-grid two"><SelectField label="竖屏适配" value={v.targetAspectRatio} onChange={targetAspectRatio=>setV({...v,targetAspectRatio})} options={[["","不启用"],["9:16","9:16"],["3:4","3:4"]] as any}/><Toggle label="AI 生成封面" checked={v.enabledAICover} onChange={enabledAICover=>setV({...v,enabledAICover})}/></div><div className="form-grid two"><Field label="主标题"><input value={v.heading} onChange={e=>setV({...v,heading:e.target.value})}/></Field><Field label="副标题"><input value={v.subHeading} onChange={e=>setV({...v,subHeading:e.target.value})}/></Field><Field label="日期"><input value={v.date} onChange={e=>setV({...v,date:e.target.value})}/></Field><Field label="水印文字"><input value={v.watermarkText} onChange={e=>setV({...v,watermarkText:e.target.value})}/></Field></div><div className="form-grid two"><Field label="封面 IP 素材 MediaId"><input value={v.ipCharacterMediaId} onChange={e=>setV({...v,ipCharacterMediaId:e.target.value})}/></Field><Field label="封面 IP 素材 URL"><input value={v.ipCharacterMediaUrl} onChange={e=>setV({...v,ipCharacterMediaUrl:e.target.value})}/></Field></div><Expert value={v.expertText} onChange={expertText=>setV({...v,expertText})} example='{"jobParams":{"CustomField":"value"}}'/></div></details>
@@ -168,8 +179,19 @@ function StoryboardForm({assets,onSubmit,submitting}:Props){
   return <FormFrame title="故事板生产线" subtitle="面向长文本：先拆故事板，再生成镜头并合成。失败镜头保留明细，可在任务中心直接续跑。" kind="storyboard" value={v} setValue={setV} onRun={()=>onSubmit("storyboard",withExpert(v),v.title)} submitting={submitting}>
     <Field label="脚本文件" hint="Yike 当前要求 OSS 上的 .txt 或 .doc。可先在素材库上传。"><AssetSelect assets={assets} type="document" mode="url" value={v.fileURL} onChange={fileURL=>setV({...v,fileURL})}/><input value={v.fileURL} onChange={e=>setV({...v,fileURL:e.target.value})} placeholder="或粘贴脚本 OSS URL"/></Field>
     <div className="form-grid two"><Field label="任务标题"><input value={v.title} onChange={e=>setV({...v,title:e.target.value})} maxLength={128}/></Field><Field label="执行方式"><Segment value={v.execMode} onChange={execMode=>setV({...v,execMode})} options={[["FullPipeline","故事板 + 镜头成片"],["StoryboardOnly","只生成故事板"]]}/></Field></div>
-    <div className="form-grid four"><SelectField label="视觉风格" value={v.styleId} onChange={styleId=>setV({...v,styleId})} options={styles as any}/><SelectField label="画幅" value={v.aspectRatio} onChange={aspectRatio=>setV({...v,aspectRatio})} options={["16:9","9:16","4:3","3:4"]}/><SelectField label="清晰度" value={v.resolution} onChange={resolution=>setV({...v,resolution})} options={["720P","1080P","2K","4K"]}/><SelectField label="镜头生成" value={v.shotPromptMode} onChange={shotPromptMode=>setV({...v,shotPromptMode})} options={[["multi","多参考视频生成"],["default","图生视频"]] as any}/></div>
-    <div className="form-grid two"><SelectField label="旁白声音" value={v.narrationVoiceId} onChange={narrationVoiceId=>setV({...v,narrationVoiceId})} options={voiceOptions as any}/><Field label="视频模型"><input value={v.videoModel} onChange={e=>setV({...v,videoModel:e.target.value})}/></Field></div>
+    <div className="form-grid four"><SelectField label="视觉风格" value={v.styleId} onChange={styleId=>setV({...v,styleId})} options={styles as any}/><SelectField label="画幅" value={v.aspectRatio} onChange={aspectRatio=>setV({...v,aspectRatio})} options={["16:9","9:16","4:3","3:4","1:1"]}/><SelectField label="清晰度" value={v.resolution} onChange={resolution=>setV({...v,resolution})} options={["720P","1080P","2K","4K"]}/><SelectField label="镜头生成" value={v.shotPromptMode} onChange={shotPromptMode=>setV({...v,shotPromptMode})} options={[["multi","多参考视频生成"],["default","图生视频"]] as any}/></div>
+    <div className="form-grid two">
+      <SelectField label="旁白声音" value={v.narrationVoiceId} onChange={narrationVoiceId=>setV({...v,narrationVoiceId})} options={voiceOptions as any}/>
+      <Field label="视频模型" hint="推荐 Wan 3.0 大模型">
+        <select value={["wan3.0-video","happyhorse-1.1-r2v","wan2.6-r2v-flash"].includes(v.videoModel)?v.videoModel:""} onChange={e=>{if(e.target.value)setV({...v,videoModel:e.target.value})}}>
+          <option value="wan3.0-video">Wan 3.0 (原生推荐 · 支持音频)</option>
+          <option value="happyhorse-1.1-r2v">HappyHorse 1.1 (高质感运镜)</option>
+          <option value="wan2.6-r2v-flash">Wan 2.6 Flash (快速预览)</option>
+          <option value="">自定义输入...</option>
+        </select>
+        <input value={v.videoModel} onChange={e=>setV({...v,videoModel:e.target.value})} placeholder="模型标识，如 wan3.0-video"/>
+      </Field>
+    </div>
     <div className="toggle-row"><Toggle label="保留原对话" checked={v.keepOriginDialogue} onChange={keepOriginDialogue=>setV({...v,keepOriginDialogue})}/><Toggle label="生成字幕" checked={v.needCaption} onChange={needCaption=>setV({...v,needCaption})}/><Toggle label="跳过失败镜头继续合成" checked={v.skipFailureShot} onChange={skipFailureShot=>setV({...v,skipFailureShot})}/><Toggle label="启用音频" checked={v.audioEnable} onChange={audioEnable=>setV({...v,audioEnable})}/></div>
     <details className="advanced"><summary><ChevronDown size={16}/>高级参数</summary><div className="advanced-body"><div className="form-grid two"><Field label="镜头提示词语言"><input value={v.shotPromptLang} onChange={e=>setV({...v,shotPromptLang:e.target.value})}/></Field><Field label="拆镜模式"><input value={v.shotSplitMode} disabled/></Field></div><Expert value={v.expertText} onChange={expertText=>setV({...v,expertText})} example='{"modelParams":"{\"AudioEnable\":true}"}' /></div></details>
   </FormFrame>;

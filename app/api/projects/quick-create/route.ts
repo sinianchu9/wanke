@@ -25,6 +25,7 @@ const schema = z.object({
   platform: z.enum(["douyin", "xiaohongshu", "youtube", "landscape", "square"]),
   totalDuration: z.number().int().min(2).max(30).default(5),
   providerMode: z.enum(["auto", "modelstudio", "yike"]).optional(),
+  preferredModel: z.enum(["auto", "wan3.0", "happyhorse-1.1", "wan", "happyhorse"]).optional().default("auto"),
   subjectId: z.string().min(1).nullable().optional(),
   imageAssetId: z.string().min(1).nullable().optional(),
   referenceUrl: z.string().trim().max(2048).optional().default(""),
@@ -42,8 +43,8 @@ const schema = z.object({
     return;
   }
   if (value.type === "image_video") {
-    if (value.subjectId) ctx.addIssue({ code: "custom", path: ["subjectId"], message: "图片变视频不需要人物或产品主体" });
-    if (directCount !== 1) ctx.addIssue({ code: "custom", message: "图片变视频需要选择、上传或粘贴一张图片" });
+    if (value.subjectId) ctx.addIssue({ code: "custom", path: ["subjectId"], message: "图片动起来不需要人物或产品主体" });
+    if (directCount !== 1) ctx.addIssue({ code: "custom", message: "图片动起来需要选择、上传或粘贴一张图片" });
     return;
   }
   const sourceCount = (value.subjectId ? 1 : 0) + directCount;
@@ -167,7 +168,7 @@ function buildJobInput(shotPlan: ReturnType<typeof buildQuickCreationPlan>["shot
     aspectRatio: shotPlan.aspectRatio,
     duration: shotPlan.duration,
     resolution: "1080P",
-    model: shotPlan.duration > 15 || shotPlan.duration < 3 ? "wan3.0" : "happyhorse-1.1",
+    model: shotPlan.model || (shotPlan.duration > 15 || shotPlan.duration < 3 ? "wan3.0" : "happyhorse-1.1"),
     n: 1,
     _subjectCardIds: shotPlan.subjectCardIds,
     ...(quickCreation ? { _quickCreation: quickCreation } : {}),
@@ -219,5 +220,5 @@ function inferredProjectName(goal: string, type: z.infer<typeof schema>["type"])
   const compact = goal.replace(/\s+/g, " ").trim();
   const firstClause = compact.split(/[。！？!?；;\n]/)[0]?.replace(/^[“”"']+|[“”"']+$/g, "").trim() || "";
   if (firstClause) return firstClause.length > 26 ? `${firstClause.slice(0, 26)}…` : firstClause;
-  return type === "text_video" ? "文字生成视频" : type === "product_ad" ? "产品广告" : type === "person_short" ? "人物短视频" : "图片变视频";
+  return type === "text_video" ? "文字生视频" : type === "product_ad" ? "产品广告" : type === "person_short" ? "人物短片" : "图片动起来";
 }

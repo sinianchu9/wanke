@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { errorResponse, requireUser } from "@/lib/auth";
 import { startPayment } from "@/lib/billing/orders";
+import { publicBaseUrl } from "@/lib/mailer";
 import { publicErrorMessage } from "@/lib/copy";
 
 export const runtime = "nodejs";
@@ -27,7 +28,7 @@ export async function POST(request: Request, ctx: Ctx) {
       orderId: id,
       userId: user.id,
       channel: input.channel,
-      requestOrigin: new URL(request.url).origin,
+      requestOrigin: publicBaseUrl(request),
     });
     return NextResponse.json({
       ok: true,
