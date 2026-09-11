@@ -4,16 +4,17 @@ import { HttpError } from "@/lib/auth";
 import { JOB_KINDS, JOB_KIND_LABELS, type JobKind } from "@/lib/types";
 
 /**
- * Creation-credit pricing. Operators configure the rules; users only ever see the
- * resulting number ("本次预计消耗 N 个创作额度") before they submit.
+ * Creation-credit pricing (积分计费定价体系).
+ * Operators configure the rules; users see the estimated credits before they submit.
  *
- * Defaults are seeded at 1 credit per creation so the commercial rollout does not
- * change what existing users pay until a rule is tuned in the backoffice.
+ * 核心升级：以秒为单位按模型独立定价（如 Wan 3.0、HappyHorse 1.1 分别定价），定价以积分计价。
  */
 
 export interface PricingRule {
   jobKind: string;
   baseCredits: number;
+  perSecondCredits: number;
+  modelCreditsPerSecond: Record<string, number>;
   perMinuteCredits: number;
   minCredits: number;
   maxCreditsPerUnit: number;
@@ -43,11 +44,25 @@ export interface CreditQuote {
   ruleJobKind: string;
 }
 
+export const DEFAULT_MODEL_CREDITS_PER_SECOND: Record<string, number> = {
+  "wan3.0": 1,
+  "happyhorse-1.1": 2,
+  "default": 1,
+};
+
 const DEFAULT_RULE_BODY = {
+  perSecondCredits: 1,
+  modelCreditsPerSecond: DEFAULT_MODEL_CREDITS_PER_SECOND,
   perMinuteCredits: 0,
   minCredits: 1,
-  maxCreditsPerUnit: 20,
-  resolutionMultiplier: {} as Record<string, number>,
+  maxCreditsPerUnit: 2000,
+  resolutionMultiplier: {
+    "480p": 0.8,
+    "720p": 1.0,
+    "1080p": 1.0,
+    "2k": 1.5,
+    "4k": 2.0,
+  } as Record<string, number>,
   quantityFields: ["count", "batchSize", "shots", "variants"],
   durationFields: ["durationSeconds", "duration", "videoDuration", "targetDuration"],
   resolutionFields: ["resolution", "quality", "size", "videoResolution"],
@@ -59,11 +74,17 @@ function parseRule(row: any): PricingRule {
   try { body = JSON.parse(row.rule_json || "{}"); } catch { body = {}; }
   return {
     jobKind: row.job_kind,
-    baseCredits: Number(row.base_credits ?? 1),
-    perMinuteCredits: Number(body.perMinuteCredits ?? DEFAULT_RULE_BODY.perMinuteCredits),
+    baseCredits: Number(row.base_credits ?? 0),
+    perSecondCredits: Number(body.perSecondCredits ?? DEFAULT_RULE_BODY.perSecondCredits),
+    modelCreditsPerSecond: body.modelCreditsPerSecond && typeof body.modelCreditsPerSecond === "object"
+      ? { ...DEFAULT_MODEL_CREDITS_PER_SECOND, ...body.modelCreditsPerSecond }
+      : { ...DEFAULT_MODEL_CREDITS_PER_SECOND },
+    perMinuteCredits: Number(body.perMinuteCredits ?? 0),
     minCredits: Number(body.minCredits ?? DEFAULT_RULE_BODY.minCredits),
     maxCreditsPerUnit: Number(body.maxCreditsPerUnit ?? DEFAULT_RULE_BODY.maxCreditsPerUnit),
-    resolutionMultiplier: body.resolutionMultiplier && typeof body.resolutionMultiplier === "object" ? body.resolutionMultiplier : {},
+    resolutionMultiplier: body.resolutionMultiplier && typeof body.resolutionMultiplier === "object"
+      ? body.resolutionMultiplier
+      : { ...DEFAULT_RULE_BODY.resolutionMultiplier },
     quantityFields: Array.isArray(body.quantityFields) ? body.quantityFields : DEFAULT_RULE_BODY.quantityFields,
     durationFields: Array.isArray(body.durationFields) ? body.durationFields : DEFAULT_RULE_BODY.durationFields,
     resolutionFields: Array.isArray(body.resolutionFields) ? body.resolutionFields : DEFAULT_RULE_BODY.resolutionFields,
@@ -84,12 +105,14 @@ export function getPricingRule(jobKind: string): PricingRule {
   if (specific && specific.enabled) return parseRule(specific);
   const fallback = db.prepare("SELECT * FROM pricing_rules WHERE job_kind='*'").get() as any;
   if (fallback) return parseRule(fallback);
-  return { jobKind: "*", baseCredits: 1, ...DEFAULT_RULE_BODY, enabled: true, note: "内置默认规则", updatedAt: new Date().toISOString() };
+  return { jobKind: "*", baseCredits: 0, ...DEFAULT_RULE_BODY, enabled: true, note: "内置默认规则", updatedAt: new Date().toISOString() };
 }
 
 export function upsertPricingRule(input: {
   jobKind: string;
   baseCredits: number;
+  perSecondCredits?: number;
+  modelCreditsPerSecond?: Record<string, number>;
   perMinuteCredits?: number;
   minCredits?: number;
   maxCreditsPerUnit?: number;
@@ -104,10 +127,12 @@ export function upsertPricingRule(input: {
   }
   if (input.baseCredits < 0 || (input.minCredits ?? 0) < 0) throw new HttpError(400, "INVALID_RULE", "创作额度不能为负数");
   const body = {
-    perMinuteCredits: Math.max(0, Number(input.perMinuteCredits ?? DEFAULT_RULE_BODY.perMinuteCredits)),
+    perSecondCredits: Math.max(0, Number(input.perSecondCredits ?? DEFAULT_RULE_BODY.perSecondCredits)),
+    modelCreditsPerSecond: input.modelCreditsPerSecond || DEFAULT_MODEL_CREDITS_PER_SECOND,
+    perMinuteCredits: Math.max(0, Number(input.perMinuteCredits ?? 0)),
     minCredits: Math.max(0, Math.round(input.minCredits ?? DEFAULT_RULE_BODY.minCredits)),
     maxCreditsPerUnit: Math.max(1, Math.round(input.maxCreditsPerUnit ?? DEFAULT_RULE_BODY.maxCreditsPerUnit)),
-    resolutionMultiplier: input.resolutionMultiplier ?? {},
+    resolutionMultiplier: input.resolutionMultiplier ?? DEFAULT_RULE_BODY.resolutionMultiplier,
     quantityFields: DEFAULT_RULE_BODY.quantityFields,
     durationFields: DEFAULT_RULE_BODY.durationFields,
     resolutionFields: DEFAULT_RULE_BODY.resolutionFields,
@@ -140,6 +165,31 @@ function readResolution(input: Record<string, unknown>, fields: string[]): strin
   return "";
 }
 
+export function readModelKey(input: Record<string, unknown>, durationSeconds: number): { key: string; label: string } {
+  const fields = ["model", "preferredModel", "videoModel", "route", "shotModel"];
+  for (const field of fields) {
+    const raw = input[field];
+    if (typeof raw === "string" && raw.trim() && raw.trim() !== "auto") {
+      const lower = raw.trim().toLowerCase();
+      if (lower.includes("happyhorse")) return { key: "happyhorse-1.1", label: "HappyHorse 1.1" };
+      if (lower.includes("wan")) return { key: "wan3.0", label: "Wan 3.0" };
+      return { key: raw.trim(), label: raw.trim() };
+    }
+  }
+  // 智能/自动推荐：超长（>15s）自动路由 Wan 3.0，其余优先 HappyHorse 1.1
+  if (durationSeconds > 15) return { key: "wan3.0", label: "Wan 3.0" };
+  return { key: "happyhorse-1.1", label: "HappyHorse 1.1" };
+}
+
+function getModelRate(rule: PricingRule, modelKey: string): number {
+  const map = rule.modelCreditsPerSecond || {};
+  if (typeof map[modelKey] === "number" && map[modelKey] >= 0) return map[modelKey];
+  const matched = Object.keys(map).find(k => modelKey.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(modelKey.toLowerCase()));
+  if (matched && typeof map[matched] === "number" && map[matched] >= 0) return map[matched];
+  if (typeof map["default"] === "number" && map["default"] >= 0) return map["default"];
+  return typeof rule.perSecondCredits === "number" && rule.perSecondCredits >= 0 ? rule.perSecondCredits : 1;
+}
+
 function multiplierFor(rule: PricingRule, resolution: string): { multiplier: number; label: string } {
   if (!resolution) return { multiplier: 1, label: "" };
   const table = rule.resolutionMultiplier;
@@ -156,25 +206,43 @@ function multiplierFor(rule: PricingRule, resolution: string): { multiplier: num
 export function quoteForJob(jobKind: string, input: Record<string, unknown> = {}): CreditQuote {
   const rule = getPricingRule(jobKind);
   const quantity = Math.max(1, Math.min(50, Math.floor(readNumber(input, rule.quantityFields) || 1)));
-  const durationSeconds = readNumber(input, rule.durationFields);
+  let durationSeconds = readNumber(input, rule.durationFields);
+  const isVideoJob = jobKind.includes("video") || jobKind === "storyboard";
+  if (isVideoJob && durationSeconds <= 0) {
+    durationSeconds = 5; // 视频生成未指定时长时，按标准 5 秒计算
+  }
+
+  const { key: modelKey, label: modelLabel } = readModelKey(input, durationSeconds);
+  const ratePerSecond = getModelRate(rule, modelKey);
   const resolution = readResolution(input, rule.resolutionFields);
   const { multiplier, label } = multiplierFor(rule, resolution);
 
   const breakdown: QuoteBreakdownItem[] = [];
   let perUnit = rule.baseCredits;
-  if (rule.baseCredits > 0) breakdown.push({ label: `${JOB_KIND_LABELS[jobKind as JobKind] || jobKind}基础消耗`, credits: rule.baseCredits });
-  if (durationSeconds > 0 && rule.perMinuteCredits > 0) {
+  if (rule.baseCredits > 0) {
+    breakdown.push({ label: `${JOB_KIND_LABELS[jobKind as JobKind] || jobKind}基础消耗`, credits: rule.baseCredits });
+  }
+
+  if (durationSeconds > 0) {
+    const durationCredits = Math.ceil(durationSeconds * ratePerSecond);
+    perUnit += durationCredits;
+    breakdown.push({
+      label: `${modelLabel}（${ratePerSecond} 积分/秒 × ${Math.round(durationSeconds)} 秒）`,
+      credits: durationCredits,
+    });
+  } else if (rule.perMinuteCredits > 0) {
     const durationCredits = Math.ceil((durationSeconds / 60) * rule.perMinuteCredits);
     perUnit += durationCredits;
-    breakdown.push({ label: `时长 ${Math.round(durationSeconds)} 秒`, credits: durationCredits });
+    if (durationCredits > 0) breakdown.push({ label: `时长 ${Math.round(durationSeconds)} 秒`, credits: durationCredits });
   }
+
   if (multiplier !== 1) {
     const before = perUnit;
     perUnit = Math.ceil(perUnit * multiplier);
     breakdown.push({ label: `清晰度 ${label}`, credits: perUnit - before });
   }
   perUnit = Math.max(rule.minCredits, Math.min(rule.maxCreditsPerUnit, Math.ceil(perUnit)));
-  const credits = Math.max(0, Math.min(9999, perUnit * quantity));
+  const credits = Math.max(0, Math.min(99999, perUnit * quantity));
   if (quantity > 1) breakdown.push({ label: `生成数量 × ${quantity}`, credits: credits - perUnit });
 
   return {

@@ -306,6 +306,206 @@ function UsersSection() {
   </div>;
 }
 
+function ModelPricingPanel() {
+  const { data, error, loading, reload } = useLoad<any>("/api/admin/pricing", []);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [values, setValues] = useState({
+    wan: "1",
+    happyhorse: "2",
+    defaultRate: "1",
+    baseCredits: "0",
+    minCredits: "1",
+    res480p: "0.8",
+    res720p: "1.0",
+    res1080p: "1.0",
+    res2k: "1.5",
+    res4k: "2.0",
+  });
+
+  useEffect(() => {
+    if (!data?.defaultRule) return;
+    const rule = data.defaultRule;
+    const map = rule.modelCreditsPerSecond || {};
+    const res = rule.resolutionMultiplier || {};
+    setValues({
+      wan: String(map["wan3.0"] ?? 1),
+      happyhorse: String(map["happyhorse-1.1"] ?? 2),
+      defaultRate: String(map["default"] ?? rule.perSecondCredits ?? 1),
+      baseCredits: String(rule.baseCredits ?? 0),
+      minCredits: String(rule.minCredits ?? 1),
+      res480p: String(res["480p"] ?? 0.8),
+      res720p: String(res["720p"] ?? 1.0),
+      res1080p: String(res["1080p"] ?? 1.0),
+      res2k: String(res["2k"] ?? 1.5),
+      res4k: String(res["4k"] ?? 2.0),
+    });
+  }, [data]);
+
+  async function save() {
+    setBusy(true);
+    setMessage("");
+    try {
+      await api("/api/admin/pricing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobKind: "*",
+          baseCredits: Math.max(0, Number(values.baseCredits) || 0),
+          perSecondCredits: Math.max(0, Number(values.defaultRate) || 1),
+          modelCreditsPerSecond: {
+            "wan3.0": Math.max(0, Number(values.wan) || 1),
+            "happyhorse-1.1": Math.max(0, Number(values.happyhorse) || 2),
+            "default": Math.max(0, Number(values.defaultRate) || 1),
+          },
+          minCredits: Math.max(0, Math.round(Number(values.minCredits) || 1)),
+          resolutionMultiplier: {
+            "480p": Math.max(0, Number(values.res480p) || 0.8),
+            "720p": Math.max(0, Number(values.res720p) || 1.0),
+            "1080p": Math.max(0, Number(values.res1080p) || 1.0),
+            "2k": Math.max(0, Number(values.res2k) || 1.5),
+            "4k": Math.max(0, Number(values.res4k) || 2.0),
+          },
+          note: "由管理后台更新按秒计费模型定价",
+        }),
+      });
+      setMessage("模型按秒计费定价已保存，全站视频生成即时按新定价计费。");
+      await reload();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const previewWan20s = Math.max(Number(values.minCredits) || 1, Math.round((Number(values.baseCredits) || 0) + 20 * (Number(values.wan) || 1) * (Number(values.res1080p) || 1)));
+  const previewHh5s = Math.max(Number(values.minCredits) || 1, Math.round((Number(values.baseCredits) || 0) + 5 * (Number(values.happyhorse) || 2) * (Number(values.res1080p) || 1)));
+  const previewHh15s = Math.max(Number(values.minCredits) || 1, Math.round((Number(values.baseCredits) || 0) + 15 * (Number(values.happyhorse) || 2) * (Number(values.res1080p) || 1)));
+
+  return (
+    <section className="panel" style={{ marginBottom: 20 }}>
+      <div className="admin-panel-head">
+        <div>
+          <h3>模型生成计费定价（按秒计费 · 积分定价）</h3>
+          <span className="muted mini">按视频生成实际秒数精确计算积分消耗；不同的模型支持设置不同的每秒积分单价</span>
+        </div>
+        <div className="inline-actions">
+          <button className="secondary" onClick={reload} disabled={loading}><RefreshCw size={13} />刷新</button>
+          <button className="primary" onClick={save} disabled={busy || loading}>
+            {busy ? <LoaderCircle className="spin" size={13} /> : null} 保存计费设置
+          </button>
+        </div>
+      </div>
+      {message && <div className="notice" style={{ margin: "0 0 12px" }}>{message}</div>}
+      {loading ? <Loading /> : error ? <ErrorNote message={error} /> : (
+        <>
+          <div className="form-grid three">
+            <div className="field">
+              <span className="field-label">Wan 3.0 定价（积分/秒）</span>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                value={values.wan}
+                onChange={e => setValues({ ...values, wan: e.target.value })}
+                placeholder="例如 1"
+              />
+              <span className="muted mini">支持 2–30 秒超长直出与多模态生成</span>
+            </div>
+            <div className="field">
+              <span className="field-label">HappyHorse 1.1 定价（积分/秒）</span>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                value={values.happyhorse}
+                onChange={e => setValues({ ...values, happyhorse: e.target.value })}
+                placeholder="例如 2"
+              />
+              <span className="muted mini">高一致性与生动动态，超 15 秒智能平滑切分</span>
+            </div>
+            <div className="field">
+              <span className="field-label">默认/其他模型定价（积分/秒）</span>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                value={values.defaultRate}
+                onChange={e => setValues({ ...values, defaultRate: e.target.value })}
+                placeholder="例如 1"
+              />
+              <span className="muted mini">未指定或回退线路的每秒基准单价</span>
+            </div>
+            <div className="field">
+              <span className="field-label">单次基础消耗（积分/次）</span>
+              <input
+                type="number"
+                min="0"
+                value={values.baseCredits}
+                onChange={e => setValues({ ...values, baseCredits: e.target.value })}
+                placeholder="0"
+              />
+              <span className="muted mini">每次任务额外扣减的基础点数（通常为 0）</span>
+            </div>
+            <div className="field">
+              <span className="field-label">最低起扣积分（积分/次）</span>
+              <input
+                type="number"
+                min="0"
+                value={values.minCredits}
+                onChange={e => setValues({ ...values, minCredits: e.target.value })}
+                placeholder="1"
+              />
+              <span className="muted mini">单次生成不论时长至少扣减的积分</span>
+            </div>
+            <div className="field">
+              <span className="field-label">1080P 清晰度系数</span>
+              <input
+                type="number"
+                step="0.1"
+                min="0.1"
+                value={values.res1080p}
+                onChange={e => setValues({ ...values, res1080p: e.target.value })}
+                placeholder="1.0"
+              />
+              <span className="muted mini">高清标准基准倍率（通常为 1.0）</span>
+            </div>
+          </div>
+
+          <details style={{ marginTop: 12 }}>
+            <summary className="muted mini" style={{ cursor: "pointer" }}>高级：其他清晰度倍率（480P / 720P / 2K / 4K）</summary>
+            <div className="form-grid four" style={{ marginTop: 10 }}>
+              <div className="field">
+                <span className="field-label">480P 倍率</span>
+                <input type="number" step="0.1" min="0" value={values.res480p} onChange={e => setValues({ ...values, res480p: e.target.value })} />
+              </div>
+              <div className="field">
+                <span className="field-label">720P 倍率</span>
+                <input type="number" step="0.1" min="0" value={values.res720p} onChange={e => setValues({ ...values, res720p: e.target.value })} />
+              </div>
+              <div className="field">
+                <span className="field-label">2K 倍率</span>
+                <input type="number" step="0.1" min="0" value={values.res2k} onChange={e => setValues({ ...values, res2k: e.target.value })} />
+              </div>
+              <div className="field">
+                <span className="field-label">4K 倍率</span>
+                <input type="number" step="0.1" min="0" value={values.res4k} onChange={e => setValues({ ...values, res4k: e.target.value })} />
+              </div>
+            </div>
+          </details>
+
+          <div className="notice" style={{ marginTop: 14, background: "rgba(99, 102, 241, 0.08)", border: "1px solid rgba(99, 102, 241, 0.2)" }}>
+            <strong>💡 实时计费试算预览（1080P）：</strong>
+            <span style={{ marginLeft: 8 }}>
+              5秒 HappyHorse = <b>{previewHh5s}</b> 积分 · 15秒 HappyHorse = <b>{previewHh15s}</b> 积分 · 20秒 Wan 3.0 = <b>{previewWan20s}</b> 积分
+            </span>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function PlansSection() {
   const { data, error, loading, reload } = useLoad<any>("/api/admin/plans", []);
   const [draft, setDraft] = useState<any>(null);
@@ -387,8 +587,13 @@ function PlansSection() {
   }
 
   return <div className="admin-panel">
+    <ModelPricingPanel />
+
     <div className="admin-panel-head">
-      <h2>商品与套餐</h2>
+      <div>
+        <h2>充值套餐与会员方案</h2>
+        <span className="muted mini">管理用户购买的会员套餐与额度加油包，支持自主添加与编辑</span>
+      </div>
       <div className="inline-actions">
         <button className="secondary" onClick={reload}><RefreshCw size={13} />刷新</button>
         <button className="primary" onClick={create}>新建商品</button>

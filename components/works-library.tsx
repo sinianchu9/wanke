@@ -167,7 +167,15 @@ export default function WorksLibrary({ onNotice }: { onNotice?: (message: string
             : <div className="no-preview"><Film size={20}/><span>暂无可播放来源</span></div>}
           <div className="work-meta">
             <div>
-              <strong><PlayCircle size={13}/> {work.title}</strong>
+              <strong>
+                <PlayCircle size={13}/> {work.title}
+                {((work.title + " " + (work.source?.jobTitle || "")).toLowerCase().includes("happyhorse")) && (
+                  <span className="badge-model badge-model-happyhorse" style={{ marginLeft: 6 }}>HappyHorse 1.1</span>
+                )}
+                {((work.title + " " + (work.source?.jobTitle || "")).toLowerCase().includes("wan")) && (
+                  <span className="badge-model badge-model-wan" style={{ marginLeft: 6 }}>Wan 3.0</span>
+                )}
+              </strong>
               <span>
                 {new Date(work.createdAt).toLocaleString("zh-CN")}
                 {" · "}{formatDuration(work.durationSeconds)}

@@ -82,7 +82,12 @@ export async function POST(request: Request) {
 
     // Check the whole plan is affordable first, then reserve per shot so a single
     // synchronous rejection only returns that shot's credits.
-    const quickQuote = assertBatchAffordable(user.id, "video_generation", {}, plan.shots.length);
+    const firstShot = plan.shots[0];
+    const quickQuote = assertBatchAffordable(user.id, "video_generation", {
+      duration: firstShot?.duration || Math.round(Number(input.totalDuration || 5) / Math.max(1, plan.shots.length)),
+      model: firstShot?.model || input.preferredModel || "auto",
+      preferredModel: input.preferredModel,
+    }, plan.shots.length);
     const results: Array<{ shotId: string; shotName: string; jobId: string; status: string; error?: string | null }> = [];
     for (const shotPlan of plan.shots) {
       const shot = createShot({ projectId: project.id, name: shotPlan.name, brief: shotPlan.brief });

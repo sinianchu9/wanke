@@ -617,9 +617,29 @@ function seedCommercialDefaults(db: Database) {
     const insert = db.prepare(`INSERT OR IGNORE INTO pricing_rules (job_kind, base_credits, rule_json, enabled, note, updated_at)
       VALUES (?, ?, ?, 1, ?, ?)`);
     const seed = db.transaction(() => {
-      insert.run("*", 1, JSON.stringify({ perMinuteCredits: 0, minCredits: 1, maxCredits: 20 }), "默认创作额度规则（与商业化前保持一致）", now);
+      insert.run("*", 0, JSON.stringify({
+        perSecondCredits: 1,
+        modelCreditsPerSecond: { "wan3.0": 1, "happyhorse-1.1": 2, "default": 1 },
+        minCredits: 1,
+        maxCreditsPerUnit: 2000,
+        resolutionMultiplier: { "480p": 0.8, "720p": 1.0, "1080p": 1.0, "2k": 1.5, "4k": 2.0 },
+      }), "默认按秒计费规则（Wan 3.0 1积分/秒，HappyHorse 2积分/秒）", now);
     });
     seed();
+  } else {
+    // 自动将旧版本数据库中的 pricing_rules 升级为按秒模型定价
+    try {
+      const row = db.prepare("SELECT rule_json FROM pricing_rules WHERE job_kind='*'").get() as any;
+      if (row?.rule_json) {
+        let json = JSON.parse(row.rule_json);
+        if (!json.modelCreditsPerSecond) {
+          json.perSecondCredits = 1;
+          json.modelCreditsPerSecond = { "wan3.0": 1, "happyhorse-1.1": 2, "default": 1 };
+          json.resolutionMultiplier = json.resolutionMultiplier || { "480p": 0.8, "720p": 1.0, "1080p": 1.0, "2k": 1.5, "4k": 2.0 };
+          db.prepare("UPDATE pricing_rules SET base_credits=0, rule_json=?, updated_at=? WHERE job_kind='*'").run(JSON.stringify(json), now);
+        }
+      }
+    } catch {}
   }
 
   const failureCount = Number((db.prepare("SELECT COUNT(*) AS c FROM failure_rules").get() as any).c || 0);

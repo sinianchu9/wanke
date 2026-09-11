@@ -458,6 +458,9 @@ function ResultCard({ output, job, index, onArchive, onSaveWork, busy }: { outpu
                     <span className={`res-pill res-${resolution.toLowerCase()}`}>
                       {resolution}
                     </span>
+                    <span className={`model-pill model-${rawModel.toLowerCase().includes("happyhorse") ? "happyhorse" : "wan"}`}>
+                      {modelLabel}
+                    </span>
                     {dimensionText && <span className="dim-pill">{dimensionText}</span>}
                   </div>
                 )}
@@ -470,9 +473,14 @@ function ResultCard({ output, job, index, onArchive, onSaveWork, busy }: { outpu
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
           <strong style={{ fontSize: "13px" }}>{output.label || `版本 ${index + 1}`}{output.outputLanguage ? ` · ${output.outputLanguage}` : ""}</strong>
           {isVideo && (
-            <span className={`badge-res badge-res-${resolution.toLowerCase()}`}>
-              {resolution} 高清
-            </span>
+            <>
+              <span className={`badge-res badge-res-${resolution.toLowerCase()}`}>
+                {resolution} 高清
+              </span>
+              <span className={`badge-model badge-model-${rawModel.toLowerCase().includes("happyhorse") ? "happyhorse" : "wan"}`}>
+                {modelLabel}
+              </span>
+            </>
           )}
         </div>
 
