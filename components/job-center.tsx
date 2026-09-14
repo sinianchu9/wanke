@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BookmarkPlus, Check, ChevronRight, Clock3, Cpu, Download, ExternalLink, Film, GitBranch, Layers3, LoaderCircle, RefreshCw, Repeat2, RotateCcw, ShieldCheck, Sparkles, Timer, Trash2 } from "lucide-react";
+import { AlertTriangle, BookmarkPlus, Check, ChevronRight, Clock3, Cpu, Download, ExternalLink, Film, GitBranch, HardDriveDownload, Layers3, LoaderCircle, RefreshCw, Repeat2, RotateCcw, ShieldCheck, Sparkles, Timer, Trash2 } from "lucide-react";
 import ContinueCreation from "@/components/continue-creation";
 import VideoExtend from "@/components/video-extend";
 import VideoEdit from "@/components/video-edit";
@@ -516,20 +516,32 @@ function ResultCard({ output, job, index, onArchive, onSaveWork, busy }: { outpu
         <div style={{ marginTop: "6px" }}>
           {output.archivedFile ? (
             <span className="archive-ok" style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-              <Check size={13} /> 已保存到本机 · {output.archivedFile}
+              <Check size={13} /> 已备份到服务器 · {output.archivedFile}
             </span>
           ) : remote && (
             <span className="archive-warning-text">
-              <Clock3 size={12} /> 云端结果链接会过期，满意后建议点击右侧保存到本机。
+              <Clock3 size={12} /> 云端结果链接可能过期，可点击备份到服务器。
             </span>
           )}
+          <div className="download-mobile-tip">📱 手机端提示：点击下方「下载视频」将直接唤起系统下载确认框保存到本地。</div>
         </div>
       </div>
 
       <div className="result-actions" style={{ alignSelf: "flex-start", flexShrink: 0 }}>
+        {isVideo && (
+          <a
+            className="btn-download-action"
+            href={job?.id ? `/api/jobs/${job.id}/download?index=${index}` : (output.archivedFile ? `/api/archive/${encodeURIComponent(output.archivedFile)}?download=1` : url)}
+            download
+            title="一键下载视频文件到手机或电脑"
+          >
+            <Download size={14} />
+            <span>下载视频</span>
+          </a>
+        )}
         {isVideo && onSaveWork && <button className="icon-button" disabled={busy} title="保存到「我的作品」，长期管理" onClick={onSaveWork}><BookmarkPlus size={16}/></button>}
-        {remote && !output.archivedFile && <button className="icon-button" disabled={busy} title="保存到本机（推荐），避免云端结果链接过期" onClick={onArchive}><Download size={16}/></button>}
-        {url && <a className="icon-button" href={url} target="_blank" rel="noreferrer" title="新标签页打开结果"><ExternalLink size={16}/></a>}
+        {remote && !output.archivedFile && <button className="icon-button" disabled={busy} title="备份到服务器存储（避免云端过期）" onClick={onArchive}><HardDriveDownload size={16}/></button>}
+        {url && <a className="icon-button" href={url} target="_blank" rel="noreferrer" title="新标签页打开原视频"><ExternalLink size={16}/></a>}
       </div>
     </div>
   </article>;

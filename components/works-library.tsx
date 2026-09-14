@@ -136,9 +136,15 @@ export default function WorksLibrary({ onNotice }: { onNotice?: (message: string
   const playUrl = (work: Work) => work.archivedFile
     ? `/api/archive/${encodeURIComponent(work.archivedFile)}`
     : work.videoUrl || "";
-  const downloadUrl = (work: Work) => work.archivedFile
-    ? `/api/archive/${encodeURIComponent(work.archivedFile)}?download=1`
-    : "";
+  const downloadUrl = (work: Work) => {
+    if (work.source?.jobId) {
+      return `/api/jobs/${work.source.jobId}/download?index=0`;
+    }
+    if (work.archivedFile) {
+      return `/api/archive/${encodeURIComponent(work.archivedFile)}?download=1`;
+    }
+    return work.videoUrl || "";
+  };
 
   if (loading) {
     return <div className="works-empty"><LoaderCircle className="spin" size={22}/>正在加载作品库…</div>;
@@ -193,8 +199,9 @@ export default function WorksLibrary({ onNotice }: { onNotice?: (message: string
             </div>
             <div className="result-actions">
               {downloadUrl(work) && (
-                <a className="icon-button" title="下载作品" href={downloadUrl(work)} download>
-                  <Download size={14}/>
+                <a className="btn-download-action mini" title="下载作品文件到手机/电脑" href={downloadUrl(work)} download>
+                  <Download size={13}/>
+                  <span>下载作品</span>
                 </a>
               )}
               {work.source && (

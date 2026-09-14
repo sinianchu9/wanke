@@ -240,8 +240,8 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
         </div>
         {finalUrl && <div style={{marginTop:12}}>
           {finalIsCurrent
-            ? <div className="notice"><Check size={16}/><span>这个成片对应当前作品设置和已选版本。</span><a className="secondary" href={finalUrl} target="_blank" rel="noreferrer"><Download size={14}/>打开视频</a></div>
-            : <div className="error-banner warning"><span>这是之前生成的成片；作品之后有过版本、镜头或项目设置调整。旧成片仍可播放，但要反映当前选择请重新生成最终视频。</span><a className="secondary" href={finalUrl} target="_blank" rel="noreferrer"><Download size={14}/>打开旧成片</a></div>}
+            ? <div className="notice"><Check size={16}/><span>这个成片对应当前作品设置和已选版本。</span><a className="btn-download-action mini" href={finalUrl.includes("?") ? `${finalUrl}&download=1` : `${finalUrl}?download=1`} download target="_blank" rel="noreferrer"><Download size={14}/>下载最终视频</a></div>
+            : <div className="error-banner warning"><span>这是之前生成的成片；作品之后有过版本、镜头或项目设置调整。旧成片仍可播放，要反映最新镜头请点击上方重新生成。</span><a className="btn-download-action mini" href={finalUrl.includes("?") ? `${finalUrl}&download=1` : `${finalUrl}?download=1`} download target="_blank" rel="noreferrer"><Download size={14}/>下载旧成片</a></div>}
           <video src={finalUrl} controls preload="metadata" style={{width:"100%",marginTop:10,borderRadius:12}}/>
         </div>}
       </section>
