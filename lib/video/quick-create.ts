@@ -14,8 +14,11 @@ export type QuickCreationInput = {
   totalDuration: number;
   subjectId?: string | null;
   imageAssetId?: string | null;
+  imageAssetIds?: string[] | null;
   referenceUrl?: string | null;
+  referenceUrls?: string[] | null;
   localInputRef?: string | null;
+  localInputRefs?: string[] | null;
   preferredModel?: "auto" | "wan3.0" | "happyhorse-1.1" | string | null;
 };
 
@@ -35,7 +38,7 @@ export type QuickShotPlan = {
 type ResolvedReference = {
   medias: Array<{ type: "image"; url: string; mediaId: string }>;
   subjectCardIds: string[];
-  source: "none" | "subject" | "asset" | "url" | "local";
+  source: "none" | "subject" | "asset" | "url" | "local" | "mixed";
 };
 
 export function buildQuickCreationPlan(input: QuickCreationInput) {
@@ -122,8 +125,12 @@ export function buildQuickCreationPlan(input: QuickCreationInput) {
 }
 
 function resolveReference(input: QuickCreationInput): ResolvedReference {
+  const allLocalRefs = [...(input.localInputRefs || []), ...(input.localInputRef ? [input.localInputRef] : [])].filter(Boolean);
+  const allAssetIds = [...(input.imageAssetIds || []), ...(input.imageAssetId ? [input.imageAssetId] : [])].filter(Boolean);
+  const allUrls = [...(input.referenceUrls || []), ...(input.referenceUrl ? [input.referenceUrl] : [])].map(u => String(u || "").trim()).filter(Boolean);
+
   if (input.type === "text_video") {
-    if (input.subjectId || input.imageAssetId || input.referenceUrl || input.localInputRef) {
+    if (input.subjectId || allAssetIds.length > 0 || allUrls.length > 0 || allLocalRefs.length > 0) {
       throw new Error("纯文字生成不使用参考素材，请清除主体、图片或链接后再试");
     }
     return { medias: [], subjectCardIds: [], source: "none" };
@@ -145,41 +152,58 @@ function resolveReference(input: QuickCreationInput): ResolvedReference {
     };
   }
 
-  return resolveSingleImage(input);
+  return resolveImages(input, allLocalRefs, allAssetIds, allUrls);
 }
 
-function resolveSingleImage(input: QuickCreationInput): ResolvedReference {
-  if (input.localInputRef) {
-    if (!isLocalInputRef(input.localInputRef)) throw new Error("本次上传的图片引用无效，请重新选择图片");
-    return {
-      medias: [{ type: "image", url: input.localInputRef, mediaId: "" }],
-      subjectCardIds: [],
-      source: "local",
-    };
+function resolveImages(
+  input: QuickCreationInput,
+  allLocalRefs: string[],
+  allAssetIds: string[],
+  allUrls: string[],
+): ResolvedReference {
+  const medias: Array<{ type: "image"; url: string; mediaId: string }> = [];
+  const sources = new Set<"local" | "asset" | "url">();
+
+  for (const ref of allLocalRefs) {
+    if (!isLocalInputRef(ref)) throw new Error("本次上传的图片引用无效，请重新选择图片");
+    medias.push({ type: "image", url: ref, mediaId: "" });
+    sources.add("local");
   }
 
-  if (input.imageAssetId) {
-    const asset = getAsset(input.imageAssetId);
+  for (const assetId of allAssetIds) {
+    const asset = getAsset(assetId);
     if (!asset) throw new Error("所选图片素材已经不存在，请重新选择");
     if (asset.mediaType !== "image") throw new Error("快速创作这里只接受图片素材");
-    return { medias: [mediaFromAsset(asset)], subjectCardIds: [], source: "asset" };
+    medias.push(mediaFromAsset(asset));
+    sources.add("asset");
   }
 
-  const url = String(input.referenceUrl || "").trim();
-  if (url) {
+  for (const url of allUrls) {
     let parsed: URL;
     try { parsed = new URL(url); } catch { throw new Error("图片链接无效，请使用可公开访问的 HTTP/HTTPS 图片直链"); }
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("图片链接必须是 HTTP/HTTPS 公网地址");
-    return {
-      medias: [{ type: "image", url, mediaId: "" }],
-      subjectCardIds: [],
-      source: "url",
-    };
+    medias.push({ type: "image", url, mediaId: "" });
+    sources.add("url");
   }
 
-  if (input.type === "product_ad") throw new Error("请选择一个产品，或本次直接提供一张产品图片");
-  if (input.type === "person_short") throw new Error("请选择一个人物，或本次直接提供一张人物图片");
-  throw new Error("请选择、上传或粘贴一张要动起来的图片");
+  if (medias.length === 0) {
+    if (input.type === "product_ad") throw new Error("请选择一个产品，或本次直接提供 1~2 张产品图片");
+    if (input.type === "person_short") throw new Error("请选择一个人物，或本次直接提供 1~2 张人物图片");
+    throw new Error("请选择、上传或粘贴一张要动起来的图片");
+  }
+
+  if (input.type === "image_video" && medias.length > 1) {
+    throw new Error("图片动起来模式只需要 1 张图片，请保留 1 张图片或切换至人物短片/产品广告");
+  }
+
+  const finalMedias = medias.slice(0, 5);
+  const source: ResolvedReference["source"] = sources.size === 1 ? Array.from(sources)[0] : "mixed";
+
+  return {
+    medias: finalMedias,
+    subjectCardIds: [],
+    source,
+  };
 }
 
 function mediaFromAsset(asset: NonNullable<ReturnType<typeof getAsset>>) {

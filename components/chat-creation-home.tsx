@@ -35,6 +35,15 @@ type QuickCreateResult = {
 };
 type ModelOption = "auto" | "wan3.0" | "happyhorse-1.1";
 
+export type ImageRef = {
+  key: string;
+  kind: "local" | "asset" | "url";
+  name: string;
+  localInput?: LocalInput;
+  assetId?: string;
+  url?: string;
+};
+
 type DraftState = {
   restored: boolean;
   type: CreationType;
@@ -44,9 +53,10 @@ type DraftState = {
   providerMode: ProviderMode;
   preferredModel: ModelOption;
   subjectId: string;
-  imageAssetId: string;
-  referenceUrl: string;
-  localInput: LocalInput | null;
+  imageRefs: ImageRef[];
+  imageAssetId?: string;
+  referenceUrl?: string;
+  localInput?: LocalInput | null;
 };
 
 type Props = {
@@ -116,9 +126,8 @@ export default function ChatCreationHome({
   // Members never pick an upstream service; the platform routes each creation.
   const [providerMode] = useState<ProviderMode>("auto");
   const [subjectId, setSubjectId] = useState(draftSeed.subjectId);
-  const [imageAssetId, setImageAssetId] = useState(draftSeed.imageAssetId);
-  const [referenceUrl, setReferenceUrl] = useState(draftSeed.referenceUrl);
-  const [localInput, setLocalInput] = useState<LocalInput | null>(draftSeed.localInput);
+  const [imageRefs, setImageRefs] = useState<ImageRef[]>(draftSeed.imageRefs || []);
+  const [referenceUrl, setReferenceUrl] = useState("");
   const [localUploading, setLocalUploading] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -137,14 +146,15 @@ export default function ChatCreationHome({
       if (event.key !== "Escape") return;
       setPlusOpen(false);
       setOptionsOpen(false);
-      };
+    };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [popoverOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const draft = {
+    const draft: DraftState = {
+      restored: true,
       type,
       prompt,
       platform,
@@ -152,25 +162,25 @@ export default function ChatCreationHome({
       preferredModel,
       providerMode,
       subjectId,
-      imageAssetId,
-      referenceUrl,
-      localInput,
+      imageRefs,
     };
     const meaningful = Boolean(
-      prompt.trim() || subjectId || imageAssetId || referenceUrl.trim() || localInput ||
+      prompt.trim() || subjectId || imageRefs.length > 0 ||
       type !== "text_video" || platform !== "douyin" || duration !== 5 || preferredModel !== "auto" || providerMode !== defaultProviderMode,
     );
     if (meaningful) window.sessionStorage.setItem(CHAT_DRAFT_KEY, JSON.stringify(draft));
     else window.sessionStorage.removeItem(CHAT_DRAFT_KEY);
-  }, [type, prompt, platform, duration, preferredModel, providerMode, subjectId, imageAssetId, referenceUrl, localInput, defaultProviderMode]);
+  }, [type, prompt, platform, duration, preferredModel, providerMode, subjectId, imageRefs, defaultProviderMode]);
 
   useEffect(() => {
     if (subjectId && subjects.length > 0 && !subjects.some(subject => subject.id === subjectId)) setSubjectId("");
   }, [subjects, subjectId]);
 
   useEffect(() => {
-    if (imageAssetId && assets.length > 0 && !assets.some(asset => asset.id === imageAssetId)) setImageAssetId("");
-  }, [assets, imageAssetId]);
+    if (imageRefs.length > 0 && assets.length > 0) {
+      setImageRefs(prev => prev.filter(ref => ref.kind !== "asset" || !ref.assetId || assets.some(a => a.id === ref.assetId)));
+    }
+  }, [assets, imageRefs.length]);
 
   const images = useMemo(() => assets.filter(asset => asset.mediaType === "image"), [assets]);
   const compatibleSubjects = useMemo(
@@ -178,12 +188,10 @@ export default function ChatCreationHome({
     [subjects, type],
   );
   const selectedSubject = subjects.find(subject => subject.id === subjectId) || null;
-  const selectedImage = images.find(asset => asset.id === imageAssetId) || null;
+  const maxDirectImages = (type === "person_short" || type === "product_ad") ? 2 : 1;
   const hasReference = type === "text_video"
     ? true
-    : type === "image_video"
-      ? Boolean(localInput || imageAssetId || referenceUrl.trim())
-      : Boolean(subjectId || localInput || imageAssetId || referenceUrl.trim());
+    : Boolean(subjectId || imageRefs.length > 0);
   const providerReady = providerMode === "modelstudio"
     ? modelStudioAvailable
     : providerMode === "yike"
@@ -196,61 +204,121 @@ export default function ChatCreationHome({
     : providerMode === "yike"
       ? yikeAvailable
       : modelStudioAvailable || yikeAvailable;
-  const referenceLabel = type === "text_video" ? "" : (selectedSubject?.name || selectedImage?.name || localInput?.name || (referenceUrl.trim() ? "图片链接" : imageAssetId ? "已上传图片" : ""));
   const effectiveModel = preferredModel === "auto" ? (duration > 15 || duration < 3 ? "wan3.0" : "happyhorse-1.1") : preferredModel;
   const estimatedCredits = calculateCredits(pricing, effectiveModel, duration, "1080P");
   const unitRate = getModelUnitRate(pricing, effectiveModel);
 
-  function clearLocal() {
-    if (localInput) discardLocalImage(localInput.ref);
-    setLocalInput(null);
+  function clearAllLocalInputs() {
+    for (const item of imageRefs) {
+      if (item.kind === "local" && item.localInput?.ref) {
+        discardLocalImage(item.localInput.ref);
+      }
+    }
   }
 
   function chooseType(next: CreationType) {
     if (interactionLocked) return;
     closePopovers();
-    clearLocal();
+    clearAllLocalInputs();
     setType(next);
     setSubjectId("");
-    setImageAssetId("");
+    setImageRefs([]);
     setReferenceUrl("");
     setError("");
   }
 
   function chooseSubject(id: string) {
     if (interactionLocked) return;
-    clearLocal();
+    clearAllLocalInputs();
     setSubjectId(id);
-    setImageAssetId("");
+    setImageRefs([]);
     setReferenceUrl("");
     setPlusOpen(false);
     setError("");
   }
 
-  function chooseImage(id: string) {
-    if (interactionLocked) return;
-    clearLocal();
-    setImageAssetId(id);
+  function clearSubject() {
     setSubjectId("");
-    setReferenceUrl("");
-    setPlusOpen(false);
     setError("");
   }
 
-  function changeReferenceUrl(value: string) {
+  function removeImageRef(key: string) {
     if (interactionLocked) return;
-    if (value.trim()) {
-      clearLocal();
-      setSubjectId("");
-      setImageAssetId("");
+    const target = imageRefs.find(r => r.key === key);
+    if (target?.kind === "local" && target.localInput?.ref) {
+      discardLocalImage(target.localInput.ref);
     }
-    setReferenceUrl(value);
+    setImageRefs(prev => prev.filter(r => r.key !== key));
+    setError("");
+  }
+
+  function chooseImage(asset: StoredAsset) {
+    if (interactionLocked) return;
+    if (imageRefs.some(r => r.kind === "asset" && r.assetId === asset.id)) {
+      setError(`“${asset.name}”已经在参考列表中。`);
+      return;
+    }
+    setSubjectId("");
+    setError("");
+    const newRef: ImageRef = {
+      key: `asset-${asset.id}-${Date.now()}`,
+      kind: "asset",
+      name: asset.name,
+      assetId: asset.id,
+    };
+    if (imageRefs.length >= maxDirectImages) {
+      if (maxDirectImages === 1) {
+        clearAllLocalInputs();
+        setImageRefs([newRef]);
+      } else {
+        setError(`当前模式最多支持 ${maxDirectImages} 张参考图片，请先点击 × 移除不需要的图片。`);
+        return;
+      }
+    } else {
+      setImageRefs(prev => [...prev, newRef]);
+    }
+    setPlusOpen(false);
+  }
+
+  function addUrlReference() {
+    if (interactionLocked) return;
+    const url = referenceUrl.trim();
+    if (!url) return;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("必须是 HTTP/HTTPS 公网地址");
+    } catch {
+      setError("图片链接无效，请使用可公开访问的 HTTP/HTTPS 图片直链。");
+      return;
+    }
+    setSubjectId("");
+    setError("");
+    const fileName = url.split("/").pop()?.split("?")[0] || "图片链接";
+    const newRef: ImageRef = {
+      key: `url-${Date.now()}`,
+      kind: "url",
+      name: fileName.length > 20 ? `${fileName.slice(0, 18)}…` : fileName,
+      url,
+    };
+    if (imageRefs.length >= maxDirectImages) {
+      if (maxDirectImages === 1) {
+        clearAllLocalInputs();
+        setImageRefs([newRef]);
+      } else {
+        setError(`当前模式最多支持 ${maxDirectImages} 张参考图片，请先点击 × 移除不需要的图片。`);
+        return;
+      }
+    } else {
+      setImageRefs(prev => [...prev, newRef]);
+    }
+    setReferenceUrl("");
+    setPlusOpen(false);
   }
 
   function clearReference() {
-    clearLocal();
+    clearAllLocalInputs();
     setSubjectId("");
-    setImageAssetId("");
+    setImageRefs([]);
     setReferenceUrl("");
     setError("");
   }
@@ -271,6 +339,11 @@ export default function ChatCreationHome({
       return;
     }
 
+    if (imageRefs.length >= maxDirectImages && maxDirectImages > 1) {
+      setError(`当前模式最多支持 ${maxDirectImages} 张参考图片，请先点击 × 移除不需要的图片。`);
+      return;
+    }
+
     setLocalUploading(true);
     setError("");
     try {
@@ -281,20 +354,37 @@ export default function ChatCreationHome({
         const response = await fetch("/api/video-inputs", { method: "POST", body: form });
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "图片准备失败");
-        clearLocal();
-        setLocalInput(body.input as LocalInput);
+        const newRef: ImageRef = {
+          key: `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          kind: "local",
+          name: file.name,
+          localInput: body.input as LocalInput,
+        };
         setSubjectId("");
-        setImageAssetId("");
-        setReferenceUrl("");
+        if (maxDirectImages === 1) {
+          clearAllLocalInputs();
+          setImageRefs([newRef]);
+        } else {
+          setImageRefs(prev => [...prev, newRef]);
+        }
         setPlusOpen(false);
         return;
       }
 
       const asset = await uploadImageToExtendedLibrary(file);
-      clearLocal();
+      const newRef: ImageRef = {
+        key: `asset-${asset.id}-${Date.now()}`,
+        kind: "asset",
+        name: file.name,
+        assetId: asset.id,
+      };
       setSubjectId("");
-      setReferenceUrl("");
-      setImageAssetId(asset.id);
+      if (maxDirectImages === 1) {
+        clearAllLocalInputs();
+        setImageRefs([newRef]);
+      } else {
+        setImageRefs(prev => [...prev, newRef]);
+      }
       setPlusOpen(false);
       await onAssetsChanged();
     } catch (e) {
@@ -365,10 +455,14 @@ export default function ChatCreationHome({
       return;
     }
     if (!hasReference) {
-      setError(type === "image_video" ? "点击 + 添加一张图片或图片链接。" : "点击 + 添加一个主体，或提供一张参考图片。");
+      setError(type === "image_video" ? "点击 + 添加一张图片或图片链接。" : "点击 + 添加一个主体，或提供 1~2 张参考图片。");
       setPlusOpen(true);
       return;
     }
+
+    const localInputRefs = imageRefs.filter(i => i.kind === "local" && i.localInput).map(i => i.localInput!.ref);
+    const imageAssetIds = imageRefs.filter(i => i.kind === "asset" && i.assetId).map(i => i.assetId!);
+    const referenceUrls = imageRefs.filter(i => i.kind === "url" && i.url).map(i => i.url!);
 
     setBusy(true);
     setError("");
@@ -385,9 +479,12 @@ export default function ChatCreationHome({
           preferredModel,
           providerMode,
           subjectId: type === "text_video" || type === "image_video" ? null : (subjectId || null),
-          imageAssetId: type === "text_video" ? null : (imageAssetId || null),
-          referenceUrl: type === "text_video" ? "" : referenceUrl.trim(),
-          localInputRef: type === "text_video" ? "" : (localInput?.ref || ""),
+          imageAssetId: imageAssetIds[0] || null,
+          imageAssetIds,
+          referenceUrl: referenceUrls[0] || "",
+          referenceUrls,
+          localInputRef: localInputRefs[0] || "",
+          localInputRefs,
         }),
       });
       const body = await response.json();
@@ -441,13 +538,35 @@ export default function ChatCreationHome({
           chooseLocal(event.dataTransfer.files?.[0]);
         }}
       >
-        {referenceLabel && (
+        {selectedSubject && (
           <div className={styles.referenceRow}>
             <span className={styles.referenceToken}>
-              {selectedSubject ? <UserRound size={14} /> : <ImageIcon size={14} />}
-              {referenceLabel}
-              <button disabled={interactionLocked} onClick={clearReference} aria-label="移除参考">×</button>
+              <UserRound size={14} />
+              <span>{selectedSubject.name}</span>
+              <button disabled={interactionLocked} onClick={clearSubject} aria-label="移除主体">×</button>
             </span>
+          </div>
+        )}
+        {!selectedSubject && imageRefs.length > 0 && (
+          <div className={styles.referenceRow}>
+            {imageRefs.map((item, index) => (
+              <span key={item.key} className={styles.referenceToken}>
+                <ImageIcon size={14} />
+                <span>{imageRefs.length > 1 ? `参考图 ${index + 1}: ${item.name}` : item.name}</span>
+                <button disabled={interactionLocked} onClick={() => removeImageRef(item.key)} aria-label="移除参考">×</button>
+              </span>
+            ))}
+            {imageRefs.length < maxDirectImages && !interactionLocked && (
+              <button
+                type="button"
+                className={styles.addMoreToken}
+                onClick={() => { closePopovers(); setPlusOpen(true); }}
+                title="继续添加参考图片"
+              >
+                <Plus size={12} />
+                <span>添加第 2 张 (可选)</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -477,9 +596,17 @@ export default function ChatCreationHome({
               {plusOpen && (
                 <div className={`${styles.popover} ${styles.referencePopover}`}>
                   <div className={styles.popoverHeader}>
-                    <div className={styles.popoverTitle}>添加参考</div>
+                    <div className={styles.popoverTitle}>
+                      添加参考 {maxDirectImages > 1 ? `(已添加 ${imageRefs.length}/${maxDirectImages})` : ""}
+                    </div>
                     <button className={styles.popoverClose} onClick={closePopovers} aria-label="关闭添加参考"><X size={15} /></button>
                   </div>
+
+                  {imageRefs.length >= maxDirectImages && maxDirectImages > 1 && (
+                    <div className={styles.popoverEmpty} style={{ color: "#4338ca", background: "rgba(99, 102, 241, 0.08)", padding: "6px 8px", borderRadius: "6px", marginBottom: "8px", fontSize: "11px" }}>
+                      已添加 2 张参考图（已达上限）。可直接描述并开始创作，或点击上方 × 移除后更换。
+                    </div>
+                  )}
 
                   <div className={styles.popoverLabel}>本机图片</div>
                   {canChooseComputerImage ? (
@@ -509,9 +636,15 @@ export default function ChatCreationHome({
                   <div className={styles.popoverLabel}>素材库图片</div>
                   {images.length ? (
                     <div className={styles.referenceList}>
-                      {images.slice(0, 6).map(asset => (
-                        <button key={asset.id} onClick={() => chooseImage(asset.id)}><ImageIcon size={15} /><span>{asset.name}</span></button>
-                      ))}
+                      {images.slice(0, 6).map(asset => {
+                        const added = imageRefs.some(r => r.kind === "asset" && r.assetId === asset.id);
+                        return (
+                          <button key={asset.id} onClick={() => chooseImage(asset)} style={added ? { opacity: 0.6 } : undefined}>
+                            <ImageIcon size={15} />
+                            <span>{asset.name}{added ? " (已添加)" : ""}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   ) : <div className={styles.popoverEmpty}>素材库还没有图片</div>}
                   <button className={styles.popoverLink} onClick={onOpenAssets}><Library size={15} />打开素材库</button>
@@ -520,10 +653,10 @@ export default function ChatCreationHome({
                   <input
                     className={styles.urlInput}
                     value={referenceUrl}
-                    onChange={event => changeReferenceUrl(event.target.value)}
+                    onChange={event => setReferenceUrl(event.target.value)}
                     placeholder="https://...jpg / png / webp"
                   />
-                  {referenceUrl.trim() && <button className={styles.popoverPrimary} onClick={() => setPlusOpen(false)}>使用这个链接</button>}
+                  {referenceUrl.trim() && <button className={styles.popoverPrimary} onClick={addUrlReference}>使用这个链接</button>}
                 </div>
               )}
             </div>}
@@ -679,9 +812,7 @@ function readDraft(defaultProviderMode: ProviderMode): DraftState {
     preferredModel: "auto",
     providerMode: defaultProviderMode,
     subjectId: "",
-    imageAssetId: "",
-    referenceUrl: "",
-    localInput: null,
+    imageRefs: [],
   };
   if (typeof window === "undefined") return fallback;
   try {
@@ -693,9 +824,35 @@ function readDraft(defaultProviderMode: ProviderMode): DraftState {
     const duration = typeof value.duration === "number" && value.duration >= 2 && value.duration <= 30 ? Math.round(value.duration) : fallback.duration;
     const preferredModel: ModelOption = value.preferredModel === "wan3.0" || value.preferredModel === "happyhorse-1.1" ? value.preferredModel : "auto";
     const providerMode = value.providerMode === "auto" || value.providerMode === "modelstudio" || value.providerMode === "yike" ? value.providerMode : defaultProviderMode;
-    const localInput = value.localInput && typeof value.localInput.ref === "string" && value.localInput.ref.startsWith("wanke-input://")
-      ? { ref: value.localInput.ref, name: String(value.localInput.name || "本地图片"), size: Number(value.localInput.size || 0) }
-      : null;
+    
+    let imageRefs: ImageRef[] = [];
+    if (Array.isArray(value.imageRefs)) {
+      imageRefs = value.imageRefs.filter(item => item && typeof item.name === "string");
+    } else {
+      if (value.localInput && typeof value.localInput.ref === "string" && value.localInput.ref.startsWith("wanke-input://")) {
+        imageRefs.push({
+          key: "local-" + Date.now(),
+          kind: "local",
+          name: value.localInput.name || "本地图片",
+          localInput: value.localInput,
+        });
+      } else if (value.imageAssetId) {
+        imageRefs.push({
+          key: "asset-" + value.imageAssetId,
+          kind: "asset",
+          name: "素材图片",
+          assetId: value.imageAssetId,
+        });
+      } else if (value.referenceUrl && value.referenceUrl.trim()) {
+        imageRefs.push({
+          key: "url-" + Date.now(),
+          kind: "url",
+          name: "图片链接",
+          url: value.referenceUrl.trim(),
+        });
+      }
+    }
+
     return {
       restored: true,
       type,
@@ -705,9 +862,7 @@ function readDraft(defaultProviderMode: ProviderMode): DraftState {
       preferredModel,
       providerMode,
       subjectId: String(value.subjectId || ""),
-      imageAssetId: String(value.imageAssetId || ""),
-      referenceUrl: String(value.referenceUrl || ""),
-      localInput,
+      imageRefs,
     };
   } catch {
     window.sessionStorage.removeItem(CHAT_DRAFT_KEY);

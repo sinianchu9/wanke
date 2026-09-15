@@ -28,30 +28,55 @@ const schema = z.object({
   preferredModel: z.enum(["auto", "wan3.0", "happyhorse-1.1", "wan", "happyhorse"]).optional().default("auto"),
   subjectId: z.string().min(1).nullable().optional(),
   imageAssetId: z.string().min(1).nullable().optional(),
+  imageAssetIds: z.array(z.string().min(1)).optional().default([]),
   referenceUrl: z.string().trim().max(2048).optional().default(""),
+  referenceUrls: z.array(z.string().trim().max(2048)).optional().default([]),
   // Client-generated request id: a repeated submit reuses the same per-shot charges.
   clientRequestId: z.string().min(8).max(128).optional(),
   localInputRef: z.string().trim().max(240).optional().default(""),
+  localInputRefs: z.array(z.string().trim().max(240)).optional().default([]),
 }).superRefine((value, ctx) => {
-  const directCount = [value.imageAssetId, value.referenceUrl, value.localInputRef].filter(Boolean).length;
+  const directLocals = [...(value.localInputRefs || []), ...(value.localInputRef ? [value.localInputRef] : [])].filter(Boolean);
+  const directAssets = [...(value.imageAssetIds || []), ...(value.imageAssetId ? [value.imageAssetId] : [])].filter(Boolean);
+  const directUrls = [...(value.referenceUrls || []), ...(value.referenceUrl ? [value.referenceUrl] : [])].map(u => u.trim()).filter(Boolean);
+  const totalDirectCount = directLocals.length + directAssets.length + directUrls.length;
+
   if (value.type === "text_video") {
-    if (value.subjectId || directCount > 0) ctx.addIssue({ code: "custom", message: "纯文字生成不需要主体、图片或链接，请清除参考素材后直接描述视频" });
-    return;
-  }
-  if (directCount > 1) {
-    ctx.addIssue({ code: "custom", message: "一次快速创作只能使用一种直接图片来源，请保留素材库图片、本地图片或公网链接中的一种" });
+    if (value.subjectId || totalDirectCount > 0) {
+      ctx.addIssue({ code: "custom", message: "纯文字生成不需要主体、图片或链接，请清除参考素材后直接描述视频" });
+    }
     return;
   }
   if (value.type === "image_video") {
-    if (value.subjectId) ctx.addIssue({ code: "custom", path: ["subjectId"], message: "图片动起来不需要人物或产品主体" });
-    if (directCount !== 1) ctx.addIssue({ code: "custom", message: "图片动起来需要选择、上传或粘贴一张图片" });
+    if (value.subjectId) {
+      ctx.addIssue({ code: "custom", path: ["subjectId"], message: "图片动起来不需要人物或产品主体" });
+    }
+    if (totalDirectCount !== 1) {
+      ctx.addIssue({ code: "custom", message: "图片动起来需要选择、上传或粘贴 1 张图片" });
+    }
     return;
   }
-  const sourceCount = (value.subjectId ? 1 : 0) + directCount;
-  if (sourceCount !== 1) {
-    ctx.addIssue({ code: "custom", message: value.type === "product_ad"
-      ? "请选择一个产品，或本次直接提供一张产品图片"
-      : "请选择一个人物，或本次直接提供一张人物图片" });
+
+  // person_short or product_ad
+  if (value.subjectId) {
+    if (totalDirectCount > 0) {
+      ctx.addIssue({ code: "custom", message: "已选择主体，无需再添加直接图片；如需更换请先移除主体" });
+    }
+    return;
+  }
+
+  if (totalDirectCount === 0) {
+    ctx.addIssue({
+      code: "custom",
+      message: value.type === "product_ad"
+        ? "请选择一个产品，或本次直接提供 1~2 张产品图片"
+        : "请选择一个人物，或本次直接提供 1~2 张人物图片",
+    });
+    return;
+  }
+
+  if (totalDirectCount > 5) {
+    ctx.addIssue({ code: "custom", message: "快速创作最多支持 5 张参考图片，请精简后重试" });
   }
 });
 
@@ -68,11 +93,15 @@ export async function POST(request: Request) {
     if (input.subjectId && !getSubjectCardForUser(input.subjectId, user.id)) {
       return NextResponse.json({ error: "所选主体卡不存在" }, { status: 400 });
     }
-    if (input.imageAssetId && !getAssetForUser(input.imageAssetId, user.id)) {
-      return NextResponse.json({ error: "所选素材不存在" }, { status: 400 });
+    const effectiveAssetIds = [...(input.imageAssetIds || []), ...(input.imageAssetId ? [input.imageAssetId] : [])].filter(Boolean);
+    for (const assetId of effectiveAssetIds) {
+      if (!getAssetForUser(assetId, user.id)) {
+        return NextResponse.json({ error: "所选素材不存在" }, { status: 400 });
+      }
     }
     const effectiveProviderMode = input.providerMode ?? getVideoProviderMode();
-    assertQuickGenerationReady(Boolean(input.localInputRef), effectiveProviderMode);
+    const hasLocal = Boolean(input.localInputRef || (input.localInputRefs && input.localInputRefs.length > 0));
+    assertQuickGenerationReady(hasLocal, effectiveProviderMode);
     const plan = buildQuickCreationPlan({ ...input, name: input.name || inferredProjectName(input.goal, input.type) });
     await preflightQuickPlan(plan, effectiveProviderMode);
 
