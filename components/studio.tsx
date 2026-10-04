@@ -362,11 +362,11 @@ export default function Studio() {
     const submitted = Number(result?.submitted || 0);
     const failed = Number(result?.failed || 0);
     if (result && failed > 0 && submitted === 0) {
-      setNotice(`作品已建立，但 ${failed} 个镜头都没有成功提交。已定位到作品，请查看具体原因并逐镜头重试。`);
+      setNotice(`任务已建立，但 ${failed} 个镜头都没有成功提交。已定位到当前任务，请查看具体原因并重试。`);
     } else if (result && failed > 0) {
-      setNotice(`作品已建立：${submitted} 个镜头已提交，${failed} 个需要处理。可以在当前作品里直接查看和重试。`);
+      setNotice(`任务已建立：${submitted} 个镜头已提交，${failed} 个需要处理。可在当前任务协作页直接查看和重试。`);
     } else {
-      setNotice("作品已建立，镜头正在生成。可以在“我的作品”里直接看进度。");
+      setNotice("任务已建立，镜头正在后台生成。可在“最近任务”或“任务中心”随时查看进度。");
     }
     setTab("projects");
   }
@@ -452,13 +452,13 @@ export default function Studio() {
 
           <div className={styles.navGroup}>
             <button className={styles.groupToggle} onClick={() => setRecentOpen(value => !value)}>
-              <span>最近作品</span>{recentOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              <span>最近任务</span>{recentOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
             </button>
             {recentOpen && (recentProjects.length ? recentProjects.map(project => (
               <button key={project.id} className={styles.recentItem} onClick={() => openProject(project.id)} title={project.name}>
                 <Clapperboard size={13} /><span>{project.name}</span>
               </button>
-            )) : <div className={styles.groupLabel}>还没有作品</div>)}
+            )) : <div className={styles.groupLabel}>暂无进行中的任务</div>)}
           </div>
         </div>
 

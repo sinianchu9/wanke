@@ -178,11 +178,13 @@ export default function WorksLibrary({ onNotice }: { onNotice?: (message: string
         <div className="works-grid">
           {works.map(work => (
             <article key={work.id} className={`work-card ${work.status === "archived" ? "archived" : ""}`}>
-              {playUrl(work) ? (
-                <video src={playUrl(work)} controls preload="metadata"/>
-              ) : (
-                <div className="no-preview"><Film size={20}/><span>暂无可播放来源</span></div>
-              )}
+              <div className="work-card-media">
+                {playUrl(work) ? (
+                  <video src={playUrl(work)} controls preload="metadata"/>
+                ) : (
+                  <div className="no-preview"><Film size={20}/><span>暂无可播放来源</span></div>
+                )}
+              </div>
 
               <div className="work-meta">
                 <div className="work-meta-main">
@@ -212,7 +214,7 @@ export default function WorksLibrary({ onNotice }: { onNotice?: (message: string
                   )}
                 </div>
 
-                <div className="work-actions-row">
+                <div className="work-primary-actions">
                   {downloadUrl(work) && (
                     <a className="btn-download-action mini" title="下载作品文件到手机/电脑" href={downloadUrl(work)} download>
                       <Download size={13}/>
@@ -225,31 +227,36 @@ export default function WorksLibrary({ onNotice }: { onNotice?: (message: string
                       <span>继续创作</span>
                     </button>
                   )}
-                  {work.source?.jobId && work.status !== "archived" && (
-                    <button className="btn-action-subtle mini" disabled={busy === work.id} title="按原要求再生成一个新版本" onClick={() => regenerate(work)}>
-                      <RefreshCcw size={13}/>
-                      <span>再生成</span>
+                </div>
+
+                <div className="work-actions-row">
+                  <div className="work-actions-left">
+                    {work.source?.jobId && work.status !== "archived" && (
+                      <button className="btn-action-subtle mini" disabled={busy === work.id} title="按原要求再生成一个新版本" onClick={() => regenerate(work)}>
+                        <RefreshCcw size={13}/>
+                        <span>再生成</span>
+                      </button>
+                    )}
+                    <button className="btn-action-subtle mini" disabled={busy === work.id} title="修改作品标题" onClick={() => rename(work)}>
+                      <Pencil size={13}/>
+                      <span>重命名</span>
                     </button>
-                  )}
-                  <button className="btn-action-subtle mini" disabled={busy === work.id} title="修改作品标题" onClick={() => rename(work)}>
-                    <Pencil size={13}/>
-                    <span>重命名</span>
-                  </button>
-                  <button
-                    className="btn-action-subtle mini"
-                    disabled={busy === work.id}
-                    title={work.status === "archived" ? "恢复至活跃作品" : "归档保存"}
-                    onClick={() => patch(work, { status: work.status === "archived" ? "active" : "archived" }, work.status === "archived" ? `作品「${work.title}」已恢复` : `作品「${work.title}」已归档`)}
-                  >
-                    <Archive size={13}/>
-                    <span>{work.status === "archived" ? "移出归档" : "归档"}</span>
-                  </button>
-                  {work.source?.projectName && (
-                    <a className="btn-action-subtle mini" title={`查看来源项目「${work.source.projectName}」`} href="/studio">
-                      <FolderOpen size={13}/>
-                      <span>查看项目</span>
-                    </a>
-                  )}
+                    <button
+                      className="btn-action-subtle mini"
+                      disabled={busy === work.id}
+                      title={work.status === "archived" ? "恢复至活跃作品" : "归档保存"}
+                      onClick={() => patch(work, { status: work.status === "archived" ? "active" : "archived" }, work.status === "archived" ? `作品「${work.title}」已恢复` : `作品「${work.title}」已归档`)}
+                    >
+                      <Archive size={13}/>
+                      <span>{work.status === "archived" ? "移出归档" : "归档"}</span>
+                    </button>
+                    {work.source?.projectName && (
+                      <a className="btn-action-subtle mini" title={`查看来源项目「${work.source.projectName}」`} href="/studio">
+                        <FolderOpen size={13}/>
+                        <span>查看项目</span>
+                      </a>
+                    )}
+                  </div>
                   <button
                     className="btn-action-danger mini"
                     disabled={busy === work.id}

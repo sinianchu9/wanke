@@ -119,15 +119,37 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
         {shown.map(job => {
           const batch = batchMeta(job);
           const isActive = ["running", "queued", "unknown"].includes(job.status);
-          return <button key={job.id} className={`job-row ${current?.id === job.id ? "active" : ""}`} onClick={() => setSelected(job.id)}>
-            <StatusIcon status={job.status}/>
-            <div className="job-row-main">
-              <strong>{job.title}</strong>
-              <span>{batch ? `批量版本 ${batch.index}/${batch.total} · ` : ""}{kindName[job.kind]} · {ago(job.createdAt)}</span>
-              {isActive && <JobRowProgress job={job}/>}
+          const isSelected = current?.id === job.id;
+          return (
+            <div
+              key={job.id}
+              className={`job-row ${isSelected ? "active" : ""}`}
+              onClick={() => setSelected(job.id)}
+              role="button"
+              tabIndex={0}
+            >
+              <StatusIcon status={job.status}/>
+              <div className="job-row-main">
+                <strong>{job.title}</strong>
+                <span>{batch ? `批量版本 ${batch.index}/${batch.total} · ` : ""}{kindName[job.kind]} · {ago(job.createdAt)}</span>
+                {isActive && <JobRowProgress job={job}/>}
+              </div>
+              <div className="job-row-actions">
+                <button
+                  type="button"
+                  className="job-row-del-btn"
+                  title="删除此任务"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteTarget(job);
+                  }}
+                >
+                  <Trash2 size={13}/>
+                </button>
+                <ChevronRight size={15} style={{ color: "#9ca3af", flexShrink: 0 }}/>
+              </div>
             </div>
-            <ChevronRight size={15}/>
-          </button>;
+          );
         })}
         {!shown.length && <div className="empty-list">暂无任务</div>}
       </div>
@@ -145,6 +167,17 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
             </div>
           </div>
           <div className="detail-actions">
+            {current.status === "succeeded" && current.outputs.length > 0 && onSaveWork && (
+              <button
+                className="btn-save-work-action"
+                disabled={busy !== ""}
+                onClick={() => onSaveWork(current, 0)}
+                title="将此任务生成的视频保存到「我的作品」库中永久管理"
+              >
+                <BookmarkPlus size={14}/>
+                <span>保存为作品</span>
+              </button>
+            )}
             <button className="secondary" disabled={busy !== "" || current.details?.pollable === false} onClick={() => action(current, "refresh")} title={current.details?.pollable === false ? String(current.details?.note || "该类型当前没有查询接口") : "检查最新状态"}><RefreshCw size={15}/>{current.details?.pollable === false ? "无查询接口" : "刷新"}</button>
             {current.kind === "storyboard" && current.tracked && <button className="secondary" disabled={busy !== ""} onClick={() => action(current, "resume")}><RotateCcw size={15}/>续跑故事板</button>}
             {current.status === "failed" && <button className="secondary" disabled={busy !== ""} onClick={() => action(current, "retry")}><Repeat2 size={15}/>重试失败任务</button>}
@@ -173,9 +206,9 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
 
     <ConfirmDialog
       isOpen={Boolean(deleteTarget)}
-      title="删除视频任务"
+      title="删除创作任务"
       message={`确定删除任务「${deleteTarget?.title}」？`}
-      detail="删除后，任务记录以及已下载到服务器的本地视频缓存将被永久清理（云端生成的素材不受影响）。"
+      detail="删除后，任务记录以及保存在本地服务器的临时视频文件将被清理移除（已保存到作品库的作品不受影响）。"
       confirmText="确认删除"
       cancelText="取消"
       isDanger={true}
@@ -600,11 +633,11 @@ function ResultCard({ output, job, index, onArchive, onSaveWork, busy }: { outpu
           <button
             className={`btn-save-work-action ${savedWork ? "saved" : ""}`}
             disabled={busy || savingWork || savedWork}
-            title={savedWork ? "已保存到「我的作品」" : "保存到「我的作品」，长期管理与回看"}
+            title={savedWork ? "已成功保存到「我的作品」" : "保存到「我的作品」，永久管理与展示"}
             onClick={handleSaveWork}
           >
             {savingWork ? <LoaderCircle className="spin" size={14} /> : savedWork ? <Check size={14} /> : <BookmarkPlus size={14} />}
-            <span>{savingWork ? "保存中…" : savedWork ? "已保存到作品" : "保存到作品"}</span>
+            <span>{savingWork ? "正在保存…" : savedWork ? "已保存到作品" : "保存为作品"}</span>
           </button>
         )}
         {remote && !output.archivedFile && (

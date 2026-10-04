@@ -384,7 +384,7 @@ export default function QuickCreationWizard({ assets, subjects, onCreated, onAdv
       </div>
       {!referenceReady && <div className="muted mini" style={{marginTop:8}}>先选择一个主体，或直接提供一张图片。</div>}
       {error && <div className="error-banner" style={{marginTop:12}}>{error}</div>}
-      {result && <div className="notice" style={{marginTop:12}}><Sparkles size={16}/><span>已创建「{result.projectName}」：已提交生成{result.failed ? `，${result.failed} 个提交失败，可以在“我的作品”里直接重试` : ""}。</span></div>}
+      {result && <div className="notice" style={{marginTop:12}}><Sparkles size={16}/><span>已创建「{result.projectName}」：已提交生成{result.failed ? `，${result.failed} 个提交失败，可在“我的任务”中查看或重试` : ""}。</span></div>}
     </section>
 
     <details className="advanced">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BookmarkPlus, Check, Download, Film, FolderKanban, LoaderCircle, RefreshCw, Repeat2, Settings2, Sparkles, Trash2 } from "lucide-react";
+import { BookmarkPlus, Check, ChevronRight, Download, Film, FolderKanban, LoaderCircle, RefreshCw, Repeat2, Settings2, Sparkles, Trash2 } from "lucide-react";
 import ConfirmDialog from "@/components/confirm-dialog";
 import type { ProductionProject } from "@/lib/project-types";
 import type { ResultMedia, StoredJob } from "@/lib/types";
@@ -159,21 +159,43 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
     } finally { setBusy(""); }
   }
 
-  if (!current) return <div className="empty-state"><FolderKanban size={34}/><strong>还没有作品</strong><span>先去“快速创作”，一句话创建第一个视频作品。</span></div>;
+  if (!current) return <div className="empty-state"><FolderKanban size={34}/><strong>还没有创作任务</strong><span>先去“新建创作”或“快速向导”，一句话创建第一个视频任务。</span></div>;
 
   return <div className="jobs-layout">
     <section className="job-list-panel">
-      <div className="panel-head"><div><div className="eyebrow">MY VIDEOS</div><h2>我的作品</h2></div></div>
+      <div className="panel-head"><div><div className="eyebrow">MY TASKS</div><h2>我的任务</h2></div></div>
       <div className="job-list">
         {projects.map(project => {
           const state = projectProgress(project, jobMap);
-          return <button key={project.id} className={`job-row ${current.id === project.id ? "active" : ""}`} onClick={() => { setSelectedId(project.id); setError(""); }}>
+          const isSelected = current.id === project.id;
+          return <div
+            key={project.id}
+            className={`job-row ${isSelected ? "active" : ""}`}
+            onClick={() => { setSelectedId(project.id); setError(""); }}
+            role="button"
+            tabIndex={0}
+          >
             <span className="status-icon queued"><Film size={14}/></span>
             <div className="job-row-main">
               <strong>{project.name}</strong>
               <span>{state.done}/{state.total} 个镜头完成{state.waiting ? ` · ${state.waiting} 个生成中` : state.failed ? ` · ${state.failed} 个需处理` : state.choices ? ` · ${state.choices} 个待选版本` : state.empty ? ` · ${state.empty} 个未开始` : ""}</span>
             </div>
-          </button>;
+            <div className="job-row-actions">
+              <button
+                type="button"
+                className="job-row-del-btn"
+                title="删除此任务"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedId(project.id);
+                  setDeleteProjectConfirm(true);
+                }}
+              >
+                <Trash2 size={13}/>
+              </button>
+              <ChevronRight size={15} style={{ color: "#9ca3af", flexShrink: 0 }}/>
+            </div>
+          </div>;
         })}
       </div>
     </section>
@@ -181,7 +203,7 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
     <section className="job-detail-panel">
       <div className="detail-head">
         <div>
-          <div className="kind-pill">作品</div>
+          <div className="kind-pill">创作任务</div>
           <h2>{current.name}</h2>
           <div className="detail-meta">
             <span>{progress!.done}/{progress!.total} 个镜头完成</span>
@@ -193,11 +215,11 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
           <button className="secondary" onClick={onAdvanced}><Settings2 size={15}/>高级编辑</button>
-          <button className="btn-action-danger" disabled={busy !== "" || deleteProjectBusy} onClick={() => setDeleteProjectConfirm(true)} title="删除当前作品项目"><Trash2 size={14}/><span>删除项目</span></button>
+          <button className="btn-action-danger" disabled={busy !== "" || deleteProjectBusy} onClick={() => setDeleteProjectConfirm(true)} title="删除当前创作任务"><Trash2 size={14}/><span>删除任务</span></button>
         </div>
       </div>
 
-      <div className="notice"><Sparkles size={16}/><span>简单页已经可以完成日常闭环：看结果、重试失败镜头、再生成一个版本、选择或更换喜欢的版本、生成最终视频。只有要改专业参数时才需要高级编辑。</span></div>
+      <div className="notice"><Sparkles size={16}/><span>当前为任务协作工作台：查看镜头生成进度、重试失败镜头、生成新版本、挑选满意镜头。全部镜头完成后生成最终视频，即可一键“保存为作品”收录到作品库永久展示。</span></div>
       {error && <div className="error-banner" style={{marginTop:12}}>{error}</div>}
 
       <div className="content-stack" style={{marginTop:16}}>
@@ -299,19 +321,19 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
                 </div>
                 <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
                   <a className="btn-download-action mini" href={finalUrl.includes("?") ? `${finalUrl}&download=1` : `${finalUrl}?download=1`} download target="_blank" rel="noreferrer"><Download size={14}/><span>下载最终视频</span></a>
-                  <button className={`btn-save-work-action mini ${finalSaved ? "saved" : ""}`} disabled={busy !== "" || savingFinalWork || finalSaved} onClick={saveFinalToWorks} title="保存至「我的作品」，永久管理与展示">
+                  <button className={`btn-save-work-action mini ${finalSaved ? "saved" : ""}`} disabled={busy !== "" || savingFinalWork || finalSaved} onClick={saveFinalToWorks} title="保存成片至「我的作品」，永久管理与展示">
                     {savingFinalWork ? <LoaderCircle className="spin" size={13}/> : finalSaved ? <Check size={13}/> : <BookmarkPlus size={13}/>}
-                    <span>{savingFinalWork ? "保存中…" : finalSaved ? "已保存到作品" : "保存到作品"}</span>
+                    <span>{savingFinalWork ? "正在保存…" : finalSaved ? "已保存到作品" : "保存成片为作品"}</span>
                   </button>
                 </div>
               </div>
             : <div className="error-banner warning" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-                <span>这是之前生成的成片；作品之后有过调整。旧成片仍可播放，要反映最新镜头请点击上方重新生成。</span>
+                <span>这是之前生成的成片；任务之后有过调整。旧成片仍可播放，要反映最新镜头请点击上方重新生成。</span>
                 <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
                   <a className="btn-download-action mini" href={finalUrl.includes("?") ? `${finalUrl}&download=1` : `${finalUrl}?download=1`} download target="_blank" rel="noreferrer"><Download size={14}/><span>下载旧成片</span></a>
-                  <button className={`btn-save-work-action mini ${finalSaved ? "saved" : ""}`} disabled={busy !== "" || savingFinalWork || finalSaved} onClick={saveFinalToWorks} title="保存至「我的作品」，永久管理与展示">
+                  <button className={`btn-save-work-action mini ${finalSaved ? "saved" : ""}`} disabled={busy !== "" || savingFinalWork || finalSaved} onClick={saveFinalToWorks} title="保存成片至「我的作品」，永久管理与展示">
                     {savingFinalWork ? <LoaderCircle className="spin" size={13}/> : finalSaved ? <Check size={13}/> : <BookmarkPlus size={13}/>}
-                    <span>{savingFinalWork ? "保存中…" : finalSaved ? "已保存到作品" : "保存到作品"}</span>
+                    <span>{savingFinalWork ? "正在保存…" : finalSaved ? "已保存到作品" : "保存成片为作品"}</span>
                   </button>
                 </div>
               </div>}
@@ -322,9 +344,9 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
 
     <ConfirmDialog
       isOpen={deleteProjectConfirm}
-      title="删除作品项目"
-      message={`确定删除项目「${current?.name}」？`}
-      detail="删除后，项目及其镜头的组织关系将被清理。各镜头已生成的候选视频、任务历史和素材库素材不受影响。"
+      title="删除创作任务"
+      message={`确定删除任务「${current?.name}」？`}
+      detail="删除后，该任务及其镜头的组织关系将被清理。各镜头已生成的候选视频、任务历史和素材库素材不受影响。"
       confirmText="确认删除"
       cancelText="取消"
       isDanger={true}
