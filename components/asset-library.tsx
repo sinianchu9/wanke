@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { CheckCircle2, FileUp, Image as ImageIcon, Link2, Music, Trash2, Video } from "lucide-react";
+import { CheckCircle2, ExternalLink, FileUp, Image as ImageIcon, Link2, Music, Trash2, Video } from "lucide-react";
+import ConfirmDialog from "@/components/confirm-dialog";
 import type { StoredAsset } from "@/lib/types";
 
 const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100MB
@@ -24,6 +25,8 @@ export default function AssetLibrary({
   const [name, setName] = useState("");
   const [mediaType, setMediaType] = useState("video");
   const [filter, setFilter] = useState("all");
+  const [deleteTarget, setDeleteTarget] = useState<StoredAsset | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const shown = useMemo(
     () => (filter === "all" ? assets : assets.filter((a) => a.mediaType === filter)),
@@ -125,12 +128,13 @@ export default function AssetLibrary({
     }
   }
 
-  async function remove(id: string) {
-    if (!confirm("确定从素材库移除这条素材？已上传的本地文件也会同步清理。")) return;
+  async function handleDeleteConfirm() {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
     setError("");
     setSuccessNotice("");
     try {
-      const res = await fetch(`/api/assets?id=${encodeURIComponent(id)}&cloud=1`, {
+      const res = await fetch(`/api/assets?id=${encodeURIComponent(deleteTarget.id)}&cloud=1`, {
         method: "DELETE",
       });
       const data = await res.json();
@@ -138,10 +142,13 @@ export default function AssetLibrary({
         setError(data.error || "删除失败");
         return;
       }
-      setSuccessNotice("素材已成功删除。");
+      setSuccessNotice(`素材「${deleteTarget.name}」已成功删除。`);
+      setDeleteTarget(null);
       await onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -261,11 +268,13 @@ export default function AssetLibrary({
               {a.provider?.storage === "local-server" ? "本地服务器存储" : a.providerMediaId ? "云端扩展工作流" : "公网直接引用"}
             </div>
             <div className="card-actions">
-              <a className="secondary" href={a.sourceUrl} target="_blank" rel="noreferrer">
-                打开
+              <a className="secondary mini" href={a.sourceUrl} target="_blank" rel="noreferrer" title="新标签页打开原素材">
+                <ExternalLink size={13} />
+                <span>打开</span>
               </a>
-              <button className="icon-button danger" onClick={() => remove(a.id)}>
-                <Trash2 size={15} />
+              <button className="btn-action-danger mini" onClick={() => setDeleteTarget(a)} title="删除此素材">
+                <Trash2 size={13} />
+                <span>删除</span>
               </button>
             </div>
           </article>
@@ -278,6 +287,19 @@ export default function AssetLibrary({
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={Boolean(deleteTarget)}
+        title="删除素材"
+        message={`确定从素材库删除素材「${deleteTarget?.name}」？`}
+        detail="删除后，该素材记录及其上传到本地服务器的文件将被彻底清理。请确认当前没有进行中的合成任务依赖它。"
+        confirmText="确认删除"
+        cancelText="取消"
+        isDanger={true}
+        busy={deleteBusy}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => { if (!deleteBusy) setDeleteTarget(null); }}
+      />
     </div>
   );
 }

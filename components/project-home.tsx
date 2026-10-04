@@ -7,13 +7,14 @@ import type { PublicSubjectCard } from "@/components/subject-library";
 import type { ProductionProject } from "@/lib/project-types";
 import type { StoredJob } from "@/lib/types";
 
-export default function ProjectHome({ projects, jobs, subjects, onChanged, onCreateInShot, focusProjectId = "" }: {
+export default function ProjectHome({ projects, jobs, subjects, onChanged, onCreateInShot, focusProjectId = "", onNotice }: {
   projects: ProductionProject[];
   jobs: StoredJob[];
   subjects: PublicSubjectCard[];
   onChanged: () => Promise<void> | void;
   onCreateInShot: (shotId: string) => void;
   focusProjectId?: string;
+  onNotice?: (message: string) => void;
 }) {
   const [advanced, setAdvanced] = useState(false);
   const orderedProjects = useMemo(() => {
@@ -25,7 +26,7 @@ export default function ProjectHome({ projects, jobs, subjects, onChanged, onCre
   if (advanced) {
     return <div className="content-stack">
       <div className="notice"><span>当前为高级作品工作台：可以管理候选、Shot、定稿、媒体规格、转场、声音、字幕和成片。</span><button className="link-button" onClick={() => setAdvanced(false)}>返回简单作品页</button></div>
-      <ProjectWorkspace projects={orderedProjects} jobs={jobs} subjects={subjects} onChanged={onChanged} onCreateInShot={onCreateInShot}/>
+      <ProjectWorkspace projects={orderedProjects} jobs={jobs} subjects={subjects} onChanged={onChanged} onCreateInShot={onCreateInShot} onNotice={onNotice}/>
     </div>;
   }
 
@@ -35,5 +36,6 @@ export default function ProjectHome({ projects, jobs, subjects, onChanged, onCre
     jobs={jobs}
     onChanged={onChanged}
     onAdvanced={() => setAdvanced(true)}
+    onNotice={onNotice}
   />;
 }

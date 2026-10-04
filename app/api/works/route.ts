@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { errorResponse, requireUser } from "@/lib/auth";
-import { createWorkFromJob, listWorksForUser, refreshWorkMediaFacts, workView } from "@/lib/works";
+import { createWorkFromAssembly, createWorkFromJob, listWorksForUser, refreshWorkMediaFacts, workView } from "@/lib/works";
 import { archiveJobOutput } from "@/lib/archive";
 import { ffprobeAvailable, probeResultMedia } from "@/lib/video/media-probe";
 import { getJob, updateJobRemote } from "@/lib/repository";
@@ -10,12 +10,21 @@ import { describeError } from "@/lib/errors";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const createSchema = z.object({
-  jobId: z.string().min(1),
-  outputIndex: z.number().int().min(0),
-  title: z.string().max(160).optional(),
-  description: z.string().max(2000).optional(),
-});
+const createSchema = z.union([
+  z.object({
+    jobId: z.string().min(1),
+    outputIndex: z.number().int().min(0),
+    title: z.string().max(160).optional(),
+    description: z.string().max(2000).optional(),
+  }),
+  z.object({
+    projectId: z.string().min(1),
+    assemblyId: z.string().optional(),
+    fileName: z.string().optional(),
+    title: z.string().max(160).optional(),
+    description: z.string().max(2000).optional(),
+  }),
+]);
 
 export async function GET(request: Request) {
   try {
@@ -32,23 +41,30 @@ export async function POST(request: Request) {
   try {
     const user = requireUser(request);
     const input = createSchema.parse(await request.json());
-    // A work must keep playing after the upstream link expires: archive the result
-    // locally before saving. When archiving is momentarily impossible the work is
-    // still saved with its current playback address, and the worker's auto-archive
-    // upgrades it to a local file as soon as it can.
-    const job = getJob(input.jobId);
-    if (job && job.userId === user.id && job.status === "succeeded") {
-      const output = job.outputs[input.outputIndex];
-      if (output && !output.archivedFile && output.outputUrl) {
-        try {
-          const archived = await archiveJobOutput(job, input.outputIndex);
-          updateJobRemote(job.id, { outputs: job.outputs.map((item, i) => i === input.outputIndex ? archived : item) });
-        } catch (error) {
-          console.warn("[works] save-as-work archive deferred:", describeError(error));
+
+    let work;
+    if ("jobId" in input) {
+      // A work must keep playing after the upstream link expires: archive the result
+      // locally before saving. When archiving is momentarily impossible the work is
+      // still saved with its current playback address, and the worker's auto-archive
+      // upgrades it to a local file as soon as it can.
+      const job = getJob(input.jobId);
+      if (job && job.userId === user.id && job.status === "succeeded") {
+        const output = job.outputs[input.outputIndex];
+        if (output && !output.archivedFile && output.outputUrl) {
+          try {
+            const archived = await archiveJobOutput(job, input.outputIndex);
+            updateJobRemote(job.id, { outputs: job.outputs.map((item, i) => i === input.outputIndex ? archived : item) });
+          } catch (error) {
+            console.warn("[works] save-as-work archive deferred:", describeError(error));
+          }
         }
       }
+      work = createWorkFromJob(user.id, input);
+    } else {
+      work = createWorkFromAssembly(user.id, input);
     }
-    const work = createWorkFromJob(user.id, input);
+
     if (work.archivedFile && (await ffprobeAvailable().catch(() => false))) {
       try {
         const probe = await probeResultMedia({ archivedFile: work.archivedFile, kind: "video" });

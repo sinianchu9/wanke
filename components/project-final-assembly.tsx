@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, Film, Music2, Save, Trash2 } from "lucide-react";
+import { BookmarkPlus, Check, Download, Film, LoaderCircle, Music2, Save, Trash2 } from "lucide-react";
+import ConfirmDialog from "@/components/confirm-dialog";
 
 type Assembly = {
   id: string;
@@ -32,6 +33,11 @@ export default function ProjectFinalAssembly({ projectId }: { projectId: string 
   const [savingAudio, setSavingAudio] = useState(false);
   const [error, setError] = useState("");
   const [audioNotice, setAudioNotice] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Assembly | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [savingWorkId, setSavingWorkId] = useState("");
+  const [savedAssemblyIds, setSavedAssemblyIds] = useState<string[]>([]);
+  const [workNotice, setWorkNotice] = useState("");
 
   const selectedBgm = useMemo(() => audioAssets.find(asset => asset.id === audio.bgmAssetId) || null, [audioAssets, audio.bgmAssetId]);
 
@@ -89,17 +95,39 @@ export default function ProjectFinalAssembly({ projectId }: { projectId: string 
     } finally { setBusy(false); }
   }
 
-  async function remove(assembly: Assembly) {
-    if (!confirm("删除这个本机成片文件和记录？原始 Shot、任务和定稿视频不会被删除。")) return;
-    setBusy(true); setError("");
+  async function handleDeleteConfirm() {
+    if (!deleteTarget) return;
+    setDeleteBusy(true); setError("");
     try {
-      const response = await fetch(`/api/projects/assembly?projectId=${encodeURIComponent(projectId)}&assemblyId=${encodeURIComponent(assembly.id)}`, { method: "DELETE" });
+      const response = await fetch(`/api/projects/assembly?projectId=${encodeURIComponent(projectId)}&assemblyId=${encodeURIComponent(deleteTarget.id)}`, { method: "DELETE" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "删除成片失败");
       setAssemblies(body.assemblies || []);
+      setWorkNotice("成片文件已删除");
+      setDeleteTarget(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally { setBusy(false); }
+    } finally { setDeleteBusy(false); }
+  }
+
+  async function saveAssemblyToWorks(assembly: Assembly) {
+    if (savingWorkId || savedAssemblyIds.includes(assembly.id)) return;
+    setSavingWorkId(assembly.id); setError(""); setWorkNotice("");
+    try {
+      const response = await fetch("/api/works", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, assemblyId: assembly.id }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "保存至作品库失败");
+      setSavedAssemblyIds(prev => [...prev, assembly.id]);
+      setWorkNotice(`成片已保存到「我的作品」：${body.work?.title || "项目成片"}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingWorkId("");
+    }
   }
 
   return <section className="panel" style={{marginBottom:18}}>
@@ -144,6 +172,7 @@ export default function ProjectFinalAssembly({ projectId }: { projectId: string 
       {!audioAssets.length && <div className="muted mini" style={{marginTop:10}}>素材库还没有音频。可以先在“素材库”上传或添加公网音频；不选 BGM 也会正常做原声响度统一。</div>}
       <div className="inline-actions" style={{marginTop:10}}><button className="secondary" disabled={savingAudio} onClick={saveAudio}><Save size={15}/>{savingAudio ? "保存中…" : "保存声音设置"}</button></div>
       {audioNotice && <div className="notice" style={{marginTop:10}}>{audioNotice}</div>}
+      {workNotice && <div className="notice" style={{marginTop:10}}><Check size={14}/><span>{workNotice}</span></div>}
     </div>
 
     <div className="muted mini" style={{marginTop:10}}><strong>提交前要求：</strong>所有 Shot 都已选择采用版本，并且每条采用视频都已经在任务中心“保存到本机”。镜头视频不会在成片时依赖可能过期的云端 URL；若使用 BGM，系统会先把所选音频下载到本次临时目录再混音。</div>
@@ -164,9 +193,18 @@ export default function ProjectFinalAssembly({ projectId }: { projectId: string 
                 <span>{subtitleLabel(assembly.settings)}</span>
                 <span>{assembly.sources.length} 个 Shot · 本机成片</span>
               </div>
-              <div className="result-actions">
-                <a className="icon-button" href={url} target="_blank" rel="noreferrer" title="打开/保存成片"><Download size={15}/></a>
-                <button className="icon-button danger" disabled={busy} onClick={() => remove(assembly)} title="删除这个成片文件"><Trash2 size={15}/></button>
+              <div className="result-actions" style={{ flexWrap: "wrap", gap: "6px" }}>
+                <a className="btn-download-action mini" href={url} download title="下载成片文件到手机/电脑"><Download size={13}/><span>下载成片</span></a>
+                <button
+                  className={`btn-save-work-action mini ${savedAssemblyIds.includes(assembly.id) ? "saved" : ""}`}
+                  disabled={busy || savingWorkId === assembly.id || savedAssemblyIds.includes(assembly.id)}
+                  onClick={() => saveAssemblyToWorks(assembly)}
+                  title="保存成片至「我的作品」，永久管理与展示"
+                >
+                  {savingWorkId === assembly.id ? <LoaderCircle className="spin" size={13}/> : savedAssemblyIds.includes(assembly.id) ? <Check size={13}/> : <BookmarkPlus size={13}/>}
+                  <span>{savingWorkId === assembly.id ? "保存中…" : savedAssemblyIds.includes(assembly.id) ? "已保存到作品" : "保存到作品"}</span>
+                </button>
+                <button className="btn-action-danger mini" disabled={busy} onClick={() => setDeleteTarget(assembly)} title="删除这个成片文件"><Trash2 size={13}/><span>删除成片</span></button>
               </div>
             </div>
           </article>;
@@ -187,6 +225,19 @@ export default function ProjectFinalAssembly({ projectId }: { projectId: string 
         <div className="muted mini"><strong>限制：</strong>直接切换最多 60 个 Shot；淡化首版最多 30 个 Shot；源镜头总时长最多 15 分钟。</div>
       </div>
     </details>
+
+    <ConfirmDialog
+      isOpen={Boolean(deleteTarget)}
+      title="删除项目成片"
+      message="确定删除这个成片文件和记录？"
+      detail="删除后，服务器上的本地成片文件将被清理。各 Shot 的镜头内容和定稿视频不会被删除，你可以随时重新合成。"
+      confirmText="确认删除"
+      cancelText="取消"
+      isDanger={true}
+      busy={deleteBusy}
+      onConfirm={handleDeleteConfirm}
+      onCancel={() => { if (!deleteBusy) setDeleteTarget(null); }}
+    />
   </section>;
 }
 

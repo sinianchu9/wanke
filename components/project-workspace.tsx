@@ -3,16 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Check, Clapperboard, FolderKanban, Plus, Sparkles, Trash2, Unlink } from "lucide-react";
 import ProjectMediaReadiness from "@/components/project-media-readiness";
+import ConfirmDialog from "@/components/confirm-dialog";
 import type { PublicSubjectCard } from "@/components/subject-library";
 import type { ProductionProject, ProjectShot } from "@/lib/project-types";
 import { JOB_KIND_LABELS, type ResultMedia, type StoredJob } from "@/lib/types";
 
-export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, onCreateInShot }: {
+export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, onCreateInShot, onNotice }: {
   projects: ProductionProject[];
   jobs: StoredJob[];
   subjects: PublicSubjectCard[];
   onChanged: () => Promise<void> | void;
   onCreateInShot: (shotId: string) => void;
+  onNotice?: (message: string) => void;
 }) {
   const [selectedId, setSelectedId] = useState(projects[0]?.id || "");
   const [projectName, setProjectName] = useState("");
@@ -78,18 +80,26 @@ export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, 
     try { await mutate({ action: "reorder_shots", projectId: current.id, shotIds }); } catch { /* visible */ }
   }
 
-  async function remove(type: "project" | "shot", id: string) {
-    const label = type === "project" ? "这个项目" : "这个镜头";
-    if (!confirm(`删除${label}的组织关系？生成任务和结果不会被删除。`)) return;
-    setBusy(true); setError("");
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ type: "project" | "shot"; id: string; name: string } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  async function handleDeleteConfirm() {
+    if (!deleteConfirmTarget) return;
+    setDeleteBusy(true);
+    setError("");
     try {
-      const response = await fetch(`/api/projects?type=${type}&id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      const response = await fetch(`/api/projects?type=${deleteConfirmTarget.type}&id=${encodeURIComponent(deleteConfirmTarget.id)}`, { method: "DELETE" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "删除失败");
+      onNotice?.(`${deleteConfirmTarget.type === "project" ? "项目" : "镜头"}「${deleteConfirmTarget.name}」已删除`);
+      setDeleteConfirmTarget(null);
       await onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally { setBusy(false); }
+      onNotice?.(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleteBusy(false);
+    }
   }
 
   async function toggleSubject(subjectId: string) {
@@ -125,7 +135,7 @@ export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, 
       {!current ? <div className="empty-state"><FolderKanban size={34}/><strong>先创建一个作品项目</strong><span>项目用来组织镜头、候选版本和最终采用结果，不会改变已有生成能力。</span></div> : <>
         <div className="detail-head">
           <div><div className="kind-pill">作品项目</div><h2>{current.name}</h2><div className="detail-meta"><span>{current.description || "还没有项目说明"}</span></div></div>
-          <button className="icon-button danger" disabled={busy} onClick={() => remove("project", current.id)} title="删除项目组织关系"><Trash2 size={15}/></button>
+          <button className="btn-action-danger" disabled={busy || deleteBusy} onClick={() => setDeleteConfirmTarget({ type: "project", id: current.id, name: current.name })} title="删除项目组织关系"><Trash2 size={14}/><span>删除项目</span></button>
         </div>
 
         <div className="panel" style={{marginBottom:18}}>
@@ -161,7 +171,7 @@ export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, 
             onAssign={jobId => mutate({ action: "assign_job", shotId: shot.id, jobId })}
             onUnassign={jobId => mutate({ action: "unassign_job", shotId: shot.id, jobId })}
             onSelect={jobId => mutate({ action: "select_job", shotId: shot.id, jobId })}
-            onDelete={() => remove("shot", shot.id)}
+            onDelete={() => setDeleteConfirmTarget({ type: "shot", id: shot.id, name: shot.name })}
           />)}
           {!current.shots.length && <div className="empty-state"><Clapperboard size={30}/><strong>这个项目还没有镜头</strong><span>先建立 Shot，再从 Shot 进入 AI 视频生成，后续版本、延长和编辑都会留在同一个镜头里。</span></div>}
         </div>
@@ -179,6 +189,21 @@ export default function ProjectWorkspace({ projects, jobs, subjects, onChanged, 
         {error && <div className="error-banner" style={{marginTop:16}}>{error}</div>}
       </>}
     </section>
+
+    <ConfirmDialog
+      isOpen={Boolean(deleteConfirmTarget)}
+      title={deleteConfirmTarget?.type === "project" ? "删除作品项目" : "删除镜头"}
+      message={`确定删除${deleteConfirmTarget?.type === "project" ? "项目" : "镜头"}「${deleteConfirmTarget?.name}」？`}
+      detail={deleteConfirmTarget?.type === "project"
+        ? "删除后，项目及其镜头的组织关系将被清理。各镜头已生成的候选视频、任务历史和素材库素材不受影响。"
+        : "删除后，该镜头定义将被移除。该镜头下已生成的视频任务和素材不会被删除，可在任务中心继续查看。"}
+      confirmText="确认删除"
+      cancelText="取消"
+      isDanger={true}
+      busy={deleteBusy}
+      onConfirm={handleDeleteConfirm}
+      onCancel={() => { if (!deleteBusy) setDeleteConfirmTarget(null); }}
+    />
   </div>;
 }
 
@@ -229,7 +254,7 @@ function ShotCard({ shot, index, jobMap, unassignedJobs, busy, canMoveUp, canMov
         <button className="icon-button" disabled={busy || !canMoveUp} onClick={onMoveUp} title="镜头上移"><ArrowUp size={15}/></button>
         <button className="icon-button" disabled={busy || !canMoveDown} onClick={onMoveDown} title="镜头下移"><ArrowDown size={15}/></button>
         <button className="secondary" disabled={busy} onClick={onCreate}><Sparkles size={15}/>在此镜头创作</button>
-        <button className="icon-button danger" disabled={busy} onClick={onDelete}><Trash2 size={15}/></button>
+        <button className="btn-action-danger mini" disabled={busy} onClick={onDelete} title="删除此镜头"><Trash2 size={13}/><span>删除镜头</span></button>
       </div>
     </div>
 

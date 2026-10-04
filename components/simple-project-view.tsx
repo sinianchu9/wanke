@@ -1,23 +1,29 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Download, Film, FolderKanban, LoaderCircle, RefreshCw, Repeat2, Settings2, Sparkles } from "lucide-react";
+import { BookmarkPlus, Check, Download, Film, FolderKanban, LoaderCircle, RefreshCw, Repeat2, Settings2, Sparkles, Trash2 } from "lucide-react";
+import ConfirmDialog from "@/components/confirm-dialog";
 import type { ProductionProject } from "@/lib/project-types";
 import type { ResultMedia, StoredJob } from "@/lib/types";
 
 type ProjectShot = ProductionProject["shots"][number];
 
-export default function SimpleProjectView({ projects, jobs, onChanged, onAdvanced }: {
+export default function SimpleProjectView({ projects, jobs, onChanged, onAdvanced, onNotice }: {
   projects: ProductionProject[];
   jobs: StoredJob[];
   onChanged: () => Promise<void> | void;
   onAdvanced: () => void;
+  onNotice?: (message: string) => void;
 }) {
   const [selectedId, setSelectedId] = useState(projects[0]?.id || "");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [finalUrl, setFinalUrl] = useState("");
   const [finalCreatedAt, setFinalCreatedAt] = useState("");
+  const [deleteProjectConfirm, setDeleteProjectConfirm] = useState(false);
+  const [deleteProjectBusy, setDeleteProjectBusy] = useState(false);
+  const [savingFinalWork, setSavingFinalWork] = useState(false);
+  const [finalSaved, setFinalSaved] = useState(false);
 
   useEffect(() => {
     if (!projects.length) setSelectedId("");
@@ -31,7 +37,7 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
 
   useEffect(() => {
     let cancelled = false;
-    setFinalUrl(""); setFinalCreatedAt("");
+    setFinalUrl(""); setFinalCreatedAt(""); setFinalSaved(false);
     if (!current?.id) return () => { cancelled = true; };
     fetch(`/api/projects/assembly?projectId=${encodeURIComponent(current.id)}`, { cache: "no-store" })
       .then(response => response.json())
@@ -46,6 +52,47 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
       .catch(() => undefined);
     return () => { cancelled = true; };
   }, [current?.id]);
+
+  async function handleDeleteProject() {
+    if (!current?.id) return;
+    setDeleteProjectBusy(true);
+    try {
+      const response = await fetch(`/api/projects?type=project&id=${encodeURIComponent(current.id)}`, {
+        method: "DELETE",
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "删除项目失败");
+      onNotice?.(`项目「${current.name}」已删除`);
+      setDeleteProjectConfirm(false);
+      await onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      onNotice?.(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleteProjectBusy(false);
+    }
+  }
+
+  async function saveFinalToWorks() {
+    if (!current?.id || savingFinalWork || finalSaved) return;
+    setSavingFinalWork(true);
+    try {
+      const response = await fetch("/api/works", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: current.id }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "保存至作品库失败");
+      setFinalSaved(true);
+      onNotice?.(`成片已保存到「我的作品」：${body.work?.title || current.name}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      onNotice?.(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingFinalWork(false);
+    }
+  }
 
   async function finalize() {
     if (!current) return;
@@ -144,7 +191,10 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
             {progress!.empty > 0 && <span>{progress!.empty} 个还未开始</span>}
           </div>
         </div>
-        <button className="secondary" onClick={onAdvanced}><Settings2 size={15}/>高级编辑</button>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+          <button className="secondary" onClick={onAdvanced}><Settings2 size={15}/>高级编辑</button>
+          <button className="btn-action-danger" disabled={busy !== "" || deleteProjectBusy} onClick={() => setDeleteProjectConfirm(true)} title="删除当前作品项目"><Trash2 size={14}/><span>删除项目</span></button>
+        </div>
       </div>
 
       <div className="notice"><Sparkles size={16}/><span>简单页已经可以完成日常闭环：看结果、重试失败镜头、再生成一个版本、选择或更换喜欢的版本、生成最终视频。只有要改专业参数时才需要高级编辑。</span></div>
@@ -195,7 +245,10 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
                     </div>
                     <div className="result-info">
                       <div><strong>版本 {candidateIndex + 1}</strong><span>{selected ? "当前已采用" : "预览后可以切换"}</span></div>
-                      <button className={selected ? "secondary" : "primary"} disabled={actionLocked || selected} onClick={() => chooseCandidate(shot.id, job.id)}>{selected ? <><Check size={14}/>已选择</> : "选这个"}</button>
+                      <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                        <a className="btn-action-subtle mini" href={`/api/jobs/${job.id}/download?index=0`} download title="下载该候选版本视频"><Download size={13}/><span>下载</span></a>
+                        <button className={selected ? "secondary mini" : "primary mini"} disabled={actionLocked || selected} onClick={() => chooseCandidate(shot.id, job.id)}>{selected ? <><Check size={14}/>已选择</> : "选这个"}</button>
+                      </div>
                     </div>
                   </article>;
                 })}
@@ -240,12 +293,45 @@ export default function SimpleProjectView({ projects, jobs, onChanged, onAdvance
         </div>
         {finalUrl && <div style={{marginTop:12}}>
           {finalIsCurrent
-            ? <div className="notice"><Check size={16}/><span>这个成片对应当前作品设置和已选版本。</span><a className="btn-download-action mini" href={finalUrl.includes("?") ? `${finalUrl}&download=1` : `${finalUrl}?download=1`} download target="_blank" rel="noreferrer"><Download size={14}/>下载最终视频</a></div>
-            : <div className="error-banner warning"><span>这是之前生成的成片；作品之后有过版本、镜头或项目设置调整。旧成片仍可播放，要反映最新镜头请点击上方重新生成。</span><a className="btn-download-action mini" href={finalUrl.includes("?") ? `${finalUrl}&download=1` : `${finalUrl}?download=1`} download target="_blank" rel="noreferrer"><Download size={14}/>下载旧成片</a></div>}
+            ? <div className="notice" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Check size={16}/><span>这个成片对应当前作品设置和已选版本。</span>
+                </div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                  <a className="btn-download-action mini" href={finalUrl.includes("?") ? `${finalUrl}&download=1` : `${finalUrl}?download=1`} download target="_blank" rel="noreferrer"><Download size={14}/><span>下载最终视频</span></a>
+                  <button className={`btn-save-work-action mini ${finalSaved ? "saved" : ""}`} disabled={busy !== "" || savingFinalWork || finalSaved} onClick={saveFinalToWorks} title="保存至「我的作品」，永久管理与展示">
+                    {savingFinalWork ? <LoaderCircle className="spin" size={13}/> : finalSaved ? <Check size={13}/> : <BookmarkPlus size={13}/>}
+                    <span>{savingFinalWork ? "保存中…" : finalSaved ? "已保存到作品" : "保存到作品"}</span>
+                  </button>
+                </div>
+              </div>
+            : <div className="error-banner warning" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                <span>这是之前生成的成片；作品之后有过调整。旧成片仍可播放，要反映最新镜头请点击上方重新生成。</span>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                  <a className="btn-download-action mini" href={finalUrl.includes("?") ? `${finalUrl}&download=1` : `${finalUrl}?download=1`} download target="_blank" rel="noreferrer"><Download size={14}/><span>下载旧成片</span></a>
+                  <button className={`btn-save-work-action mini ${finalSaved ? "saved" : ""}`} disabled={busy !== "" || savingFinalWork || finalSaved} onClick={saveFinalToWorks} title="保存至「我的作品」，永久管理与展示">
+                    {savingFinalWork ? <LoaderCircle className="spin" size={13}/> : finalSaved ? <Check size={13}/> : <BookmarkPlus size={13}/>}
+                    <span>{savingFinalWork ? "保存中…" : finalSaved ? "已保存到作品" : "保存到作品"}</span>
+                  </button>
+                </div>
+              </div>}
           <video src={finalUrl} controls preload="metadata" style={{width:"100%",marginTop:10,borderRadius:12}}/>
         </div>}
       </section>
     </section>
+
+    <ConfirmDialog
+      isOpen={deleteProjectConfirm}
+      title="删除作品项目"
+      message={`确定删除项目「${current?.name}」？`}
+      detail="删除后，项目及其镜头的组织关系将被清理。各镜头已生成的候选视频、任务历史和素材库素材不受影响。"
+      confirmText="确认删除"
+      cancelText="取消"
+      isDanger={true}
+      busy={deleteProjectBusy}
+      onConfirm={handleDeleteProject}
+      onCancel={() => { if (!deleteProjectBusy) setDeleteProjectConfirm(false); }}
+    />
   </div>;
 }
 

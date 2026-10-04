@@ -89,6 +89,18 @@ export function workSource(work: StoredWork): WorkSource | null {
       projectName: shot ? String(shot.name) : null,
     };
   }
+  if (work.archivedFile) {
+    const assembly = db.prepare("SELECT pa.project_id, p.name FROM project_assemblies pa JOIN projects p ON p.id = pa.project_id WHERE pa.file_name=? LIMIT 1").get(work.archivedFile) as any;
+    if (assembly) {
+      return {
+        jobId: "",
+        jobTitle: "项目成片合成",
+        jobKind: "project_assembly",
+        projectId: String(assembly.project_id),
+        projectName: String(assembly.name),
+      };
+    }
+  }
   return null;
 }
 
@@ -127,6 +139,59 @@ export function createWorkFromJob(userId: string, input: { jobId: string; output
       now,
     );
   if (output.archivedFile && object) addStorageRef(output.archivedFile, "work", id);
+  return getWork(id)!;
+}
+
+/**
+ * Save an assembled project final video as a work.
+ */
+export function createWorkFromAssembly(
+  userId: string,
+  input: { projectId: string; assemblyId?: string; fileName?: string; title?: string; description?: string }
+): StoredWork {
+  const project = db.prepare("SELECT * FROM projects WHERE id=?").get(input.projectId) as any;
+  if (!project || project.user_id !== userId) throw new HttpError(404, "NOT_FOUND", "项目不存在");
+
+  let assembly: any;
+  if (input.assemblyId) {
+    assembly = db.prepare("SELECT * FROM project_assemblies WHERE id=? AND project_id=?").get(input.assemblyId, input.projectId);
+  } else if (input.fileName) {
+    assembly = db.prepare("SELECT * FROM project_assemblies WHERE file_name=? AND project_id=?").get(input.fileName, input.projectId);
+  } else {
+    assembly = db.prepare("SELECT * FROM project_assemblies WHERE project_id=? ORDER BY created_at DESC LIMIT 1").get(input.projectId);
+  }
+
+  if (!assembly) throw new HttpError(404, "NOT_FOUND", "未找到该成片文件，请先生成最终视频");
+
+  const shotRows = db.prepare("SELECT selected_job_id FROM shots WHERE project_id=? AND selected_job_id IS NOT NULL").all(input.projectId) as any[];
+  const jobIds = shotRows.map(r => r.selected_job_id).filter(Boolean);
+
+  const now = new Date().toISOString();
+  const id = randomUUID();
+  ensureStorageBackfill();
+  const object = getStorageObject(assembly.file_name);
+
+  const title = (input.title?.trim() || `${project.name} · 完整成片`).slice(0, 160);
+  const description = input.description?.trim().slice(0, 2000) || `来自项目「${project.name}」的最终合成视频`;
+
+  db.prepare(`INSERT INTO works
+    (id, user_id, title, description, cover_url, video_url, archived_file, job_ids_json, status, visibility, size_bytes, storage_key, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?, 'active', 'private', ?, ?, ?, ?)`)
+    .run(
+      id,
+      userId,
+      title,
+      description,
+      null,
+      null,
+      assembly.file_name,
+      JSON.stringify(jobIds),
+      object?.sizeBytes || 0,
+      assembly.file_name,
+      now,
+      now,
+    );
+  if (object) addStorageRef(assembly.file_name, "work", id);
   return getWork(id)!;
 }
 

@@ -5,22 +5,26 @@ import { AlertTriangle, BookmarkPlus, Check, ChevronRight, Clock3, Cpu, Download
 import ContinueCreation from "@/components/continue-creation";
 import VideoExtend from "@/components/video-extend";
 import VideoEdit from "@/components/video-edit";
+import ConfirmDialog from "@/components/confirm-dialog";
 import { JOB_KIND_LABELS, type JobStatus, type ResultMedia, type StoredJob } from "@/lib/types";
 import { JOB_STATUS_COPY } from "@/lib/copy";
 
 const kindName: Record<string, string> = JOB_KIND_LABELS;
 type BatchMeta = { id: string; index: number; total: number };
 
-export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoAssets: _onGoAssets, onSaveWork }: {
+export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoAssets: _onGoAssets, onSaveWork, onNotice }: {
   jobs: StoredJob[];
   modelStudioAvailable: boolean;
   onChanged: () => Promise<void> | void;
   onGoAssets: () => void;
   onSaveWork?: (job: StoredJob, outputIndex: number) => Promise<void> | void;
+  onNotice?: (message: string) => void;
 }) {
   const [selected, setSelected] = useState<string | null>(jobs[0]?.id || null);
   const [busy, setBusy] = useState("");
   const [filter, setFilter] = useState("all");
+  const [deleteTarget, setDeleteTarget] = useState<StoredJob | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const current = jobs.find(job => job.id === selected) || jobs[0];
 
   useEffect(() => {
@@ -58,19 +62,33 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "保存失败");
+      onNotice?.("视频已成功备份至服务器存储");
       await onChanged();
     } catch (error) {
-      alert(error instanceof Error ? error.message : String(error));
+      onNotice?.(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy("");
     }
   }
 
-  async function remove(job: StoredJob) {
-    if (!confirm("删除这条任务记录及其本机保存文件？云端任务和云端素材不会被删除。")) return;
-    await fetch(`/api/jobs/${job.id}`, { method: "DELETE" });
-    setSelected(null);
-    await onChanged();
+  async function handleDeleteConfirm() {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    try {
+      const res = await fetch(`/api/jobs/${deleteTarget.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "删除任务失败");
+      }
+      onNotice?.(`任务「${deleteTarget.title}」已删除`);
+      setSelected(null);
+      setDeleteTarget(null);
+      await onChanged();
+    } catch (error) {
+      onNotice?.(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeleteBusy(false);
+    }
   }
 
   const currentBatch = current ? batchMeta(current) : null;
@@ -131,7 +149,7 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
             {current.kind === "storyboard" && current.tracked && <button className="secondary" disabled={busy !== ""} onClick={() => action(current, "resume")}><RotateCcw size={15}/>续跑故事板</button>}
             {current.status === "failed" && <button className="secondary" disabled={busy !== ""} onClick={() => action(current, "retry")}><Repeat2 size={15}/>重试失败任务</button>}
             {current.kind === "video_generation" && current.status === "succeeded" && <button className="secondary" disabled={busy !== ""} onClick={() => action(current, "similar")} title="使用原 Prompt、素材和 Recipe 创建新的独立候选"><Sparkles size={15}/>再来一个类似版本</button>}
-            <button className="icon-button danger" onClick={() => remove(current)}><Trash2 size={15}/></button>
+            <button className="btn-action-danger" disabled={busy !== ""} onClick={() => setDeleteTarget(current)} title="删除这条视频任务及本地备份"><Trash2 size={14}/><span>删除任务</span></button>
           </div>
         </div>
 
@@ -152,6 +170,19 @@ export default function JobCenter({ jobs, modelStudioAvailable, onChanged, onGoA
 
       </>}
     </section>
+
+    <ConfirmDialog
+      isOpen={Boolean(deleteTarget)}
+      title="删除视频任务"
+      message={`确定删除任务「${deleteTarget?.title}」？`}
+      detail="删除后，任务记录以及已下载到服务器的本地视频缓存将被永久清理（云端生成的素材不受影响）。"
+      confirmText="确认删除"
+      cancelText="取消"
+      isDanger={true}
+      busy={deleteBusy}
+      onConfirm={handleDeleteConfirm}
+      onCancel={() => { if (!deleteBusy) setDeleteTarget(null); }}
+    />
   </div>;
 }
 
@@ -371,8 +402,34 @@ function PendingState({ job, onRefresh, onRetry, busy }: { job: StoredJob; onRef
   );
 }
 
-function ResultCard({ output, job, index, onArchive, onSaveWork, busy }: { output: ResultMedia; job?: StoredJob; index: number; onArchive: () => void; onSaveWork?: () => void; busy: boolean }) {
+function ResultCard({ output, job, index, onArchive, onSaveWork, busy }: { output: ResultMedia; job?: StoredJob; index: number; onArchive: () => Promise<void> | void; onSaveWork?: () => Promise<void> | void; busy: boolean }) {
   const [videoMeta, setVideoMeta] = useState<{ width: number; height: number; duration: number } | null>(null);
+  const [savingWork, setSavingWork] = useState(false);
+  const [savedWork, setSavedWork] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+
+  async function handleSaveWork() {
+    if (!onSaveWork || savingWork || savedWork) return;
+    setSavingWork(true);
+    try {
+      await onSaveWork();
+      setSavedWork(true);
+    } catch {
+      // Handled by parent
+    } finally {
+      setSavingWork(false);
+    }
+  }
+
+  async function handleArchive() {
+    if (archiving) return;
+    setArchiving(true);
+    try {
+      await onArchive();
+    } finally {
+      setArchiving(false);
+    }
+  }
   const remote = output.outputUrl || "";
   const url = output.archivedFile ? `/api/archive/${encodeURIComponent(output.archivedFile)}` : remote;
   const subtitle = output.kind === "subtitle" || /\.srt(\?|$)/i.test(url);
@@ -539,9 +596,40 @@ function ResultCard({ output, job, index, onArchive, onSaveWork, busy }: { outpu
             <span>下载视频</span>
           </a>
         )}
-        {isVideo && onSaveWork && <button className="icon-button" disabled={busy} title="保存到「我的作品」，长期管理" onClick={onSaveWork}><BookmarkPlus size={16}/></button>}
-        {remote && !output.archivedFile && <button className="icon-button" disabled={busy} title="备份到服务器存储（避免云端过期）" onClick={onArchive}><HardDriveDownload size={16}/></button>}
-        {url && <a className="icon-button" href={url} target="_blank" rel="noreferrer" title="新标签页打开原视频"><ExternalLink size={16}/></a>}
+        {isVideo && onSaveWork && (
+          <button
+            className={`btn-save-work-action ${savedWork ? "saved" : ""}`}
+            disabled={busy || savingWork || savedWork}
+            title={savedWork ? "已保存到「我的作品」" : "保存到「我的作品」，长期管理与回看"}
+            onClick={handleSaveWork}
+          >
+            {savingWork ? <LoaderCircle className="spin" size={14} /> : savedWork ? <Check size={14} /> : <BookmarkPlus size={14} />}
+            <span>{savingWork ? "保存中…" : savedWork ? "已保存到作品" : "保存到作品"}</span>
+          </button>
+        )}
+        {remote && !output.archivedFile && (
+          <button
+            className="btn-archive-action"
+            disabled={busy || archiving}
+            title="备份到本地服务器存储，避免云端临时链接过期"
+            onClick={handleArchive}
+          >
+            {archiving ? <LoaderCircle className="spin" size={14} /> : <HardDriveDownload size={14} />}
+            <span>{archiving ? "备份中…" : "备份到服务器"}</span>
+          </button>
+        )}
+        {url && (
+          <a
+            className="btn-action-subtle"
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            title="新标签页打开原视频预览"
+          >
+            <ExternalLink size={14} />
+            <span>原片链接</span>
+          </a>
+        )}
       </div>
     </div>
   </article>;

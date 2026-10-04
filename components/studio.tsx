@@ -584,11 +584,11 @@ export default function Studio() {
             </div>
           ) : (
             <div className={styles.contentInner}>
-              {tab === "projects" && <ProjectHome projects={projects} jobs={jobs} subjects={subjects} onChanged={loadAll} onCreateInShot={createInShot} focusProjectId={focusedProjectId} />}
+              {tab === "projects" && <ProjectHome projects={projects} jobs={jobs} subjects={subjects} onChanged={loadAll} onCreateInShot={createInShot} focusProjectId={focusedProjectId} onNotice={setNotice} />}
               {tab === "works" && <WorksLibrary onNotice={setNotice} />}
               {tab === "assets" && <AssetLibrary assets={assets} onChanged={loadAll} extendedUploadAvailable={extendedReady} />}
               {tab === "subjects" && <SubjectLibrary subjects={subjects} assets={assets} onChanged={loadAll} />}
-              {tab === "jobs" && <JobCenter key={focusedJobId || "job-center"} jobs={focusedJobs} modelStudioAvailable={directVideo} onChanged={loadAll} onGoAssets={() => navigate("assets")} onSaveWork={saveAsWork} />}
+              {tab === "jobs" && <JobCenter key={focusedJobId || "job-center"} jobs={focusedJobs} modelStudioAvailable={directVideo} onChanged={loadAll} onGoAssets={() => navigate("assets")} onSaveWork={saveAsWork} onNotice={setNotice} />}
               {tab === "settings" && <UserSettingsPanel onChanged={loadAll} />}
             </div>
           )}

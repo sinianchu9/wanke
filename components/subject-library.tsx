@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Box, Image as ImageIcon, Pencil, Plus, Save, Trash2, UserRound } from "lucide-react";
+import ConfirmDialog from "@/components/confirm-dialog";
 import type { StoredAsset } from "@/lib/types";
 
 type SubjectType = "person" | "product";
@@ -36,6 +37,8 @@ export default function SubjectLibrary({ subjects, assets, onChanged }: {
   const [primaryAssetId, setPrimaryAssetId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<PublicSubjectCard | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   function reset() {
     setEditingId(null);
@@ -92,13 +95,21 @@ export default function SubjectLibrary({ subjects, assets, onChanged }: {
     } finally { setBusy(false); }
   }
 
-  async function remove(card: PublicSubjectCard) {
-    if (!confirm(`删除主体卡“${card.name}”？只删除身份卡，不会删除素材库中的图片。`)) return;
-    const response = await fetch(`/api/subjects?id=${encodeURIComponent(card.id)}`, { method: "DELETE" });
-    const body = await response.json();
-    if (!response.ok) { setError(body.error || "删除主体卡失败"); return; }
-    if (editingId === card.id) reset();
-    await onChanged();
+  async function handleDeleteConfirm() {
+    if (!deleteTarget) return;
+    setDeleteBusy(true); setError("");
+    try {
+      const response = await fetch(`/api/subjects?id=${encodeURIComponent(deleteTarget.id)}`, { method: "DELETE" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "删除主体卡失败");
+      if (editingId === deleteTarget.id) reset();
+      setDeleteTarget(null);
+      await onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleteBusy(false);
+    }
   }
 
   const selectedAssets = assetIds.map(id => images.find(asset => asset.id === id)).filter(Boolean) as StoredAsset[];
@@ -164,10 +175,26 @@ export default function SubjectLibrary({ subjects, assets, onChanged }: {
           <div className="media-id">{card.description || (card.subjectType==="person"?"可复用人物身份":"可复用产品身份")}</div>
           {card.usageNotes&&<div className="muted mini" style={{padding:"8px 12px 0"}}>使用：{card.usageNotes}</div>}
           {card.missingAssetCount>0&&<div className="mini error-text" style={{padding:"8px 12px 0"}}>有 {card.missingAssetCount} 张旧素材已不存在</div>}
-          <div className="card-actions"><button className="secondary" onClick={()=>edit(card)}><Pencil size={14}/>编辑</button><button className="icon-button danger" onClick={()=>remove(card)}><Trash2 size={15}/></button></div>
+          <div className="card-actions">
+            <button className="secondary mini" onClick={() => edit(card)}><Pencil size={13}/><span>编辑</span></button>
+            <button className="btn-action-danger mini" onClick={() => setDeleteTarget(card)} title="删除主体卡"><Trash2 size={13}/><span>删除</span></button>
+          </div>
         </article>)}
         {!subjects.length&&<div className="empty-state"><UserRound size={30}/><strong>还没有主体卡</strong><span>先把同一个人物或产品的 1–5 张图片组织成身份。</span></div>}
       </div>
     </section>
+
+    <ConfirmDialog
+      isOpen={Boolean(deleteTarget)}
+      title="删除主体卡"
+      message={`确定删除主体卡「${deleteTarget?.name}」？`}
+      detail="删除后，该人物或产品的主体身份卡将被移除。素材库中的原图和已生成的视频任务不会被删除。"
+      confirmText="确认删除"
+      cancelText="取消"
+      isDanger={true}
+      busy={deleteBusy}
+      onConfirm={handleDeleteConfirm}
+      onCancel={() => { if (!deleteBusy) setDeleteTarget(null); }}
+    />
   </div>;
 }
