@@ -9,6 +9,8 @@ interface WorkSource {
   jobTitle: string;
   projectId: string | null;
   projectName: string | null;
+  model?: string | null;
+  route?: string | null;
 }
 
 interface Work {
@@ -190,12 +192,17 @@ export default function WorksLibrary({ onNotice }: { onNotice?: (message: string
                 <div className="work-meta-main">
                   <strong>
                     <PlayCircle size={14}/> {work.title}
-                    {((work.title + " " + (work.source?.jobTitle || "")).toLowerCase().includes("happyhorse")) && (
-                      <span className="badge-model badge-model-happyhorse" style={{ marginLeft: 6 }}>HappyHorse 1.1</span>
-                    )}
-                    {((work.title + " " + (work.source?.jobTitle || "")).toLowerCase().includes("wan")) && (
-                      <span className="badge-model badge-model-wan" style={{ marginLeft: 6 }}>Wan 3.0</span>
-                    )}
+                    {(() => {
+                      const modelStr = String(work.source?.model || work.source?.route || "").toLowerCase();
+                      const fallbackStr = (work.title + " " + (work.source?.jobTitle || "")).toLowerCase();
+                      if (modelStr.includes("happyhorse") || (!modelStr && fallbackStr.includes("happyhorse"))) {
+                        return <span className="badge-model badge-model-happyhorse" style={{ marginLeft: 6 }}>HappyHorse 1.1</span>;
+                      }
+                      if (modelStr.includes("wan") || (!modelStr && (fallbackStr.includes("wan 3") || fallbackStr.includes("wan3")))) {
+                        return <span className="badge-model badge-model-wan" style={{ marginLeft: 6 }}>Wan 3.0</span>;
+                      }
+                      return null;
+                    })()}
                   </strong>
                   <div className="work-meta-info">
                     <span>{new Date(work.createdAt).toLocaleString("zh-CN")}</span>

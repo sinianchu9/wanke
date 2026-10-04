@@ -23,10 +23,7 @@ type RouteDecision = {
 export function chooseRoute(input: VideoInput): RouteDecision {
   const hhConfig = getModelStudioChannelConfig("happyhorse");
   const wanConfig = getModelStudioChannelConfig("wan");
-  const hhEndpoint = rootUrlForChannel("happyhorse");
-  const isHhBeijing = hhEndpoint.includes("cn-beijing");
-  // HappyHorse does not exist in Beijing exclusive workspace
-  const hhReady = Boolean(hhConfig.apiKey) && !hhConfig.blockedReason && !isHhBeijing;
+  const hhReady = Boolean(hhConfig.apiKey) && !hhConfig.blockedReason;
   const wanReady = Boolean(wanConfig.apiKey) && !wanConfig.blockedReason;
 
   const requestedModel = String(input.model || "").toLowerCase();
@@ -39,10 +36,16 @@ export function chooseRoute(input: VideoInput): RouteDecision {
   const isFirstLast = input.jobType === "first_last_frame";
   const hasVideoReference = input.medias.some(media => media.type === "video");
 
-  // 如果用户明确指定了 Wan 3.0，或当前参数超出 HappyHorse 规格（且用户未显式要求 HappyHorse），只要 Wan 通道就绪则走 Wan 3.0
-  const shouldRouteWan = (prefersWan || (!hhReady && wanReady) || (!prefersHh && (exceedsHappyHorseDuration || requires480P || isFirstLast || hasVideoReference))) && wanReady;
+  // 必须走 Wan 3.0 的场景：明确指定 Wan、HappyHorse 未就绪、480P（HappyHorse 不支持）、首尾帧（HappyHorse 不支持），或未指定 HappyHorse 时的超长/视频参考
+  const shouldRouteWan = (
+    prefersWan ||
+    (!hhReady && wanReady) ||
+    requires480P ||
+    isFirstLast ||
+    (!prefersHh && (exceedsHappyHorseDuration || hasVideoReference))
+  ) && wanReady;
 
-  if (shouldRouteWan && (!prefersHh || !hhReady || requires480P || isFirstLast)) {
+  if (shouldRouteWan) {
     if (input.jobType === "text_to_video") {
       const reason = prefersWan
         ? "已指定使用 Wan 3.0 视频大模型（支持 2–30 秒原生生成）"
@@ -182,8 +185,11 @@ export function rootUrlForChannel(channel: ModelStudioChannel = "default") {
   const config = getModelStudioChannelConfig(channel);
   const explicit = config.baseUrl.trim().replace(/\/+$/, "");
   if (explicit) return explicit.endsWith("/api/v1") ? explicit.slice(0, -7) : explicit;
-  if (config.workspaceId) return `https://${config.workspaceId}.ap-southeast-1.maas.aliyuncs.com`;
-  return "https://dashscope-intl.aliyuncs.com";
+  const region = process.env.ALIYUN_REGION_ID?.trim() || "cn-beijing";
+  if (config.workspaceId) return `https://${config.workspaceId}.${region}.maas.aliyuncs.com`;
+  return region.includes("beijing") || region.includes("shanghai") || region.includes("cn-")
+    ? "https://dashscope.aliyuncs.com"
+    : "https://dashscope-intl.aliyuncs.com";
 }
 
 export function apiBaseForChannel(channel: ModelStudioChannel = "default") {

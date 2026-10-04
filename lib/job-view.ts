@@ -23,6 +23,7 @@ import type { ResultMedia, StoredJob } from "@/lib/types";
 const MEMBER_DETAIL_KEYS = [
   "pollable", "note", "batchId", "batchIndex", "batchTotal", "creationAction",
   "failedShots", "storyboardInfo", "targetDuration", "effectiveDuration", "requestedDuration",
+  "model", "route", "channel", "routeReason", "resolution", "ratio",
 ];
 
 /** Result fields a member may see; `mediaId` / `editingProjectId` are upstream identifiers. */

@@ -29,6 +29,8 @@ export interface WorkSource {
   jobKind: string;
   projectId: string | null;
   projectName: string | null;
+  model?: string | null;
+  route?: string | null;
 }
 
 function rowToWork(row: any): StoredWork {
@@ -73,8 +75,16 @@ export function workView(work: StoredWork) {
 /** Where the work came from: the creation task and, through its shot, the project. */
 export function workSource(work: StoredWork): WorkSource | null {
   for (const jobId of work.jobIds) {
-    const job = db.prepare("SELECT id, title, kind FROM jobs WHERE id=?").get(jobId) as any;
+    const job = db.prepare("SELECT id, title, kind, details_json, request_json FROM jobs WHERE id=?").get(jobId) as any;
     if (!job) continue;
+    let model: string | null = null;
+    let route: string | null = null;
+    try {
+      const d = JSON.parse(job.details_json || "{}");
+      const r = JSON.parse(job.request_json || "{}");
+      model = d.model || r.model || null;
+      route = d.route || null;
+    } catch {}
     const shot = db.prepare(`
       SELECT p.id, p.name FROM shot_jobs sj
       JOIN shots s ON s.id = sj.shot_id
@@ -87,6 +97,8 @@ export function workSource(work: StoredWork): WorkSource | null {
       jobKind: String(job.kind || ""),
       projectId: shot ? String(shot.id) : null,
       projectName: shot ? String(shot.name) : null,
+      model,
+      route,
     };
   }
   if (work.archivedFile) {

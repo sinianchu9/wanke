@@ -21,14 +21,15 @@ const modelStudioBlockReason = modelStudioDirectBlockReason(modelStudioKey, base
 const hhKey = effective("happyhorse_api_key", process.env.HAPPYHORSE_API_KEY) || modelStudioKey;
 const hhWs = effective("happyhorse_workspace_id", process.env.HAPPYHORSE_WORKSPACE_ID) || workspaceId;
 const hhBaseUrl = effective("happyhorse_base_url", process.env.HAPPYHORSE_BASE_URL) || baseUrl;
-const hhBlockReason = modelStudioDirectBlockReason(hhKey, hhBaseUrl);
-const hhEndpoint = hhBaseUrl || (hhWs ? `${hhWs}.ap-southeast-1.maas.aliyuncs.com` : "dashscope-intl.aliyuncs.com");
+const defaultRegion = String(process.env.ALIYUN_REGION_ID || "cn-beijing").trim();
+const defaultPublic = defaultRegion.includes("beijing") || defaultRegion.includes("shanghai") || defaultRegion.includes("cn-") ? "dashscope.aliyuncs.com" : "dashscope-intl.aliyuncs.com";
+const hhEndpoint = hhBaseUrl || (hhWs ? `${hhWs}.${defaultRegion}.maas.aliyuncs.com` : defaultPublic);
 
 const wanKey = effective("wan_api_key", process.env.WAN_API_KEY) || modelStudioKey;
 const wanWs = effective("wan_workspace_id", process.env.WAN_WORKSPACE_ID) || workspaceId;
 const wanBaseUrl = effective("wan_base_url", process.env.WAN_BASE_URL) || baseUrl;
 const wanBlockReason = modelStudioDirectBlockReason(wanKey, wanBaseUrl);
-const wanEndpoint = wanBaseUrl || (wanWs ? `${wanWs}.ap-southeast-1.maas.aliyuncs.com` : "dashscope-intl.aliyuncs.com");
+const wanEndpoint = wanBaseUrl || (wanWs ? `${wanWs}.${defaultRegion}.maas.aliyuncs.com` : defaultPublic);
 
 const yikeAccessKeyId = effective("yike_access_key_id", process.env.ALIYUN_ACCESS_KEY_ID);
 const yikeAccessKeySecret = effective("yike_access_key_secret", process.env.ALIYUN_ACCESS_KEY_SECRET);
