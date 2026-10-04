@@ -21,6 +21,7 @@ const modelStudioBlockReason = modelStudioDirectBlockReason(modelStudioKey, base
 const hhKey = effective("happyhorse_api_key", process.env.HAPPYHORSE_API_KEY) || modelStudioKey;
 const hhWs = effective("happyhorse_workspace_id", process.env.HAPPYHORSE_WORKSPACE_ID) || workspaceId;
 const hhBaseUrl = effective("happyhorse_base_url", process.env.HAPPYHORSE_BASE_URL) || baseUrl;
+const hhBlockReason = modelStudioDirectBlockReason(hhKey, hhBaseUrl);
 const defaultRegion = String(process.env.ALIYUN_REGION_ID || "cn-beijing").trim();
 const defaultPublic = defaultRegion.includes("beijing") || defaultRegion.includes("shanghai") || defaultRegion.includes("cn-") ? "dashscope.aliyuncs.com" : "dashscope-intl.aliyuncs.com";
 const hhEndpoint = hhBaseUrl || (hhWs ? `${hhWs}.${defaultRegion}.maas.aliyuncs.com` : defaultPublic);
